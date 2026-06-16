@@ -1,0 +1,31 @@
+Metadata-Version: 2.4
+Name: columnar_cl_fabricpc
+Version: 0.1.0
+Summary: Columnar continual learning experiments using FabricPC
+Author: columnarCL-fabricPC Authors
+Keywords: continual-learning,predictive-coding,jax,columnar
+Classifier: Development Status :: 2 - Pre-Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Private :: Do Not Upload
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: fabricpc
+Requires-Dist: jax
+Requires-Dist: jaxlib
+Requires-Dist: optax>=0.1.7
+Requires-Dist: numpy>=1.24.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Provides-Extra: cuda12
+Requires-Dist: jax[cuda12]; extra == "cuda12"
+Provides-Extra: cuda13
+Requires-Dist: jax[cuda13]; extra == "cuda13"
+Dynamic: license-file
+
+# columnarCL-fabricPC-experiments

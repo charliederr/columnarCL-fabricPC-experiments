@@ -1,0 +1,14 @@
+fabricpc
+jax
+jaxlib
+optax>=0.1.7
+numpy>=1.24.0
+
+[cuda12]
+jax[cuda12]
+
+[cuda13]
+jax[cuda13]
+
+[dev]
+pytest>=7.0.0
