@@ -17,7 +17,16 @@ GPU software visibility from this environment:
 - The JAX CUDA plugin reported `CUDA_ERROR_NO_DEVICE` in sandboxed runs.
 - The escalated run reported TensorFlow CUDA library loading failures and JAX still executed as CPU from this process.
 
-The laptop fan and very high load average may still reflect heavy CPU execution or another process outside this session. From the commands launched here, JAX did not expose a GPU backend. The machine clearly has NVIDIA hardware, but the active Python process did not have a working driver or CUDA library path.
+GPU software visibility from the user's interactive shell:
+
+- `nvidia-smi` succeeded on `rogdora43` at Fri Jun 19 04:30:01 2026.
+- NVIDIA driver version: 595.71.05.
+- CUDA version reported by the driver: 13.2.
+- GPU: NVIDIA GeForce RTX 5060, 8,151 MiB.
+- GPU state at that moment: 2 MiB memory used, 11% utilization, no listed compute processes.
+- `python -c "import jax; print(jax.devices()); print(jax.default_backend())"` from the activated `fpcpy3.12` environment reported `[CudaDevice(id=0)]` and `gpu`.
+
+The key distinction is process-local GPU visibility. The machine has working NVIDIA hardware, the user's interactive shell can talk to the driver, and JAX in the user's activated `fpcpy3.12` environment selects the GPU backend. The CUDA library warning observed in command output is therefore not sufficient evidence that the PC experiment is CPU-only.
 
 ## Repository State
 
@@ -148,20 +157,15 @@ This run was killed by the environment with exit code 137 before producing metri
 
 ## Recommended Next Steps
 
-First, confirm GPU visibility from the same shell and virtual environment that will run the experiments:
+JAX GPU visibility has been confirmed from the user's interactive shell and activated `fpcpy3.12` environment:
 
 ```bash
-nvidia-smi -L
-/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python - <<'PY'
-import jax
-print(jax.devices())
-print(jax.default_backend())
-PY
+python -c "import jax; print(jax.devices()); print(jax.default_backend())"
 ```
 
-The target condition is that JAX reports a CUDA GPU device, not only `CpuDevice(id=0)`.
+Observed output: `[CudaDevice(id=0)]` and `gpu`.
 
-Once JAX sees the GPU, run the upstream-style PC convolutional baseline from the columnar repo:
+Run the upstream-style PC convolutional baseline from that same shell:
 
 ```bash
 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_pc_resnet.py --model resnet18 --num_epochs 2 --batch_size 256 --infer_steps 80 --eta_infer 0.1 --lr 0.01 --weight_decay 0.01 --eval_every 1
