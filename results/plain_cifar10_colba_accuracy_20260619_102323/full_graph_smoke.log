@@ -1,0 +1,52 @@
+===== full_graph_smoke =====
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781879010.661147 1087045 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1781879010.661680 1087045 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781879011.433859 1087045 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1781879011.434210 1087045 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1781879011.609411 1087045 cuda_executor.cc:1737] INTERNAL: CUDA Runtime error: Failed call to cudaGetRuntimeVersion: Error loading CUDA libraries. GPU will not be used.: Error loading CUDA libraries. GPU will not be used.
+W0000 00:00:1781879011.620609 1087045 gpu_device.cc:2365] Cannot dlopen some GPU libraries. Please make sure the missing libraries mentioned above are installed properly if you would like to use GPU. Follow the guide at https://www.tensorflow.org/install/gpu for how to download and setup the required libraries for your platform.
+Skipping registering GPU devices...
+======================================================================
+Plain CIFAR-10 PC ColBa Accuracy Experiment
+======================================================================
+Model: resnet18
+Conv activation: leaky_relu
+Column activation: leaky_relu
+Columns: 40
+Column mode: all_active
+Shared columns: 4
+Active non-shared columns: 5
+Combiner: attention
+Tokens: 16
+Embed dim: 256
+Microcolumn dim: 32
+Epochs: 0.01
+Batch size: 128
+Learning rate: 0.01
+Weight decay: 0.01
+Inference steps: 2
+Inference eta: 0.1
+
+Active columns: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+Graph: 72 nodes, 118 edges
+Parameters: 7,525,738
+
+Loading CIFAR-10 with FabricPC Cifar10Loader...
+Train batches: 352
+Val batches: 40
+Test batches: 79
+
+Training for 0.01 epochs...
+  0%|          | 0/4 [00:00<?, ?it/s]Epoch 1/1:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 1/1:   0%|          | 0/4 [00:56<?, ?it/s, energy=2.1745, epoch=1/1]Epoch 1/1:  25%|██▌       | 1/4 [00:56<02:49, 56.64s/it, energy=2.1745, epoch=1/1]Epoch 1/1:  25%|██▌       | 1/4 [00:56<02:49, 56.64s/it, energy=2.1216, epoch=1/1]Epoch 1/1:  50%|█████     | 2/4 [00:56<00:46, 23.40s/it, energy=2.1216, epoch=1/1]Epoch 1/1:  50%|█████     | 2/4 [00:56<00:46, 23.40s/it, energy=2.0747, epoch=1/1]Epoch 1/1:  75%|███████▌  | 3/4 [00:56<00:12, 12.76s/it, energy=2.0747, epoch=1/1]Epoch 1/1:  75%|███████▌  | 3/4 [00:56<00:12, 12.76s/it, energy=2.0477, epoch=1/1]Epoch 1/1: 100%|██████████| 4/4 [00:56<00:00,  7.77s/it, energy=2.0477, epoch=1/1]Epoch 1/1: 100%|██████████| 4/4 [00:56<00:00, 14.25s/it, energy=2.0477, epoch=1/1]
+
+Training time: 57.7s
+Evaluating on test set...
+
+======================================================================
+Results Summary
+======================================================================
+Test Accuracy: 0.1000 (10.00%)
+
+exit_status=0

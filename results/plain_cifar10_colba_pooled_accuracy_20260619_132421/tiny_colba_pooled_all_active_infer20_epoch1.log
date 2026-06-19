@@ -1,0 +1,52 @@
+
+===== tiny_colba_pooled_all_active_infer20_epoch1 =====
+Jax plugin configuration error: Exception when calling jax_plugins.xla_cuda13.initialize()
+Traceback (most recent call last):
+  File "/home/ni/repos/fpc/virt-envs/fpcpy3.12/lib64/python3.12/site-packages/jax/_src/xla_bridge.py", line 495, in discover_pjrt_plugins
+    plugin_module.initialize()
+  File "/home/ni/repos/fpc/virt-envs/fpcpy3.12/lib64/python3.12/site-packages/jax_plugins/xla_cuda13/__init__.py", line 370, in initialize
+    _check_cuda_versions(raise_on_first_error = True)
+  File "/home/ni/repos/fpc/virt-envs/fpcpy3.12/lib64/python3.12/site-packages/jax_plugins/xla_cuda13/__init__.py", line 274, in _check_cuda_versions
+    for d in range(cuda_versions.cuda_device_count())
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: jaxlib/cuda/versions_helpers.cc:135: operation cuInit(0) failed: CUDA_ERROR_NO_DEVICE
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781890071.944935      26 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1781890071.945494      26 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781890072.819373      26 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1781890072.819722      26 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1781890072.986092      26 cuda_platform.cc:52] failed call to cuInit: INTERNAL: CUDA error: Failed call to cuInit: CUDA_ERROR_NO_DEVICE: no CUDA-capable device is detected
+======================================================================
+Plain CIFAR-10 PC ColBa Accuracy Experiment
+======================================================================
+Model: tiny
+Conv activation: leaky_relu
+Column activation: leaky_relu
+Columns: 6
+Column mode: all_active
+Shared columns: 2
+Active non-shared columns: 2
+Combiner: attention
+Tokens: 64
+Embed dim: 64
+Microcolumn dim: 16
+Epochs: 1.0
+Batch size: 512
+Learning rate: 0.01
+Weight decay: 0.01
+Inference steps: 20
+Inference eta: 0.1
+
+Active columns: [0, 1, 2, 3, 4, 5]
+Graph: 23 nodes, 30 edges
+Parameters: 173,442
+
+Loading CIFAR-10 with FabricPC Cifar10Loader...
+Train batches: 88
+Val batches: 10
+Test batches: 20
+
+Training for 1.0 epochs...
+  0%|          | 0/88 [00:00<?, ?it/s]Epoch 1/1:   0%|          | 0/88 [00:00<?, ?it/s]Epoch 1/1:   0%|          | 0/88 [00:16<?, ?it/s, energy=1.7185, epoch=1/1]Epoch 1/1:   1%|          | 1/88 [00:16<24:14, 16.72s/it, energy=1.7185, epoch=1/1]Epoch 1/1:   1%|          | 1/88 [00:24<24:14, 16.72s/it, energy=1.7135, epoch=1/1]Epoch 1/1:   2%|▏         | 2/88 [00:24<16:41, 11.64s/it, energy=1.7135, epoch=1/1]Epoch 1/1:   2%|▏         | 2/88 [00:32<16:41, 11.64s/it, energy=1.6995, epoch=1/1]Epoch 1/1:   3%|▎         | 3/88 [00:32<14:10, 10.00s/it, energy=1.6995, epoch=1/1]Epoch 1/1:   3%|▎         | 3/88 [00:40<14:10, 10.00s/it, energy=1.6817, epoch=1/1]Epoch 1/1:   5%|▍         | 4/88 [00:40<12:53,  9.21s/it, energy=1.6817, epoch=1/1]Epoch 1/1:   5%|▍         | 4/88 [00:49<12:53,  9.21s/it, energy=1.6390, epoch=1/1]Epoch 1/1:   6%|▌         | 5/88 [00:49<12:13,  8.84s/it, energy=1.6390, epoch=1/1]Epoch 1/1:   6%|▌         | 5/88 [00:57<12:13,  8.84s/it, energy=1.5971, epoch=1/1]Epoch 1/1:   7%|▋         | 6/88 [00:57<11:42,  8.57s/it, energy=1.5971, epoch=1/1]Epoch 1/1:   7%|▋         | 6/88 [01:05<11:42,  8.57s/it, energy=1.5481, epoch=1/1]Epoch 1/1:   8%|▊         | 7/88 [01:05<11:20,  8.40s/it, energy=1.5481, epoch=1/1]Epoch 1/1:   8%|▊         | 7/88 [01:13<11:20,  8.40s/it, energy=1.5026, epoch=1/1]Epoch 1/1:   9%|▉         | 8/88 [01:13<11:00,  8.25s/it, energy=1.5026, epoch=1/1]Epoch 1/1:   9%|▉         | 8/88 [01:21<11:00,  8.25s/it, energy=1.4534, epoch=1/1]Epoch 1/1:  10%|█         | 9/88 [01:21<10:45,  8.17s/it, energy=1.4534, epoch=1/1]Epoch 1/1:  10%|█         | 9/88 [01:29<10:45,  8.17s/it, energy=1.4035, epoch=1/1]Epoch 1/1:  11%|█▏        | 10/88 [01:29<10:46,  8.29s/it, energy=1.4035, epoch=1/1]Epoch 1/1:  11%|█▏        | 10/88 [01:37<10:46,  8.29s/it, energy=1.3609, epoch=1/1]Epoch 1/1:  12%|█▎        | 11/88 [01:37<10:37,  8.28s/it, energy=1.3609, epoch=1/1]Epoch 1/1:  12%|█▎        | 11/88 [01:45<10:37,  8.28s/it, energy=1.3148, epoch=1/1]Epoch 1/1:  14%|█▎        | 12/88 [01:45<10:25,  8.23s/it, energy=1.3148, epoch=1/1]Epoch 1/1:  14%|█▎        | 12/88 [01:54<10:25,  8.23s/it, energy=1.2768, epoch=1/1]Epoch 1/1:  15%|█▍        | 13/88 [01:54<10:15,  8.20s/it, energy=1.2768, epoch=1/1]Epoch 1/1:  15%|█▍        | 13/88 [02:02<10:15,  8.20s/it, energy=1.2302, epoch=1/1]Epoch 1/1:  16%|█▌        | 14/88 [02:02<10:05,  8.18s/it, energy=1.2302, epoch=1/1]Epoch 1/1:  16%|█▌        | 14/88 [02:10<10:05,  8.18s/it, energy=1.1918, epoch=1/1]Epoch 1/1:  17%|█▋        | 15/88 [02:10<09:59,  8.22s/it, energy=1.1918, epoch=1/1]Epoch 1/1:  17%|█▋        | 15/88 [02:18<09:59,  8.22s/it, energy=1.1574, epoch=1/1]Epoch 1/1:  18%|█▊        | 16/88 [02:18<09:48,  8.18s/it, energy=1.1574, epoch=1/1]Epoch 1/1:  18%|█▊        | 16/88 [02:26<09:48,  8.18s/it, energy=1.1203, epoch=1/1]Epoch 1/1:  19%|█▉        | 17/88 [02:26<09:35,  8.10s/it, energy=1.1203, epoch=1/1]Epoch 1/1:  19%|█▉        | 17/88 [02:34<09:35,  8.10s/it, energy=1.0894, epoch=1/1]Epoch 1/1:  20%|██        | 18/88 [02:34<09:23,  8.05s/it, energy=1.0894, epoch=1/1]Epoch 1/1:  20%|██        | 18/88 [02:42<09:23,  8.05s/it, energy=1.0550, epoch=1/1]Epoch 1/1:  22%|██▏       | 19/88 [02:42<09:19,  8.11s/it, energy=1.0550, epoch=1/1]Epoch 1/1:  22%|██▏       | 19/88 [02:51<09:19,  8.11s/it, energy=1.0244, epoch=1/1]Epoch 1/1:  23%|██▎       | 20/88 [02:51<09:18,  8.21s/it, energy=1.0244, epoch=1/1]Epoch 1/1:  23%|██▎       | 20/88 [02:59<09:18,  8.21s/it, energy=0.9953, epoch=1/1]Epoch 1/1:  24%|██▍       | 21/88 [02:59<09:06,  8.16s/it, energy=0.9953, epoch=1/1]Epoch 1/1:  24%|██▍       | 21/88 [03:07<09:06,  8.16s/it, energy=0.9712, epoch=1/1]Epoch 1/1:  25%|██▌       | 22/88 [03:07<09:02,  8.22s/it, energy=0.9712, epoch=1/1]Epoch 1/1:  25%|██▌       | 22/88 [03:15<09:02,  8.22s/it, energy=0.9446, epoch=1/1]Epoch 1/1:  26%|██▌       | 23/88 [03:15<08:50,  8.17s/it, energy=0.9446, epoch=1/1]Epoch 1/1:  26%|██▌       | 23/88 [03:23<08:50,  8.17s/it, energy=0.9227, epoch=1/1]Epoch 1/1:  27%|██▋       | 24/88 [03:23<08:39,  8.12s/it, energy=0.9227, epoch=1/1]Epoch 1/1:  27%|██▋       | 24/88 [03:31<08:39,  8.12s/it, energy=0.8985, epoch=1/1]Epoch 1/1:  28%|██▊       | 25/88 [03:31<08:29,  8.09s/it, energy=0.8985, epoch=1/1]Epoch 1/1:  28%|██▊       | 25/88 [03:39<08:29,  8.09s/it, energy=0.8792, epoch=1/1]Epoch 1/1:  30%|██▉       | 26/88 [03:39<08:22,  8.10s/it, energy=0.8792, epoch=1/1]Epoch 1/1:  30%|██▉       | 26/88 [03:47<08:22,  8.10s/it, energy=0.8599, epoch=1/1]Epoch 1/1:  31%|███       | 27/88 [03:47<08:14,  8.10s/it, energy=0.8599, epoch=1/1]Epoch 1/1:  31%|███       | 27/88 [03:56<08:14,  8.10s/it, energy=0.8399, epoch=1/1]Epoch 1/1:  32%|███▏      | 28/88 [03:56<08:08,  8.14s/it, energy=0.8399, epoch=1/1]Epoch 1/1:  32%|███▏      | 28/88 [04:04<08:08,  8.14s/it, energy=0.8234, epoch=1/1]Epoch 1/1:  33%|███▎      | 29/88 [04:04<08:00,  8.14s/it, energy=0.8234, epoch=1/1]Epoch 1/1:  33%|███▎      | 29/88 [04:12<08:00,  8.14s/it, energy=0.8076, epoch=1/1]Epoch 1/1:  34%|███▍      | 30/88 [04:12<07:51,  8.13s/it, energy=0.8076, epoch=1/1]Epoch 1/1:  34%|███▍      | 30/88 [04:20<07:51,  8.13s/it, energy=0.7931, epoch=1/1]Epoch 1/1:  35%|███▌      | 31/88 [04:20<07:46,  8.18s/it, energy=0.7931, epoch=1/1]Epoch 1/1:  35%|███▌      | 31/88 [04:28<07:46,  8.18s/it, energy=0.7775, epoch=1/1]Epoch 1/1:  36%|███▋      | 32/88 [04:28<07:38,  8.18s/it, energy=0.7775, epoch=1/1]Epoch 1/1:  36%|███▋      | 32/88 [04:37<07:38,  8.18s/it, energy=0.7661, epoch=1/1]Epoch 1/1:  38%|███▊      | 33/88 [04:37<07:30,  8.19s/it, energy=0.7661, epoch=1/1]Epoch 1/1:  38%|███▊      | 33/88 [04:45<07:30,  8.19s/it, energy=0.7575, epoch=1/1]Epoch 1/1:  39%|███▊      | 34/88 [04:45<07:21,  8.17s/it, energy=0.7575, epoch=1/1]Epoch 1/1:  39%|███▊      | 34/88 [04:53<07:21,  8.17s/it, energy=0.7645, epoch=1/1]Epoch 1/1:  40%|███▉      | 35/88 [04:53<07:13,  8.18s/it, energy=0.7645, epoch=1/1]Epoch 1/1:  40%|███▉      | 35/88 [05:01<07:13,  8.18s/it, energy=0.7616, epoch=1/1]Epoch 1/1:  41%|████      | 36/88 [05:01<07:04,  8.16s/it, energy=0.7616, epoch=1/1]Epoch 1/1:  41%|████      | 36/88 [05:09<07:04,  8.16s/it, energy=0.7634, epoch=1/1]Epoch 1/1:  42%|████▏     | 37/88 [05:09<06:55,  8.15s/it, energy=0.7634, epoch=1/1]Epoch 1/1:  42%|████▏     | 37/88 [05:17<06:55,  8.15s/it, energy=0.7648, epoch=1/1]Epoch 1/1:  43%|████▎     | 38/88 [05:17<06:43,  8.08s/it, energy=0.7648, epoch=1/1]
+exit_status=137

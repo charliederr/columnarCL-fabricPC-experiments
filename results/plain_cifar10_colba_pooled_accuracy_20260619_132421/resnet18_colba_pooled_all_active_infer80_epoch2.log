@@ -1,0 +1,53 @@
+
+===== resnet18_colba_pooled_all_active_infer80_epoch2 =====
+Jax plugin configuration error: Exception when calling jax_plugins.xla_cuda13.initialize()
+Traceback (most recent call last):
+  File "/home/ni/repos/fpc/virt-envs/fpcpy3.12/lib64/python3.12/site-packages/jax/_src/xla_bridge.py", line 495, in discover_pjrt_plugins
+    plugin_module.initialize()
+  File "/home/ni/repos/fpc/virt-envs/fpcpy3.12/lib64/python3.12/site-packages/jax_plugins/xla_cuda13/__init__.py", line 370, in initialize
+    _check_cuda_versions(raise_on_first_error = True)
+  File "/home/ni/repos/fpc/virt-envs/fpcpy3.12/lib64/python3.12/site-packages/jax_plugins/xla_cuda13/__init__.py", line 274, in _check_cuda_versions
+    for d in range(cuda_versions.cuda_device_count())
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: jaxlib/cuda/versions_helpers.cc:135: operation cuInit(0) failed: CUDA_ERROR_NO_DEVICE
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781889866.111498      27 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1781889866.112019      27 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781889866.918345      27 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1781889866.918736      27 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1781889867.220062      27 cuda_platform.cc:52] failed call to cuInit: INTERNAL: CUDA error: Failed call to cuInit: CUDA_ERROR_NO_DEVICE: no CUDA-capable device is detected
+======================================================================
+Plain CIFAR-10 PC ColBa Accuracy Experiment
+======================================================================
+Model: resnet18
+Conv activation: leaky_relu
+Column activation: leaky_relu
+Columns: 40
+Column mode: all_active
+Shared columns: 4
+Active non-shared columns: 5
+Combiner: attention
+Tokens: 16
+Embed dim: 256
+Microcolumn dim: 32
+Epochs: 2.0
+Batch size: 128
+Learning rate: 0.01
+Weight decay: 0.01
+Inference steps: 80
+Inference eta: 0.1
+
+Active columns: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+Graph: 73 nodes, 119 edges
+Parameters: 7,487,338
+
+Loading CIFAR-10 with FabricPC Cifar10Loader...
+Train batches: 352
+Val batches: 40
+Test batches: 79
+
+Training for 2.0 epochs...
+  0%|          | 0/704 [00:00<?, ?it/s]Epoch 1/2:   0%|          | 0/704 [00:00<?, ?it/s]Epoch 1/2:   0%|          | 0/704 [00:56<?, ?it/s, energy=1.6239, epoch=1/2]Epoch 1/2:   0%|          | 1/704 [00:56<11:05:26, 56.79s/it, energy=1.6239, epoch=1/2]Epoch 1/2:   0%|          | 1/704 [01:37<11:05:26, 56.79s/it, energy=1.6341, epoch=1/2]Epoch 1/2:   0%|          | 2/704 [01:37<9:11:13, 47.11s/it, energy=1.6341, epoch=1/2] Epoch 1/2:   0%|          | 2/704 [02:16<9:11:13, 47.11s/it, energy=1.6225, epoch=1/2]Epoch 1/2:   0%|          | 3/704 [02:16<8:30:52, 43.73s/it, energy=1.6225, epoch=1/2]
+interrupted_status=130
+reason=stopped_by_codex_after_jax_reported_cpu_backend_and_batch_time_was_about_40s
