@@ -431,3 +431,34 @@ I've completed the architectural design and implementation plan. The plan is wri
 ❯ \
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   ⏵⏵ accept edits on (shift+tab to
+
+
+
+
+ Plan written to docs/dev_plans/energy_scaling_and_hibacaml_plan.md.
+
+  Summary
+
+  Phase 1: Energy Scaling (fast hypothesis test)
+  - 1A: Add energy logging to confirm E_gauss / E_ce ratio differs between tiny and resnet18
+  - 1B: Implement ScaledGaussianEnergy with α parameter
+  - 1C: Run matrix of α ∈ {1.0, 0.1, 0.01, 0.0} × {tiny, resnet18}
+  - 1D: Test complete energy removal (intermediate nodes don't contribute to loss)
+
+  Phase 2: HIBACAML Faithful Reproduction (if Phase 1 insufficient)
+  - 2A: Audit paper for discrepancies with current implementation
+  - 2B: Build minimal viable HIBACAML on validated PC ResNet backbone
+  - 2C: Add shell/kernel paths with differential regularization
+  - 2D: Implement offline support selection
+  - 2E: Add internal certificates
+
+  Decision point: If Phase 1 yields >25% on resnet18, refine that path. Otherwise, proceed to Phase 2.
+
+  Success criteria:
+  - Phase 1: resnet18 achieves >30% test accuracy with scaled energies
+  - Phase 2: matches PC ResNet baseline (38%) on validation
+
+  Ready to proceed with implementation when you approve.
+
+✻ Brewed for 1m 52s
+
