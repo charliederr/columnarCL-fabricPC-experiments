@@ -1,0 +1,193 @@
+I've completed the architectural design and implementation plan. The plan is written to:
+
+  docs/dev-plans/depth-spanning-columnar-architecture.md
+
+  Summary
+
+  The core insight: columns must span multiple ResNet stages, not sit as a flat layer after the backbone.
+
+  Current architecture (broken):
+  ResNet → Stage4 → Tokenize → [Flat columns] → Combiner → Classifier
+                                      ↑
+                             All columns see same input
+
+  Proposed architecture:
+  ResNet Stage 2 ──────────────────────────────────┐
+        │                                          │
+  ResNet Stage 3 ──────────────────┐               │
+        │                          │               │
+  ResNet Stage 4 ─────┐            │               │
+        │             │            │               │
+        └─────────────┼────────────┼───────────────┘
+                      │            │               │
+                      ▼            ▼               ▼
+                [Column with K/L/B spanning all stages]
+                      │
+                Column output
+
+  Key changes:
+  1. K (Kernel): Concatenates features from all stages via skip connections
+  2. L (Lateral): 3×3 conv refinement on mid-level features
+  3. B (Bridge): Global pool from final stage, broadcast to all tokens
+  4. Skip connections: Stage outputs feed directly into K pathway at each depth
+
+  New node types needed:
+  - StageTapTokenizer: Adapts each stage to a common token resolution
+  - DepthSpanningColumnNode: Column with 4 input slots (stage2/3/4 + global pool)
+
+  Phases:
+  1. Stage-tapping infrastructure
+  2. DepthSpanningColumn node implementation
+  3. Graph construction refactor
+  4. Incremental testing (single column → full config)
+  5. Skip connection gradient verification
+
+  Would you like me to proceed with implementing Phase 1 (the stage-tapping infrastructure)?
+
+
+
+
+
+
+   All 24 tests pass. Let me update the todo list.
+
+● Phase 1 is complete. Here's a summary:
+
+  Phase 1: Stage-Tapping Infrastructure - Complete
+
+  Files created:
+  - columnar_cl_fabricpc/columns/stage_taps.py - Core implementation
+  - tests/test_stage_taps.py - 24 tests (all passing)
+
+  Files modified:
+  - columnar_cl_fabricpc/columns/__init__.py - Added exports
+
+  New nodes:
+
+  StageTapTokenizer
+
+  Converts ResNet stage spatial features into tokens at a target resolution:
+  Stage 2 (32×32×16) ─┐
+  Stage 3 (16×16×32) ─┼─▶ adaptive pool ─▶ project ─▶ (batch, 64, embed_dim)
+  Stage 4 (8×8×64)  ──┘
+
+  GlobalPoolNode
+
+  Global average pooling for the B (Bridge) pathway:
+  Stage 4 (8×8×64) ─▶ spatial avg ─▶ project ─▶ (batch, 1, embed_dim)
+
+  Factory functions:
+  - create_stage_tap(name, source_channels, embed_dim, target_grid)
+  - create_global_pool(name, source_channels, embed_dim)
+  - create_cifar10_stage_taps(embed_dim, target_grid) - Creates all 4 taps for CIFAR-10
+
+  Test coverage:
+  - Adaptive pooling (2x, 4x downsampling)
+  - Parameter initialization
+  - Shape validation
+  - FabricPC graph integration
+  - Multiple stages in parallel
+
+  The stage taps are ready to feed into depth-spanning columns. Would you like me to proceed with Phase 2: DepthSpanningColumn node implementation?
+
+
+
+
+
+   All 38 tests pass. Let me update the todo list.
+
+● Phase 2 is complete. Here's a summary:
+
+  Phase 2: DepthSpanningColumn Node - Complete
+
+  Files created:
+  - columnar_cl_fabricpc/columns/depth_spanning_column.py - Core implementation
+  - tests/test_depth_spanning_column.py - 14 tests (all passing)
+
+  Files modified:
+  - columnar_cl_fabricpc/columns/__init__.py - Added exports
+
+  New node: DepthSpanningColumnNode
+
+  A cortical column that spans multiple ResNet stages with three microcolumn pathways:
+
+  K (Kernel) Pathway - Multi-scale via skip connections
+
+  stage4 → K_deep → concat(stage3) → K_mid → concat(stage2) → K_out
+                        ↑                        ↑
+                   skip connection          skip connection
+
+  L (Lateral) Pathway - Local spatial refinement
+
+  stage4 → L_deep → 3×3 depthwise conv → L_out
+
+  B (Bridge) Pathway - Global context broadcast
+
+  stage4_pool → B_deep → broadcast to all tokens → B_out
+
+  Output
+
+  path_scale[0] * K_out + path_scale[1] * L_out + path_scale[2] * B_out
+
+  Factory functions:
+  - create_depth_spanning_column(name, input_dim, output_dim, microcolumn_dim, grid_size)
+  - create_depth_spanning_column_pool(num_columns, ...) - Creates pool of columns
+
+  Input slots:
+  - stage2: Tokenized features from ResNet stage 2
+  - stage3: Tokenized features from ResNet stage 3
+  - stage4: Tokenized features from ResNet stage 4
+  - stage4_pool: Global pooled features from stage 4
+
+  Test coverage (38 total tests):
+  - Phase 1: 24 tests (stage taps)
+  - Phase 2: 14 tests (depth-spanning column)
+
+  The architecture is now ready to be integrated into a training script. Would you like me to proceed with Phase 3: Graph Construction Refactor to create a training script that uses the new depth-spanning columns?
+
+✻ Brewed for 5m 21s
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ yes, proceed with phase 3
+
+
+
+
+
+● The depth-spanning columnar architecture implementation is complete. Here's a summary of what was built:
+
+  Phase 1 - Stage Taps (columnar_cl_fabricpc/columns/stage_taps.py):
+  - StageTapTokenizer: Converts ResNet stage outputs (different spatial resolutions) to unified token format via adaptive pooling + projection
+  - GlobalPoolNode: Global average pooling for B pathway context
+  - 24 tests passing
+
+  Phase 2 - Depth-Spanning Column (columnar_cl_fabricpc/columns/depth_spanning_column.py):
+  - DepthSpanningColumnNode with 4 input slots (stage2, stage3, stage4, stage4_pool)
+  - K pathway: Multi-scale via skip connections (stage4 → concat stage3 → concat stage2)
+  - L pathway: Local refinement via 3×3 depthwise convolution
+  - B pathway: Global context broadcast from pooled features
+  - 14 tests passing
+
+  Phase 3 - Training Script (scripts/train_cifar10_depth_spanning.py):
+  - Based on the cleaner train_cifar10_pc_resnet.py
+  - Tracks stage outputs during ResNet backbone construction
+  - Creates stage taps and connects depth-spanning columns
+
+  Verification Results (0.5 epoch test):
+  - Test accuracy: 15.00% (above 10% random chance)
+  - Validation accuracy: 15.78%
+  - Energy decreased: 1.79 → 0.46
+  - Graph: 22 nodes, 31 edges, 99,666 parameters
+
+  The architecture is learning. To run a longer experiment comparing against the 42.45% PC ResNet baseline:
+
+  python scripts/train_cifar10_depth_spanning.py --model resnet18 --num_epochs 10 --num_columns 4
+
+✻ Brewed for 5m 3s
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ run it for 10 epochs                                                                                                                                                                                                                                                                                                             ↵ send
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ accept edits on (shift+tab to cycle)
+
+

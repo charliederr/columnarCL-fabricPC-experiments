@@ -23,18 +23,38 @@ from columnar_cl_fabricpc.columns.combiner import (
     create_combiner,
     create_classification_head,
 )
+from columnar_cl_fabricpc.columns.stage_taps import (
+    StageTapTokenizer,
+    GlobalPoolNode,
+    create_stage_tap,
+    create_global_pool,
+    create_cifar10_stage_taps,
+)
+from columnar_cl_fabricpc.columns.depth_spanning_column import (
+    DepthSpanningColumnNode,
+    create_depth_spanning_column,
+    create_depth_spanning_column_pool,
+)
 
 __all__ = [
     "ClassificationHeadNode",
     "ColumnCombinerNode",
     "ColumnarNode",
     "ConvStemNode",
+    "DepthSpanningColumnNode",
     "ExampleColumnNode",
+    "GlobalPoolNode",
     "PatchEmbedNode",
+    "StageTapTokenizer",
     "create_cifar10_conv_stem",
     "create_cifar10_patch_embed",
+    "create_cifar10_stage_taps",
     "create_classification_head",
     "create_column",
     "create_column_pool",
     "create_combiner",
+    "create_depth_spanning_column",
+    "create_depth_spanning_column_pool",
+    "create_global_pool",
+    "create_stage_tap",
 ]
