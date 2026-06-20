@@ -1,0 +1,55 @@
+=== Energy Diagnosis: resnet18 model 1 epoch ===
+Date: Sat Jun 20 06:44:31 PM EDT 2026
+Command: python scripts/train_cifar10_depth_spanning.py --model resnet18 --num_epochs 1 --num_columns 4 --diagnose_energy
+
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781995476.554889 3045446 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781995477.453631 3045446 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+======================================================================
+CIFAR-10 Depth-Spanning Columnar Architecture
+======================================================================
+Model: resnet18
+Activation: leaky_relu
+Column activation: leaky_relu
+Columns: 4
+Column mode: all_active
+Shared columns: 2
+Active non-shared: 2
+Combiner: sum
+Embed dim: 64
+Microcolumn dim: 32
+Epochs: 1.0
+Batch size: 128
+Learning rate: 0.01
+Weight decay: 0.01
+Inference steps: 40
+Inference eta: 0.1
+
+Stage outputs: stage2=(16, 16, 64), stage3=(8, 8, 128), stage4=(4, 4, 256)
+Target grid: (4, 4), tokens: 16
+
+Active columns: [0, 1, 2, 3]
+Graph: 40 nodes, 62 edges
+Parameters: 2,922,074
+
+Loading CIFAR-10...
+Train batches: 352
+Val batches: 40
+Test batches: 79
+
+----------------------------------------------------------------------
+Energy Diagnosis (before training)
+----------------------------------------------------------------------
+  backbone: 0.0000
+  stage_taps: 0.0000
+  columns: 0.0000
+  combiner: 60.9907
+  classifier: 148.8664
+  E_gauss: 60.9907
+  E_ce: 148.8664
+  E_gauss/E_ce: 0.4097
+----------------------------------------------------------------------
+
+Training for 1.0 epochs...
+  0%|          | 0/352 [00:00<?, ?it/s]Epoch 1/1:   0%|          | 0/352 [00:00<?, ?it/s]
