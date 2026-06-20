@@ -1,0 +1,8 @@
+=== Energy Diagnosis: tiny model 1 epoch ===
+Date: Sat Jun 20 06:43:34 PM EDT 2026
+Command: python scripts/train_cifar10_depth_spanning.py --model tiny --num_epochs 1 --num_columns 4 --diagnose_energy
+
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781995418.426106 3041884 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781995419.361473 3041884 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.

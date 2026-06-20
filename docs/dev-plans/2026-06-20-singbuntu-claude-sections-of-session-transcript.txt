@@ -462,3 +462,90 @@ I've completed the architectural design and implementation plan. The plan is wri
 
 ✻ Brewed for 1m 52s
 
+ source /home/ni/repos/fpc/py3/bin/activate && python -c "
+   from fabricpc.utils.data.dataloader import Cifar10Loader
+   loader = Cifar10Loader('train[:10]', batch_size=8, shuffle=False, seed=42, tensor_format='NHWC')
+   batch = next(iter(loader))
+   print(type(batch))
+   print(batch.keys() if hasattr(batch, 'keys') else 'Not a dict')
+   if isinstance(batch, tuple):
+       print(f'Tuple of {len(batch)} elements')
+       for i, b in enumerate(batch):
+           print(f'  [{i}]: shape={b.shape}')
+   "
+   Check loader batch format
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for source and python commands in /home/ni/repos/fpc
+   3. Type here to tell Claude what to do differently
+
+
+
+
+   The loader returns a tuple, not a dict. Let me fix this.
+
+● Bash(source /home/ni/repos/fpc/py3/bin/activate && python -c "
+      from fabricpc.utils.data.dataloader import Cifar10Loader…)
+  ⎿  <class 'tuple'>
+     Not a dict
+     Tuple of 2 elements
+     … +6 lines (ctrl+o to expand)
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 3 lines, removed 3 lines
+      521
+      522      # Energy diagnosis: sample batch for analysis
+      523      if args.diagnose_energy:
+      524 -        diag_batch = next(iter(train_loader))
+      524 +        diag_batch_raw = next(iter(train_loader))
+      525          diag_batch = {
+      526 -            "x": jnp.array(diag_batch["x"]),
+      527 -            "y": jnp.array(diag_batch["y"]),
+      526 +            "x": jnp.array(diag_batch_raw[0]),
+      527 +            "y": jnp.array(diag_batch_raw[1]),
+      528          }
+      529          diag_key = jax.random.PRNGKey(args.seed + 999)
+      530
+
+● Bash(source /home/ni/repos/fpc/py3/bin/activate && python scripts/train_cifar10_depth_spanning.py --quick --diagnose_energy 2>&1 | head -80)
+  ⎿  Running…
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   source /home/ni/repos/fpc/py3/bin/activate && python scripts/train_cifar10_depth_spanning.py --quick --diagnose_energy 2>&1 | head -80
+   Quick test of energy diagnosis
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for similar commands in /home/ni/repos/fpc
+   3. Type here to tell Claude what to do differently
+
+
+   ● The energy diagnosis is working. The quick test shows E_gauss/E_ce = 0.0023 (CrossEntropy dominates). But this uses only 2 inference steps. Let me run the full 1-epoch experiments with proper settings.
+
+● Bash(LOGFILE="/home/ni/repos/fpc/columnarCL-fabricPC-experiments/results/energy_diag_tiny_1epoch_claude_singbuntu24_$(date +%Y%m%d_%H%M%S).log" timeout: 10m 0s
+      echo "=== Energy Diag…)
+  ⎿  Running…
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   LOGFILE="/home/ni/repos/fpc/columnarCL-fabricPC-experiments/results/energy_diag_tiny_1epoch_claude_singbuntu24_$(date +%Y%m%d_%H%M%S).log"
+   echo "=== Energy Diagnosis: tiny model 1 epoch ===" | tee "$LOGFILE"
+   echo "Date: $(date)" | tee -a "$LOGFILE"
+   echo "Command: python scripts/train_cifar10_depth_spanning.py --model tiny --num_epochs 1 --num_columns 4 --diagnose_energy" | tee -a "$LOGFILE"
+   echo "" | tee -a "$LOGFILE"
+
+   source /home/ni/repos/fpc/py3/bin/activate && python scripts/train_cifar10_depth_spanning.py --model tiny --num_epochs 1 --num_columns 4 --diagnose_energy 2>&1 | tee -a "$LOGFILE"
+
+   echo "" | tee -a "$LOGFILE"
+   echo "Log saved to: $LOGFILE" | tee -a "$LOGFILE"
+   Run tiny model with energy diagnosis for 1 epoch
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for similar commands in /home/ni/repos/fpc
+   3. Type here to tell Claude what to do differently
+

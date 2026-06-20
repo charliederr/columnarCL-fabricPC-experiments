@@ -62,7 +62,9 @@ from fabricpc.core.energy import CrossEntropyEnergy
 from fabricpc.core.initializers import MuPCInitializer, XavierInitializer
 from fabricpc.core.mupc import MuPCConfig
 from fabricpc.training import train_pcn, evaluate_pcn
+from fabricpc.training.train import get_graph_param_gradient
 from fabricpc.utils.data.dataloader import Cifar10Loader
+from fabricpc.utils.dashboarding.extractors import extract_node_energies
 
 from columnar_cl_fabricpc.columns import (
     StageTapTokenizer,
@@ -75,6 +77,68 @@ from columnar_cl_fabricpc.columns import (
 from columnar_cl_fabricpc.columns.accuracy_nodes import MaskedColumnCombinerNode
 
 jax.config.update("jax_default_prng_impl", "threefry2x32")
+
+
+def diagnose_energy_breakdown(
+    params,
+    structure,
+    batch: Dict[str, jnp.ndarray],
+    rng_key: jax.Array,
+) -> Dict[str, float]:
+    """
+    Compute per-node-type energy breakdown using FabricPC's extract_node_energies.
+
+    Categorizes nodes into:
+    - backbone: ResNet conv/skip nodes (s*b*, stem)
+    - stage_taps: StageTapTokenizer nodes (stage*_tap, stage*_pool)
+    - columns: DepthSpanningColumnNode (col_*)
+    - combiner: ColumnCombinerNode (combiner, column_pool)
+    - classifier: CrossEntropy output node (output)
+
+    Returns dict with per-category energy sums and E_gauss/E_ce ratio.
+    """
+    # Run forward pass to get final_state
+    _, _, final_state = get_graph_param_gradient(params, batch, structure, rng_key)
+
+    # Extract per-node energies using FabricPC's extractor
+    node_energies = extract_node_energies(final_state)
+
+    # Categorize nodes
+    categories = {
+        "backbone": 0.0,
+        "stage_taps": 0.0,
+        "columns": 0.0,
+        "combiner": 0.0,
+        "classifier": 0.0,
+    }
+
+    for node_name, energy_arr in node_energies.items():
+        energy_sum = float(energy_arr.sum())
+
+        if node_name == "output":
+            categories["classifier"] += energy_sum
+        elif node_name.startswith("col_"):
+            categories["columns"] += energy_sum
+        elif node_name.startswith("stage") and ("tap" in node_name or "pool" in node_name):
+            categories["stage_taps"] += energy_sum
+        elif node_name in ("combiner", "column_pool"):
+            categories["combiner"] += energy_sum
+        else:
+            # ResNet backbone nodes: stem, s*b*_conv_*, s*b*_skip_*
+            categories["backbone"] += energy_sum
+
+    # Compute Gaussian vs CrossEntropy
+    e_gauss = categories["backbone"] + categories["stage_taps"] + categories["columns"] + categories["combiner"]
+    e_ce = categories["classifier"]
+
+    ratio = e_gauss / e_ce if e_ce > 1e-8 else float("inf")
+
+    return {
+        **categories,
+        "E_gauss": e_gauss,
+        "E_ce": e_ce,
+        "E_gauss/E_ce": ratio,
+    }
 
 
 # Model configurations with explicit stage channel counts for stage taps
@@ -455,6 +519,23 @@ def train_cifar10_depth_spanning(args):
     print(f"Val batches: {len(val_loader)}")
     print(f"Test batches: {len(test_loader)}")
 
+    # Energy diagnosis: sample batch for analysis
+    if args.diagnose_energy:
+        diag_batch_raw = next(iter(train_loader))
+        diag_batch = {
+            "x": jnp.array(diag_batch_raw[0]),
+            "y": jnp.array(diag_batch_raw[1]),
+        }
+        diag_key = jax.random.PRNGKey(args.seed + 999)
+
+        print("\n" + "-" * 70)
+        print("Energy Diagnosis (before training)")
+        print("-" * 70)
+        energy_breakdown = diagnose_energy_breakdown(params, structure, diag_batch, diag_key)
+        for key, val in energy_breakdown.items():
+            print(f"  {key}: {val:.4f}")
+        print("-" * 70)
+
     steps_per_epoch = len(train_loader)
     total_steps = max(1, round(args.num_epochs * steps_per_epoch))
     warmup_steps = min(total_steps - 1, int(0.05 * total_steps))
@@ -498,6 +579,16 @@ def train_cifar10_depth_spanning(args):
         epoch_callback=epoch_callback,
     )
     elapsed = time.time() - start_time
+
+    # Energy diagnosis: after training
+    if args.diagnose_energy:
+        print("\n" + "-" * 70)
+        print("Energy Diagnosis (after training)")
+        print("-" * 70)
+        energy_breakdown = diagnose_energy_breakdown(final_params, structure, diag_batch, diag_key)
+        for key, val in energy_breakdown.items():
+            print(f"  {key}: {val:.4f}")
+        print("-" * 70)
 
     print(f"\nTraining time: {elapsed:.1f}s")
     print("Evaluating on test set...")
@@ -549,6 +640,11 @@ def parse_args():
     parser.add_argument("--eval_every", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--quick", action="store_true")
+    parser.add_argument(
+        "--diagnose_energy",
+        action="store_true",
+        help="Log per-node-type energy breakdown (E_gauss/E_ce ratio)",
+    )
     return parser.parse_args()
 
 
