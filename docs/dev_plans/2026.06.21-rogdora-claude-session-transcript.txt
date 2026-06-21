@@ -693,6 +693,656 @@ pasted transcripts are in sequential order -- topmost just below here was from y
   fabricpc/nodes/transformer_v2.py:LnMlp1Node:289-312.
   - Open Question #2 dissolves: layer-norm-vs-group-norm question is moot since the existing primitive is layer-norm along the last axis, per-sample, with no batch
   dependence.
+  Ready to pick the anchor and implement Stage 1's flags and run matrix on your green light.
+
+✻ Brewed for 1m 53s
+
+❯ go ahead with tiny anchor
+
+● Implementing now. Let me first inspect SkipConnection to see if a learnable-scalar combiner already exists.
+
+  Read 1 file (ctrl+o to expand)
+
+● Let me check StageTapTokenizer.forward and DepthSpanningColumnNode.forward shapes before editing.
+
+  Searched for 3 patterns, read 3 files (ctrl+o to expand)
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 1 line
+      59  )
+      60  from fabricpc.core.types import NodeInfo, NodeParams, NodeState
+      61  from fabricpc.nodes.base import NodeBase, SlotSpec
+      62 +from fabricpc.utils.helpers import layernorm
+      63
+      64
+      65  class StageTapTokenizer(NodeBase):
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 5 lines
+      113          source_channels: int,
+      114          target_grid: Tuple[int, int] = (8, 8),
+      115          add_pos_embed: bool = True,
+      116 +        apply_layer_norm: bool = False,
+      117          activation: Optional[ActivationBase] = IdentityActivation(),
+      118          energy: Optional[EnergyFunctional] = GaussianEnergy(),
+      119          weight_init: Optional[InitializerBase] = KaimingInitializer(),
+     ...
+      128              source_channels: Number of channels in source stage (e.g., 64 for stage4)
+      129              target_grid: Target spatial grid (h, w) to pool/interpolate to
+      130              add_pos_embed: Whether to add learnable position embeddings
+      131 +            apply_layer_norm: If True, layer-normalize the post-projection
+      132 +                pre_activation along the embed_dim axis before the activation
+      133 +                function. Pins the output magnitude regardless of upstream scale.
+      134              activation: Output activation (default: Identity)
+      135              energy: Energy functional (default: Gaussian)
+      136              weight_init: Weight initializer
+     ...
+      158              source_channels=source_channels,
+      159              target_grid=target_grid,
+      160              add_pos_embed=add_pos_embed,
+      161 +            apply_layer_norm=apply_layer_norm,
+      162          )
+      163
+      164      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 5 lines
+      195          tokens, embed_dim = node_shape
+      196          source_channels = config.get("source_channels")
+      197          add_pos_embed = config.get("add_pos_embed", True)
+      198 +        apply_layer_norm = config.get("apply_layer_norm", False)
+      199
+      200          if source_channels is None:
+      201              raise ValueError("StageTapTokenizer requires source_channels in config")
+     ...
+      215                  keys[1], (1, tokens, embed_dim), pos_init
+      216              )
+      217
+      218 +        if apply_layer_norm:
+      219 +            weights["ln_gamma"] = jnp.ones((embed_dim,))
+      220 +            biases["ln_beta"] = jnp.zeros((embed_dim,))
+      221 +
+      222          return NodeParams(weights=weights, biases=biases)
+      223
+      224      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 1 line
+      284          config = node_info.node_config
+      285          target_grid = config.get("target_grid", (8, 8))
+      286          add_pos_embed = config.get("add_pos_embed", True)
+      287 +        apply_layer_norm = config.get("apply_layer_norm", False)
+      288          target_h, target_w = target_grid
+      289          tokens = target_h * target_w
+      290
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 8 lines
+      311          if add_pos_embed and "pos_embed" in params.weights:
+      312              pre_activation = pre_activation + params.weights["pos_embed"]
+      313
+      314 +        # Optional LayerNorm along embed_dim — pins output magnitude
+      315 +        if apply_layer_norm and "ln_gamma" in params.weights:
+      316 +            pre_activation = layernorm(
+      317 +                pre_activation,
+      318 +                params.weights["ln_gamma"],
+      319 +                params.biases["ln_beta"],
+      320 +            )
+      321 +
+      322          # Apply activation
+      323          activation = node_info.activation
+      324          z_mu = type(activation).forward(pre_activation, activation.config)
+
+● Now GlobalPoolNode and its factory. Let me read its forward/init.
+
+  Reading 1 file… (ctrl+o to expand)
+  ⎿  columnar_cl_fabricpc/columns/stage_taps.py
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 4 lines
+      381          shape: Tuple[int, ...],
+      382          name: str,
+      383          source_channels: int,
+      384 +        apply_layer_norm: bool = False,
+      385          activation: Optional[ActivationBase] = IdentityActivation(),
+      386          energy: Optional[EnergyFunctional] = GaussianEnergy(),
+      387          weight_init: Optional[InitializerBase] = KaimingInitializer(),
+     ...
+      394              shape: Output shape (1, embed_dim), e.g., (1, 64)
+      395              name: Node name
+      396              source_channels: Number of channels in source stage
+      397 +            apply_layer_norm: If True, layer-normalize the post-projection
+      398 +                pre_activation along the embed_dim axis before the activation.
+      399              activation: Output activation (default: Identity)
+      400              energy: Energy functional (default: Gaussian)
+      401              weight_init: Weight initializer
+     ...
+      418              latent_init=latent_init,
+      419              weight_init=weight_init,
+      420              source_channels=source_channels,
+      421 +            apply_layer_norm=apply_layer_norm,
+      422          )
+      423
+      424      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 5 lines
+      453
+      454          _, embed_dim = node_shape
+      455          source_channels = config.get("source_channels")
+      456 +        apply_layer_norm = config.get("apply_layer_norm", False)
+      457
+      458          if source_channels is None:
+      459              raise ValueError("GlobalPoolNode requires source_channels in config")
+     ...
+      467              "b_proj": jnp.zeros((embed_dim,)),
+      468          }
+      469
+      470 +        if apply_layer_norm:
+      471 +            weights["ln_gamma"] = jnp.ones((embed_dim,))
+      472 +            biases["ln_beta"] = jnp.zeros((embed_dim,))
+      473 +
+      474          return NodeParams(weights=weights, biases=biases)
+      475
+      476      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 9 lines
+      508          # Expand to token format: (batch, embed_dim) → (batch, 1, embed_dim)
+      509          pre_activation = x[:, None, :]
+      510
+      511 +        # Optional LayerNorm along embed_dim
+      512 +        config = node_info.node_config
+      513 +        if config.get("apply_layer_norm", False) and "ln_gamma" in params.weights:
+      514 +            pre_activation = layernorm(
+      515 +                pre_activation,
+      516 +                params.weights["ln_gamma"],
+      517 +                params.biases["ln_beta"],
+      518 +            )
+      519 +
+      520          # Apply activation
+      521          activation = node_info.activation
+      522          z_mu = type(activation).forward(pre_activation, activation.config)
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 6 lines
+      546      embed_dim: int = 64,
+      547      target_grid: Tuple[int, int] = (8, 8),
+      548      add_pos_embed: bool = True,
+      549 +    apply_layer_norm: bool = False,
+      550  ) -> StageTapTokenizer:
+      551      """
+      552      Create a StageTapTokenizer for a ResNet stage.
+     ...
+      557          embed_dim: Output embedding dimension
+      558          target_grid: Target spatial grid (h, w)
+      559          add_pos_embed: Whether to add position embeddings
+      560 +        apply_layer_norm: If True, LayerNorm the output along embed_dim
+      561
+      562      Returns:
+      563          Configured StageTapTokenizer
+     ...
+      569          source_channels=source_channels,
+      570          target_grid=target_grid,
+      571          add_pos_embed=add_pos_embed,
+      572 +        apply_layer_norm=apply_layer_norm,
+      573      )
+      574
+      575
+     ...
+      577      name: str,
+      578      source_channels: int,
+      579      embed_dim: int = 64,
+      580 +    apply_layer_norm: bool = False,
+      581  ) -> GlobalPoolNode:
+      582      """
+      583      Create a GlobalPoolNode for the B pathway.
+     ...
+      586          name: Node name (e.g., "stage4_pool")
+      587          source_channels: Channel count of the source stage
+      588          embed_dim: Output embedding dimension
+      589 +        apply_layer_norm: If True, LayerNorm the output along embed_dim
+      590
+      591      Returns:
+      592          Configured GlobalPoolNode
+     ...
+      595          shape=(1, embed_dim),
+      596          name=name,
+      597          source_channels=source_channels,
+      598 +        apply_layer_norm=apply_layer_norm,
+      599      )
+      600
+      601
+
+● Now DepthSpanningColumnNode.
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 1 line
+      70  )
+      71  from fabricpc.core.types import NodeInfo, NodeParams, NodeState
+      72  from fabricpc.nodes.base import NodeBase, SlotSpec
+      73 +from fabricpc.utils.helpers import layernorm
+      74
+      75
+      76  def _hidden_activation(x: jax.Array, activation_name: str, leaky_alpha: float) -> jax.Array:
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 1 line
+      127          grid_size: Tuple[int, int] = (8, 8),
+      128          hidden_activation: str = "leaky_relu",
+      129          leaky_alpha: float = 0.1,
+      130 +        apply_layer_norm: bool = False,
+      131          activation: Optional[ActivationBase] = IdentityActivation(),
+      132          energy: Optional[EnergyFunctional] = GaussianEnergy(),
+      133          weight_init: Optional[InitializerBase] = KaimingInitializer(),
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 1 line
+      173              grid_size=grid_size,
+      174              hidden_activation=hidden_activation,
+      175              leaky_alpha=leaky_alpha,
+      176 +            apply_layer_norm=apply_layer_norm,
+      177          )
+      178
+      179      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 5 lines
+      306          # Initialized to equal weighting with variance preservation
+      307          weights["path_scale"] = jnp.ones((3,), dtype=jnp.float32) / jnp.sqrt(3.0)
+      308
+      309 +        # Optional LayerNorm on the combined output along the output_dim axis
+      310 +        if config.get("apply_layer_norm", False):
+      311 +            weights["ln_gamma"] = jnp.ones((output_dim,))
+      312 +            biases["ln_beta"] = jnp.zeros((output_dim,))
+      313 +
+      314          return NodeParams(weights=weights, biases=biases)
+      315
+      316      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 8 lines
+      425              path_scale[2] * b_out
+      426          )
+      427
+      428 +        # Optional LayerNorm along the output_dim axis — pins column output magnitude
+      429 +        if config.get("apply_layer_norm", False) and "ln_gamma" in params.weights:
+      430 +            pre_activation = layernorm(
+      431 +                pre_activation,
+      432 +                params.weights["ln_gamma"],
+      433 +                params.biases["ln_beta"],
+      434 +            )
+      435 +
+      436          # Apply output activation
+      437          activation = node_info.activation
+      438          z_mu = type(activation).forward(pre_activation, activation.config)
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 3 lines
+      463      microcolumn_dim: int = 32,
+      464      grid_size: Tuple[int, int] = (8, 8),
+      465      hidden_activation: str = "leaky_relu",
+      466 +    apply_layer_norm: bool = False,
+      467  ) -> DepthSpanningColumnNode:
+      468      """
+      469      Create a single depth-spanning column.
+     ...
+      475          microcolumn_dim: Internal processing dimension (μd)
+      476          grid_size: Token grid size for L pathway conv
+      477          hidden_activation: Activation for hidden layers
+      478 +        apply_layer_norm: If True, LayerNorm the column output along output_dim
+      479
+      480      Returns:
+      481          Configured DepthSpanningColumnNode
+     ...
+      488          microcolumn_dim=microcolumn_dim,
+      489          grid_size=grid_size,
+      490          hidden_activation=hidden_activation,
+      491 +        apply_layer_norm=apply_layer_norm,
+      492      )
+      493
+      494
+
+● Now the training script: add the two CLI flags, wire apply_layer_norm through factories, build the bypass topology.
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 4 lines
+      378          embed_dim=args.embed_dim,
+      379          target_grid=target_grid,
+      380          add_pos_embed=True,
+      381 +        apply_layer_norm=args.layer_norm_tokens,
+      382      )
+      383      stage3_tap = create_stage_tap(
+      384          name="stage3_tap",
+     ...
+      386          embed_dim=args.embed_dim,
+      387          target_grid=target_grid,
+      388          add_pos_embed=True,
+      389 +        apply_layer_norm=args.layer_norm_tokens,
+      390      )
+      391      stage4_tap = create_stage_tap(
+      392          name="stage4_tap",
+     ...
+      394          embed_dim=args.embed_dim,
+      395          target_grid=target_grid,
+      396          add_pos_embed=True,
+      397 +        apply_layer_norm=args.layer_norm_tokens,
+      398      )
+      399      stage4_pool = create_global_pool(
+      400          name="stage4_pool",
+      401          source_channels=stage4_channels,
+      402          embed_dim=args.embed_dim,
+      403 +        apply_layer_norm=args.layer_norm_tokens,
+      404      )
+      405
+      406      nodes.extend([stage2_tap, stage3_tap, stage4_tap, stage4_pool])
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 1 line
+      421              microcolumn_dim=args.microcolumn_dim,
+      422              grid_size=target_grid,
+      423              hidden_activation=args.column_activation,
+      424 +            apply_layer_norm=args.layer_norm_tokens,
+      425          )
+      426          columns.append(col)
+      427
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 14 lines
+      478          Edge(source=column_pool, target=output.slot("in")),
+      479      ])
+      480
+      481 +    # Optional bypass: stage4 backbone features go directly to the classifier in
+      482 +    # parallel with the columnar pathway. Guarantees non-regression vs. PC ResNet:
+      483 +    # if columns add no information, classifier learns to weight bypass heavily;
+      484 +    # if columns help, the column-pool→output edge weights grow.
+      485 +    if args.bypass_columns:
+      486 +        bypass_pool = AvgPool(
+      487 +            shape=(stage4_channels,),
+      488 +            name="bypass_pool",
+      489 +            global_pool=True,
+      490 +        )
+      491 +        nodes.append(bypass_pool)
+      492 +        edges.append(Edge(source=stage4_out, target=bypass_pool.slot("in")))
+      493 +        edges.append(Edge(source=bypass_pool, target=output.slot("in")))
+      494 +
+      495      structure = graph(
+      496          nodes=nodes,
+      497          edges=edges,
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 18 lines
+      749          action="store_true",
+      750          help="Log per-node-type energy breakdown (E_gauss/E_ce ratio)",
+      751      )
+      752 +    parser.add_argument(
+      753 +        "--bypass_columns",
+      754 +        action="store_true",
+      755 +        help=(
+      756 +            "Add a parallel global-pool of stage4 directly into the classifier, "
+      757 +            "alongside the column pathway. Guarantees non-regression vs. PC ResNet "
+      758 +            "baseline; classifier learns to weight bypass vs. columns."
+      759 +        ),
+      760 +    )
+      761 +    parser.add_argument(
+      762 +        "--layer_norm_tokens",
+      763 +        action="store_true",
+      764 +        help=(
+      765 +            "Apply LayerNorm along the embed_dim axis at the output of every "
+      766 +            "stage_tap, stage4_pool, and depth-spanning column. Pins activation "
+      767 +            "magnitude through the pipeline."
+      768 +        ),
+      769 +    )
+      770      return parser.parse_args()
+      771
+      772
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 58 lines, removed 1 line
+      165          for name in final_state.nodes
+      166          if name.startswith("col_")
+      167          or name.startswith("stage")
+      168 -        or name in ("combiner", "column_pool", "output")
+      168 +        or name in ("combiner", "column_pool", "output", "bypass_pool")
+      169      ]
+      170      return extract_latent_statistics(final_state, nodes=interesting)
+      171
+      172
+      173 +def diagnose_column_correlation(
+      174 +    params,
+      175 +    structure,
+      176 +    batch: Dict[str, jnp.ndarray],
+      177 +    rng_key: jax.Array,
+      178 +) -> Dict[str, float]:
+      179 +    """
+      180 +    Compute the maximum off-diagonal pairwise Pearson correlation between
+      181 +    column z_latent vectors after inference, on a fixed diagnostic batch.
+      182 +
+      183 +    High correlation across columns means the four (or N) columns are producing
+      184 +    redundant features. A sum combiner with redundant column outputs collapses
+      185 +    to a single feature; that is the load-bearing claim of Path D in
+      186 +    docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md.
+      187 +
+      188 +    Returns summary: max off-diagonal |corr|, mean off-diagonal |corr|.
+      189 +    """
+      190 +    _, _, final_state = get_graph_param_gradient(params, batch, structure, rng_key)
+      191 +    col_names = sorted(n for n in final_state.nodes if n.startswith("col_"))
+      192 +    if len(col_names) < 2:
+      193 +        return {"max_abs_offdiag": 0.0, "mean_abs_offdiag": 0.0}
+      194 +
+      195 +    flat_cols = []
+      196 +    for name in col_names:
+      197 +        z = final_state.nodes[name].z_latent
+      198 +        # collapse over batch+spatial axes; one row per column
+      199 +        flat = jnp.reshape(z, (-1,))
+      200 +        flat = flat - jnp.mean(flat)
+      201 +        norm = jnp.linalg.norm(flat) + 1e-8
+      202 +        flat_cols.append(flat / norm)
+      203 +
+      204 +    mat = jnp.stack(flat_cols, axis=0)  # (n_cols, n_features)
+      205 +    corr = jnp.matmul(mat, mat.T)
+      206 +    n = corr.shape[0]
+      207 +    mask = 1.0 - jnp.eye(n)
+      208 +    off = jnp.abs(corr) * mask
+      209 +    max_off = float(jnp.max(off))
+      210 +    mean_off = float(jnp.sum(off) / jnp.sum(mask))
+      211 +    return {"max_abs_offdiag": max_off, "mean_abs_offdiag": mean_off}
+      212 +
+      213 +
+      214 +def diagnose_classifier_edge_weights(params) -> Dict[str, float]:
+      215 +    """
+      216 +    Per-edge Frobenius norm of the classifier (Linear "output" node)'s weight
+      217 +    matrices, one per incoming edge. With --bypass_columns, this surfaces whether
+      218 +    the classifier is using the bypass edge or the column-pool edge — the load-
+      219 +    bearing test of Path A in the path-forward plan.
+      220 +    """
+      221 +    if "output" not in params.nodes:
+      222 +        return {}
+      223 +    out_weights = params.nodes["output"].weights
+      224 +    return {
+      225 +        edge_key: float(jnp.linalg.norm(W))
+      226 +        for edge_key, W in out_weights.items()
+      227 +    }
+      228 +
+      229 +
+      230  # Model configurations with explicit stage channel counts for stage taps
+      231  MODEL_CONFIGS = {
+      232      "tiny": {
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 13 lines
+      716                      f"std={cs['std']:.4f}"
+      717                  )
+      718
+      721 +            )
+      722 +            print(
+      723 +                f"    col-pair |corr|: max={corr['max_abs_offdiag']:.4f} "
+      724 +                f"mean={corr['mean_abs_offdiag']:.4f}"
+      725 +            )
+      726 +
+      727 +            edge_norms = diagnose_classifier_edge_weights(params)
+      728 +            if edge_norms:
+      729 +                pieces = [f"{k}={v:.4f}" for k, v in sorted(edge_norms.items())]
+      730 +                print(f"    output ||W|| per edge: {' '.join(pieces)}")
+      731 +
+      732          return metrics
+      733
+      734      print(f"\nTraining for {args.num_epochs} epochs...")
+
+● Now let me syntax-check and run a quick smoke test of each flag combo to verify nothing is broken before the long matrix.
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -c "
+      import ast…)
+  ⎿  scripts/train_cifar10_depth_spanning.py ok
+     columnar_cl_fabricpc/columns/stage_taps.py ok
+     columnar_cl_fabricpc/columns/depth_spanning_column.py ok
+  ⎿  Allowed by auto mode classifier
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick --diagnose_energy --bypass_columns --layer_norm_tokens 2>&1 |…)
+  ⎿  ----------------------------------------------------------------------
+       backbone: 0.6411
+       stage_taps: 0.0002
+     … +52 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● LN works (stage tap stds jumped from 0.02–0.11 to 0.97–1.00, col stds from 0.006 to 1.0). Two small things to clean up: bypass_pool is being miscategorized as "backbone"
+  in the energy diagnosis, and I want to verify nothing regressed without the flags.
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 10 lines, removed 1 line
+      112          "stage_taps": 0.0,
+      113          "columns": 0.0,
+      114          "combiner": 0.0,
+      115 +        "bypass": 0.0,
+      116          "classifier": 0.0,
+      117      }
+      118
+     ...
+      127              categories["stage_taps"] += energy_sum
+      128          elif node_name in ("combiner", "column_pool"):
+      129              categories["combiner"] += energy_sum
+      130 +        elif node_name == "bypass_pool":
+      131 +            categories["bypass"] += energy_sum
+      132          else:
+      133              # ResNet backbone nodes: stem, s*b*_conv_*, s*b*_skip_*
+      134              categories["backbone"] += energy_sum
+      135
+      136      # Compute Gaussian vs CrossEntropy
+      134 -    e_gauss = categories["backbone"] + categories["stage_taps"] + categories["columns"] + categories["combiner"]
+      137 +    e_gauss = (
+      138 +        categories["backbone"]
+      139 +        + categories["stage_taps"]
+      140 +        + categories["columns"]
+      141 +        + categories["combiner"]
+      142 +        + categories["bypass"]
+      143 +    )
+      144      e_ce = categories["classifier"]
+      145
+      146      ratio = e_gauss / e_ce if e_ce > 1e-8 else float("inf")
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick 2>&1 | grep -vE 'it/s\]|^Epoch [0-9]+/[0-9.]+:\s+[0-9]+%' | ta…)
+  ⎿  Loading CIFAR-10...
+     Train batches: 352
+     Val batches: 40
+     … +11 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick --bypass_columns 2>&1 | grep -vE 'it/s\]|^Epoch [0-9]+/[0-9.]+…)
+  ⎿  Graph: 23 nodes, 33 edges
+     Parameters: 100,306
+     Test Accuracy: 0.0965 (9.65%)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick --layer_norm_tokens 2>&1 | grep -vE 'it/s\]|^Epoch [0-9]+/[0-9…)
+  ⎿  Graph: 22 nodes, 31 edges
+     Parameters: 100,050
+     Test Accuracy: 0.1034 (10.34%)
+  ⎿  Allowed by auto mode classifier
+
+● All four flag combinations build successfully. Counts check out (bypass adds 1 node + 1 edge, LN adds ~400 params for embed_dim=32 quick mode). Now let me launch Stage
+  1's four-cell matrix.
+
+● Bash(nproc; free -h | head -3)
+  ⎿  32
+                    total        used        free      shared  buff/cache   available
+     Mem:            30Gi        12Gi       8.8Gi       205Mi        10Gi        18Gi
+     Swap:          8.0Gi       3.6Gi       4.4Gi
+
+● 32 cores, 18 GB RAM free. I'll throttle each run to 8 threads and launch all 4 in parallel.
+
+● Bash(TS=$(date +%Y%m%d_%H%M%S) && \
+      COMMON="--model tiny --num_epochs 10 --num_columns 4 --diagnose_energy" && \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(TS=$(date +%Y%m%d_%H%M%S) && \
+      PY=/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python && \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(TS=$(date +%Y%m%d_%H%M%S) && \
+      PY=/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python && \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(TS=$(date +%Y%m%d_%H%M%S) && \
+      PY=/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python && \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Background command "Launch tiny baseline (no flags)" completed (exit code 0)
+
+● Background command "Launch tiny bypass-only" completed (exit code 0)
+
+● Background command "Launch tiny norm-only" completed (exit code 0)
+
+● The bash launcher returned immediately because the & backgrounds the actual python process — the runs are still active. Let me verify and poll.
+
+● Bash(ps -ef | grep -E 'train_cifar10_depth' | grep -v grep | head; echo "---"; ls -la results/stage1_tiny_*.log 2>&1)
+  ⎿  ni       1389684 1389682 99 14:07 ?        00:00:32 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model tiny --n
+     um_epochs 10 --num_columns 4 --diagnose_energy
+     ni       1389733 1389731 99 14:07 ?        00:00:30 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model tiny --n
+     … +10 lines (ctrl+o to expand)
+
+● Background command "Launch tiny bypass+norm" completed (exit code 0)
+
+● Setting up a single wait that completes when all 4 python processes finish.
+
+● Bash(until [ -z "$(pgrep -f train_cifar10_depth_spanning)" ]; do sleep 30; done; echo "all stage 1 runs finished")
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Stage 1 four-cell matrix is launched and a watcher will notify when all complete. Summary of what I've built and what's running:
+
+  Code changes (committed to working tree, not git):
+  - stage_taps.py:StageTapTokenizer and GlobalPoolNode — added apply_layer_norm constructor flag; registers ln_gamma/ln_beta in initialize_params; calls
+  fabricpc.utils.helpers.layernorm on pre_activation along embed_dim before activation.
+  - depth_spanning_column.py:DepthSpanningColumnNode — same pattern, LN on the K+L+B combined pre_activation along output_dim.
+  - scripts/train_cifar10_depth_spanning.py — --bypass_columns (adds bypass_pool AvgPool global node on stage4_out and a parallel edge into output.slot("in")) and
+  --layer_norm_tokens (wires the LN flag through every stage tap, pool, and column factory).
+  - Per-epoch diagnostics added in epoch_callback: per-component energy breakdown, column z_latent std range, combiner z_latent stats, max + mean off-diagonal column-pair
+  correlation, and per-edge ||W|| on the classifier (so when --bypass_columns is on we can see whether the classifier learns to weight bypass vs. column-pool).
+  - Smoke-tested all four flag combinations end-to-end on --quick. LN drops the col z_latent std from 0.006 (no LN) to 1.0 (with LN) and stage4_pool from 0.021 to 0.98 —
+  scale collapse fixed at the source.
+
+  Running matrix (tiny backbone, 10 epochs each, throttled to 8 threads each):
+  - stage1_tiny_baseline_*.log — no flags (replication target ~17%)
+  - stage1_tiny_bypass_only_*.log — --bypass_columns
+  - stage1_tiny_norm_only_*.log — --layer_norm_tokens
+  - stage1_tiny_bypass_norm_*.log — both flags
+
+  Tasks tracked in #5-9. Waiting on the watcher to notify.
+
+✻ Sautéed for 11m 8s · 1 shell still running
+
+  5 tasks (4 done, 1 in progress, 0 open)
+  ✔ Add apply_layer_norm to StageTapTokenizer / GlobalPoolNode
+  ✔ Add apply_layer_norm to DepthSpanningColumnNode
+  ✔ Add --bypass_columns and --layer_norm_tokens flags + bypass topology
+  ✔ Add classifier per-edge weight norm + column correlation diagnostics
+  ◼ Smoke-test the modified script and run Stage 1 four-cell matrix on tiny
+
+─────────────────────────────────────
   - Path C cost is even lower than I estimated: constructor flag + ~5 lines in two existing files (StageTapTokenizer/GlobalPoolNode and DepthSpanningColumnNode). No new
   files.
   - Files-to-modify table updated to point at the two existing files and the LnMlp1Node pattern as the template.
@@ -707,3 +1357,660 @@ pasted transcripts are in sequential order -- topmost just below here was from y
 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
 
+
+
+
+
+
+
+
+  Ready to pick the anchor and implement Stage 1's flags and run matrix on your green light.
+
+✻ Brewed for 1m 53s
+
+❯ go ahead with tiny anchor
+
+● Implementing now. Let me first inspect SkipConnection to see if a learnable-scalar combiner already exists.
+
+  Read 1 file (ctrl+o to expand)
+
+● Let me check StageTapTokenizer.forward and DepthSpanningColumnNode.forward shapes before editing.
+
+  Searched for 3 patterns, read 3 files (ctrl+o to expand)
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 1 line
+      59  )
+      60  from fabricpc.core.types import NodeInfo, NodeParams, NodeState
+      61  from fabricpc.nodes.base import NodeBase, SlotSpec
+      62 +from fabricpc.utils.helpers import layernorm
+      63
+      64
+      65  class StageTapTokenizer(NodeBase):
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 5 lines
+      113          source_channels: int,
+      114          target_grid: Tuple[int, int] = (8, 8),
+      115          add_pos_embed: bool = True,
+      116 +        apply_layer_norm: bool = False,
+      117          activation: Optional[ActivationBase] = IdentityActivation(),
+      118          energy: Optional[EnergyFunctional] = GaussianEnergy(),
+      119          weight_init: Optional[InitializerBase] = KaimingInitializer(),
+     ...
+      128              source_channels: Number of channels in source stage (e.g., 64 for stage4)
+      129              target_grid: Target spatial grid (h, w) to pool/interpolate to
+      130              add_pos_embed: Whether to add learnable position embeddings
+      131 +            apply_layer_norm: If True, layer-normalize the post-projection
+      132 +                pre_activation along the embed_dim axis before the activation
+      133 +                function. Pins the output magnitude regardless of upstream scale.
+      134              activation: Output activation (default: Identity)
+      135              energy: Energy functional (default: Gaussian)
+      136              weight_init: Weight initializer
+     ...
+      158              source_channels=source_channels,
+      159              target_grid=target_grid,
+      160              add_pos_embed=add_pos_embed,
+      161 +            apply_layer_norm=apply_layer_norm,
+      162          )
+      163
+      164      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 5 lines
+      195          tokens, embed_dim = node_shape
+      196          source_channels = config.get("source_channels")
+      197          add_pos_embed = config.get("add_pos_embed", True)
+      198 +        apply_layer_norm = config.get("apply_layer_norm", False)
+      199
+      200          if source_channels is None:
+      201              raise ValueError("StageTapTokenizer requires source_channels in config")
+     ...
+      215                  keys[1], (1, tokens, embed_dim), pos_init
+      216              )
+      217
+      218 +        if apply_layer_norm:
+      219 +            weights["ln_gamma"] = jnp.ones((embed_dim,))
+      220 +            biases["ln_beta"] = jnp.zeros((embed_dim,))
+      221 +
+      222          return NodeParams(weights=weights, biases=biases)
+      223
+      224      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 1 line
+      284          config = node_info.node_config
+      285          target_grid = config.get("target_grid", (8, 8))
+      286          add_pos_embed = config.get("add_pos_embed", True)
+      287 +        apply_layer_norm = config.get("apply_layer_norm", False)
+      288          target_h, target_w = target_grid
+      289          tokens = target_h * target_w
+      290
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 8 lines
+      311          if add_pos_embed and "pos_embed" in params.weights:
+      312              pre_activation = pre_activation + params.weights["pos_embed"]
+      313
+      314 +        # Optional LayerNorm along embed_dim — pins output magnitude
+      315 +        if apply_layer_norm and "ln_gamma" in params.weights:
+      316 +            pre_activation = layernorm(
+      317 +                pre_activation,
+      318 +                params.weights["ln_gamma"],
+      319 +                params.biases["ln_beta"],
+      320 +            )
+      321 +
+      322          # Apply activation
+      323          activation = node_info.activation
+      324          z_mu = type(activation).forward(pre_activation, activation.config)
+
+● Now GlobalPoolNode and its factory. Let me read its forward/init.
+
+  Reading 1 file… (ctrl+o to expand)
+  ⎿  columnar_cl_fabricpc/columns/stage_taps.py
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 4 lines
+      381          shape: Tuple[int, ...],
+      382          name: str,
+      383          source_channels: int,
+      384 +        apply_layer_norm: bool = False,
+      385          activation: Optional[ActivationBase] = IdentityActivation(),
+      386          energy: Optional[EnergyFunctional] = GaussianEnergy(),
+      387          weight_init: Optional[InitializerBase] = KaimingInitializer(),
+     ...
+      394              shape: Output shape (1, embed_dim), e.g., (1, 64)
+      395              name: Node name
+      396              source_channels: Number of channels in source stage
+      397 +            apply_layer_norm: If True, layer-normalize the post-projection
+      398 +                pre_activation along the embed_dim axis before the activation.
+      399              activation: Output activation (default: Identity)
+      400              energy: Energy functional (default: Gaussian)
+      401              weight_init: Weight initializer
+     ...
+      418              latent_init=latent_init,
+      419              weight_init=weight_init,
+      420              source_channels=source_channels,
+      421 +            apply_layer_norm=apply_layer_norm,
+      422          )
+      423
+      424      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 5 lines
+      453
+      454          _, embed_dim = node_shape
+      455          source_channels = config.get("source_channels")
+      456 +        apply_layer_norm = config.get("apply_layer_norm", False)
+      457
+      458          if source_channels is None:
+      459              raise ValueError("GlobalPoolNode requires source_channels in config")
+     ...
+      467              "b_proj": jnp.zeros((embed_dim,)),
+      468          }
+      469
+      470 +        if apply_layer_norm:
+      471 +            weights["ln_gamma"] = jnp.ones((embed_dim,))
+      472 +            biases["ln_beta"] = jnp.zeros((embed_dim,))
+      473 +
+      474          return NodeParams(weights=weights, biases=biases)
+      475
+      476      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 9 lines
+      508          # Expand to token format: (batch, embed_dim) → (batch, 1, embed_dim)
+      509          pre_activation = x[:, None, :]
+      510
+      511 +        # Optional LayerNorm along embed_dim
+      512 +        config = node_info.node_config
+      513 +        if config.get("apply_layer_norm", False) and "ln_gamma" in params.weights:
+      514 +            pre_activation = layernorm(
+      515 +                pre_activation,
+      516 +                params.weights["ln_gamma"],
+      517 +                params.biases["ln_beta"],
+      518 +            )
+      519 +
+      520          # Apply activation
+      521          activation = node_info.activation
+      522          z_mu = type(activation).forward(pre_activation, activation.config)
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 6 lines
+      546      embed_dim: int = 64,
+      547      target_grid: Tuple[int, int] = (8, 8),
+      548      add_pos_embed: bool = True,
+      549 +    apply_layer_norm: bool = False,
+      550  ) -> StageTapTokenizer:
+      551      """
+      552      Create a StageTapTokenizer for a ResNet stage.
+     ...
+      557          embed_dim: Output embedding dimension
+      558          target_grid: Target spatial grid (h, w)
+      559          add_pos_embed: Whether to add position embeddings
+      560 +        apply_layer_norm: If True, LayerNorm the output along embed_dim
+      561
+      562      Returns:
+      563          Configured StageTapTokenizer
+     ...
+      569          source_channels=source_channels,
+      570          target_grid=target_grid,
+      571          add_pos_embed=add_pos_embed,
+      572 +        apply_layer_norm=apply_layer_norm,
+      573      )
+      574
+      575
+     ...
+      577      name: str,
+      578      source_channels: int,
+      579      embed_dim: int = 64,
+      580 +    apply_layer_norm: bool = False,
+      581  ) -> GlobalPoolNode:
+      582      """
+      583      Create a GlobalPoolNode for the B pathway.
+     ...
+      586          name: Node name (e.g., "stage4_pool")
+      587          source_channels: Channel count of the source stage
+      588          embed_dim: Output embedding dimension
+      589 +        apply_layer_norm: If True, LayerNorm the output along embed_dim
+      590
+      591      Returns:
+      592          Configured GlobalPoolNode
+     ...
+      595          shape=(1, embed_dim),
+      596          name=name,
+      597          source_channels=source_channels,
+      598 +        apply_layer_norm=apply_layer_norm,
+      599      )
+      600
+      601
+
+● Now DepthSpanningColumnNode.
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 1 line
+      70  )
+      71  from fabricpc.core.types import NodeInfo, NodeParams, NodeState
+      72  from fabricpc.nodes.base import NodeBase, SlotSpec
+      73 +from fabricpc.utils.helpers import layernorm
+      74
+      75
+      76  def _hidden_activation(x: jax.Array, activation_name: str, leaky_alpha: float) -> jax.Array:
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 1 line
+      127          grid_size: Tuple[int, int] = (8, 8),
+      128          hidden_activation: str = "leaky_relu",
+      129          leaky_alpha: float = 0.1,
+      130 +        apply_layer_norm: bool = False,
+      131          activation: Optional[ActivationBase] = IdentityActivation(),
+      132          energy: Optional[EnergyFunctional] = GaussianEnergy(),
+      133          weight_init: Optional[InitializerBase] = KaimingInitializer(),
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 1 line
+      173              grid_size=grid_size,
+      174              hidden_activation=hidden_activation,
+      175              leaky_alpha=leaky_alpha,
+      176 +            apply_layer_norm=apply_layer_norm,
+      177          )
+      178
+      179      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 5 lines
+      306          # Initialized to equal weighting with variance preservation
+      307          weights["path_scale"] = jnp.ones((3,), dtype=jnp.float32) / jnp.sqrt(3.0)
+      308
+      309 +        # Optional LayerNorm on the combined output along the output_dim axis
+      310 +        if config.get("apply_layer_norm", False):
+      311 +            weights["ln_gamma"] = jnp.ones((output_dim,))
+      312 +            biases["ln_beta"] = jnp.zeros((output_dim,))
+      313 +
+      314          return NodeParams(weights=weights, biases=biases)
+      315
+      316      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 8 lines
+      425              path_scale[2] * b_out
+      426          )
+      427
+      428 +        # Optional LayerNorm along the output_dim axis — pins column output magnitude
+      429 +        if config.get("apply_layer_norm", False) and "ln_gamma" in params.weights:
+      430 +            pre_activation = layernorm(
+      431 +                pre_activation,
+      432 +                params.weights["ln_gamma"],
+      433 +                params.biases["ln_beta"],
+      434 +            )
+      435 +
+      436          # Apply output activation
+      437          activation = node_info.activation
+      438          z_mu = type(activation).forward(pre_activation, activation.config)
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 3 lines
+      463      microcolumn_dim: int = 32,
+      464      grid_size: Tuple[int, int] = (8, 8),
+      465      hidden_activation: str = "leaky_relu",
+      466 +    apply_layer_norm: bool = False,
+      467  ) -> DepthSpanningColumnNode:
+      468      """
+      469      Create a single depth-spanning column.
+     ...
+      475          microcolumn_dim: Internal processing dimension (μd)
+      476          grid_size: Token grid size for L pathway conv
+      477          hidden_activation: Activation for hidden layers
+      478 +        apply_layer_norm: If True, LayerNorm the column output along output_dim
+      479
+      480      Returns:
+      481          Configured DepthSpanningColumnNode
+     ...
+      488          microcolumn_dim=microcolumn_dim,
+      489          grid_size=grid_size,
+      490          hidden_activation=hidden_activation,
+      491 +        apply_layer_norm=apply_layer_norm,
+      492      )
+      493
+      494
+
+● Now the training script: add the two CLI flags, wire apply_layer_norm through factories, build the bypass topology.
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 4 lines
+      378          embed_dim=args.embed_dim,
+      379          target_grid=target_grid,
+      380          add_pos_embed=True,
+      381 +        apply_layer_norm=args.layer_norm_tokens,
+      382      )
+      383      stage3_tap = create_stage_tap(
+      384          name="stage3_tap",
+     ...
+      386          embed_dim=args.embed_dim,
+      387          target_grid=target_grid,
+      388          add_pos_embed=True,
+      389 +        apply_layer_norm=args.layer_norm_tokens,
+      390      )
+      391      stage4_tap = create_stage_tap(
+      392          name="stage4_tap",
+     ...
+      394          embed_dim=args.embed_dim,
+      395          target_grid=target_grid,
+      396          add_pos_embed=True,
+      397 +        apply_layer_norm=args.layer_norm_tokens,
+      398      )
+      399      stage4_pool = create_global_pool(
+      400          name="stage4_pool",
+      401          source_channels=stage4_channels,
+      402          embed_dim=args.embed_dim,
+      403 +        apply_layer_norm=args.layer_norm_tokens,
+      404      )
+      405
+      406      nodes.extend([stage2_tap, stage3_tap, stage4_tap, stage4_pool])
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 1 line
+      421              microcolumn_dim=args.microcolumn_dim,
+      422              grid_size=target_grid,
+      423              hidden_activation=args.column_activation,
+      424 +            apply_layer_norm=args.layer_norm_tokens,
+      425          )
+      426          columns.append(col)
+      427
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 14 lines
+      478          Edge(source=column_pool, target=output.slot("in")),
+      479      ])
+      480
+      481 +    # Optional bypass: stage4 backbone features go directly to the classifier in
+      482 +    # parallel with the columnar pathway. Guarantees non-regression vs. PC ResNet:
+      483 +    # if columns add no information, classifier learns to weight bypass heavily;
+      484 +    # if columns help, the column-pool→output edge weights grow.
+      485 +    if args.bypass_columns:
+      486 +        bypass_pool = AvgPool(
+      487 +            shape=(stage4_channels,),
+      488 +            name="bypass_pool",
+      489 +            global_pool=True,
+      490 +        )
+      491 +        nodes.append(bypass_pool)
+      492 +        edges.append(Edge(source=stage4_out, target=bypass_pool.slot("in")))
+      493 +        edges.append(Edge(source=bypass_pool, target=output.slot("in")))
+      494 +
+      495      structure = graph(
+      496          nodes=nodes,
+      497          edges=edges,
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 18 lines
+      749          action="store_true",
+      750          help="Log per-node-type energy breakdown (E_gauss/E_ce ratio)",
+      751      )
+      752 +    parser.add_argument(
+      753 +        "--bypass_columns",
+      754 +        action="store_true",
+      755 +        help=(
+      756 +            "Add a parallel global-pool of stage4 directly into the classifier, "
+      757 +            "alongside the column pathway. Guarantees non-regression vs. PC ResNet "
+      758 +            "baseline; classifier learns to weight bypass vs. columns."
+      759 +        ),
+      760 +    )
+      761 +    parser.add_argument(
+      762 +        "--layer_norm_tokens",
+      763 +        action="store_true",
+      764 +        help=(
+      765 +            "Apply LayerNorm along the embed_dim axis at the output of every "
+      766 +            "stage_tap, stage4_pool, and depth-spanning column. Pins activation "
+      767 +            "magnitude through the pipeline."
+      768 +        ),
+      769 +    )
+      770      return parser.parse_args()
+      771
+      772
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 58 lines, removed 1 line
+      165          for name in final_state.nodes
+      166          if name.startswith("col_")
+      167          or name.startswith("stage")
+      168 -        or name in ("combiner", "column_pool", "output")
+      168 +        or name in ("combiner", "column_pool", "output", "bypass_pool")
+      169      ]
+      170      return extract_latent_statistics(final_state, nodes=interesting)
+      171
+      172
+      173 +def diagnose_column_correlation(
+      174 +    params,
+      175 +    structure,
+      176 +    batch: Dict[str, jnp.ndarray],
+      177 +    rng_key: jax.Array,
+      178 +) -> Dict[str, float]:
+      179 +    """
+      180 +    Compute the maximum off-diagonal pairwise Pearson correlation between
+      181 +    column z_latent vectors after inference, on a fixed diagnostic batch.
+      182 +
+      183 +    High correlation across columns means the four (or N) columns are producing
+      184 +    redundant features. A sum combiner with redundant column outputs collapses
+      185 +    to a single feature; that is the load-bearing claim of Path D in
+      186 +    docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md.
+      187 +
+      188 +    Returns summary: max off-diagonal |corr|, mean off-diagonal |corr|.
+      189 +    """
+      190 +    _, _, final_state = get_graph_param_gradient(params, batch, structure, rng_key)
+      191 +    col_names = sorted(n for n in final_state.nodes if n.startswith("col_"))
+      192 +    if len(col_names) < 2:
+      193 +        return {"max_abs_offdiag": 0.0, "mean_abs_offdiag": 0.0}
+      194 +
+      195 +    flat_cols = []
+      196 +    for name in col_names:
+      197 +        z = final_state.nodes[name].z_latent
+      198 +        # collapse over batch+spatial axes; one row per column
+      199 +        flat = jnp.reshape(z, (-1,))
+      200 +        flat = flat - jnp.mean(flat)
+      201 +        norm = jnp.linalg.norm(flat) + 1e-8
+      202 +        flat_cols.append(flat / norm)
+      203 +
+      204 +    mat = jnp.stack(flat_cols, axis=0)  # (n_cols, n_features)
+      205 +    corr = jnp.matmul(mat, mat.T)
+      206 +    n = corr.shape[0]
+      207 +    mask = 1.0 - jnp.eye(n)
+      208 +    off = jnp.abs(corr) * mask
+      209 +    max_off = float(jnp.max(off))
+      210 +    mean_off = float(jnp.sum(off) / jnp.sum(mask))
+      211 +    return {"max_abs_offdiag": max_off, "mean_abs_offdiag": mean_off}
+      212 +
+      213 +
+      214 +def diagnose_classifier_edge_weights(params) -> Dict[str, float]:
+      215 +    """
+      216 +    Per-edge Frobenius norm of the classifier (Linear "output" node)'s weight
+      217 +    matrices, one per incoming edge. With --bypass_columns, this surfaces whether
+      218 +    the classifier is using the bypass edge or the column-pool edge — the load-
+      219 +    bearing test of Path A in the path-forward plan.
+      220 +    """
+      221 +    if "output" not in params.nodes:
+      222 +        return {}
+      223 +    out_weights = params.nodes["output"].weights
+      224 +    return {
+      225 +        edge_key: float(jnp.linalg.norm(W))
+      226 +        for edge_key, W in out_weights.items()
+      227 +    }
+      228 +
+      229 +
+      230  # Model configurations with explicit stage channel counts for stage taps
+      231  MODEL_CONFIGS = {
+      232      "tiny": {
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 13 lines
+      716                      f"std={cs['std']:.4f}"
+      717                  )
+      718
+      721 +            )
+      722 +            print(
+      723 +                f"    col-pair |corr|: max={corr['max_abs_offdiag']:.4f} "
+      724 +                f"mean={corr['mean_abs_offdiag']:.4f}"
+      725 +            )
+      726 +
+      727 +            edge_norms = diagnose_classifier_edge_weights(params)
+      728 +            if edge_norms:
+      729 +                pieces = [f"{k}={v:.4f}" for k, v in sorted(edge_norms.items())]
+      730 +                print(f"    output ||W|| per edge: {' '.join(pieces)}")
+      731 +
+      732          return metrics
+      733
+      734      print(f"\nTraining for {args.num_epochs} epochs...")
+
+● Now let me syntax-check and run a quick smoke test of each flag combo to verify nothing is broken before the long matrix.
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -c "
+      import ast…)
+  ⎿  scripts/train_cifar10_depth_spanning.py ok
+     columnar_cl_fabricpc/columns/stage_taps.py ok
+     columnar_cl_fabricpc/columns/depth_spanning_column.py ok
+  ⎿  Allowed by auto mode classifier
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick --diagnose_energy --bypass_columns --layer_norm_tokens 2>&1 |…)
+  ⎿  ----------------------------------------------------------------------
+       backbone: 0.6411
+       stage_taps: 0.0002
+     … +52 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● LN works (stage tap stds jumped from 0.02–0.11 to 0.97–1.00, col stds from 0.006 to 1.0). Two small things to clean up: bypass_pool is being miscategorized as "backbone"
+  in the energy diagnosis, and I want to verify nothing regressed without the flags.
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 10 lines, removed 1 line
+      112          "stage_taps": 0.0,
+      113          "columns": 0.0,
+      114          "combiner": 0.0,
+      115 +        "bypass": 0.0,
+      116          "classifier": 0.0,
+      117      }
+      118
+     ...
+      127              categories["stage_taps"] += energy_sum
+      128          elif node_name in ("combiner", "column_pool"):
+      129              categories["combiner"] += energy_sum
+      130 +        elif node_name == "bypass_pool":
+      131 +            categories["bypass"] += energy_sum
+      132          else:
+      133              # ResNet backbone nodes: stem, s*b*_conv_*, s*b*_skip_*
+      134              categories["backbone"] += energy_sum
+      135
+      136      # Compute Gaussian vs CrossEntropy
+      134 -    e_gauss = categories["backbone"] + categories["stage_taps"] + categories["columns"] + categories["combiner"]
+      137 +    e_gauss = (
+      138 +        categories["backbone"]
+      139 +        + categories["stage_taps"]
+      140 +        + categories["columns"]
+      141 +        + categories["combiner"]
+      142 +        + categories["bypass"]
+      143 +    )
+      144      e_ce = categories["classifier"]
+      145
+      146      ratio = e_gauss / e_ce if e_ce > 1e-8 else float("inf")
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick 2>&1 | grep -vE 'it/s\]|^Epoch [0-9]+/[0-9.]+:\s+[0-9]+%' | ta…)
+  ⎿  Loading CIFAR-10...
+     Train batches: 352
+     Val batches: 40
+     … +11 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick --bypass_columns 2>&1 | grep -vE 'it/s\]|^Epoch [0-9]+/[0-9.]+…)
+  ⎿  Graph: 23 nodes, 33 edges
+     Parameters: 100,306
+     Test Accuracy: 0.0965 (9.65%)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick --layer_norm_tokens 2>&1 | grep -vE 'it/s\]|^Epoch [0-9]+/[0-9…)
+  ⎿  Graph: 22 nodes, 31 edges
+     Parameters: 100,050
+     Test Accuracy: 0.1034 (10.34%)
+  ⎿  Allowed by auto mode classifier
+
+● All four flag combinations build successfully. Counts check out (bypass adds 1 node + 1 edge, LN adds ~400 params for embed_dim=32 quick mode). Now let me launch Stage
+  1's four-cell matrix.
+
+● Bash(nproc; free -h | head -3)
+  ⎿  32
+                    total        used        free      shared  buff/cache   available
+     Mem:            30Gi        12Gi       8.8Gi       205Mi        10Gi        18Gi
+     Swap:          8.0Gi       3.6Gi       4.4Gi
+
+● 32 cores, 18 GB RAM free. I'll throttle each run to 8 threads and launch all 4 in parallel.
+
+● Bash(TS=$(date +%Y%m%d_%H%M%S) && \
+      COMMON="--model tiny --num_epochs 10 --num_columns 4 --diagnose_energy" && \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(TS=$(date +%Y%m%d_%H%M%S) && \
+      PY=/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python && \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(TS=$(date +%Y%m%d_%H%M%S) && \
+      PY=/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python && \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(TS=$(date +%Y%m%d_%H%M%S) && \
+      PY=/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python && \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Background command "Launch tiny baseline (no flags)" completed (exit code 0)
+
+● Background command "Launch tiny bypass-only" completed (exit code 0)
+
+● Background command "Launch tiny norm-only" completed (exit code 0)
+
+● The bash launcher returned immediately because the & backgrounds the actual python process — the runs are still active. Let me verify and poll.
+
+● Bash(ps -ef | grep -E 'train_cifar10_depth' | grep -v grep | head; echo "---"; ls -la results/stage1_tiny_*.log 2>&1)
+  ⎿  ni       1389684 1389682 99 14:07 ?        00:00:32 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model tiny --n
+     um_epochs 10 --num_columns 4 --diagnose_energy
+     ni       1389733 1389731 99 14:07 ?        00:00:30 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model tiny --n
+     … +10 lines (ctrl+o to expand)
+
+● Background command "Launch tiny bypass+norm" completed (exit code 0)
+
+● Setting up a single wait that completes when all 4 python processes finish.
+
+● Bash(until [ -z "$(pgrep -f train_cifar10_depth_spanning)" ]; do sleep 30; done; echo "all stage 1 runs finished")
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Stage 1 four-cell matrix is launched and a watcher will notify when all complete. Summary of what I've built and what's running:
+
+  Code changes (committed to working tree, not git):
+  - stage_taps.py:StageTapTokenizer and GlobalPoolNode — added apply_layer_norm constructor flag; registers ln_gamma/ln_beta in initialize_params; calls
+  fabricpc.utils.helpers.layernorm on pre_activation along embed_dim before activation.
+  - depth_spanning_column.py:DepthSpanningColumnNode — same pattern, LN on the K+L+B combined pre_activation along output_dim.
+  - scripts/train_cifar10_depth_spanning.py — --bypass_columns (adds bypass_pool AvgPool global node on stage4_out and a parallel edge into output.slot("in")) and
+  --layer_norm_tokens (wires the LN flag through every stage tap, pool, and column factory).
+  - Per-epoch diagnostics added in epoch_callback: per-component energy breakdown, column z_latent std range, combiner z_latent stats, max + mean off-diagonal column-pair
+  correlation, and per-edge ||W|| on the classifier (so when --bypass_columns is on we can see whether the classifier learns to weight bypass vs. column-pool).
+  - Smoke-tested all four flag combinations end-to-end on --quick. LN drops the col z_latent std from 0.006 (no LN) to 1.0 (with LN) and stage4_pool from 0.021 to 0.98 —
+  scale collapse fixed at the source.
+
+  Running matrix (tiny backbone, 10 epochs each, throttled to 8 threads each):
+  - stage1_tiny_baseline_*.log — no flags (replication target ~17%)
+  - stage1_tiny_bypass_only_*.log — --bypass_columns
+  - stage1_tiny_norm_only_*.log — --layer_norm_tokens
+  - stage1_tiny_bypass_norm_*.log — both flags
+
+  Tasks tracked in #5-9. Waiting on the watcher to notify.
+
+✻ Sautéed for 11m 8s · 1 shell still running
+
+  5 tasks (4 done, 1 in progress, 0 open)
+  ✔ Add apply_layer_norm to StageTapTokenizer / GlobalPoolNode
+  ✔ Add apply_layer_norm to DepthSpanningColumnNode
+  ✔ Add --bypass_columns and --layer_norm_tokens flags + bypass topology
+  ✔ Add classifier per-edge weight norm + column correlation diagnostics
+  ◼ Smoke-test the modified script and run Stage 1 four-cell matrix on tiny
+
+─────────────────────────────────────

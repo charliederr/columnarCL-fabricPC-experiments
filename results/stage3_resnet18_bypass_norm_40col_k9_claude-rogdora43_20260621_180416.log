@@ -1,0 +1,43 @@
+======================================================================
+CIFAR-10 Depth-Spanning Columnar Architecture
+======================================================================
+Model: resnet18
+Activation: leaky_relu
+Column activation: leaky_relu
+Columns: 40
+Column mode: random_sparse
+Shared columns: 4
+Active non-shared: 5
+Combiner: sum
+Embed dim: 64
+Microcolumn dim: 32
+Epochs: 10.0
+Batch size: 128
+Learning rate: 0.01
+Weight decay: 0.01
+Inference steps: 40
+Inference eta: 0.1
+
+Stage outputs: stage2=(16, 16, 64), stage3=(8, 8, 128), stage4=(4, 4, 256)
+Target grid: (4, 4), tokens: 16
+
+Active columns: [0, 1, 2, 3, 8, 11, 33, 35, 39]
+Graph: 77 nodes, 244 edges
+Parameters: 3,653,866
+
+Loading CIFAR-10...
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1782079464.004622 1569930 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1782079464.005115 1569930 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1782079464.837938 1569930 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1782079464.838273 1569930 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1782079464.931482 1569930 cuda_executor.cc:1737] INTERNAL: CUDA Runtime error: Failed call to cudaGetRuntimeVersion: Error loading CUDA libraries. GPU will not be used.: Error loading CUDA libraries. GPU will not be used.
+W0000 00:00:1782079464.942209 1569930 gpu_device.cc:2365] Cannot dlopen some GPU libraries. Please make sure the missing libraries mentioned above are installed properly if you would like to use GPU. Follow the guide at https://www.tensorflow.org/install/gpu for how to download and setup the required libraries for your platform.
+Skipping registering GPU devices...
+Train batches: 352
+Val batches: 40
+Test batches: 79
+
+----------------------------------------------------------------------
+Energy Diagnosis (before training)
