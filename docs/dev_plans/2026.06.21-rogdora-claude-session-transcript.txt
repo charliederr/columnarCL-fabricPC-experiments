@@ -1,4 +1,8 @@
 
+pasted transcripts are in sequential order -- topmost just below here was from yesterday (or the day before) and the most recent as I write this at 2:04pm on 6/21/2026 is just below this when i resumed the claude session which was active prior -- there was a lot of other claude work done though in the meantime on my other laptop
+
+
+
 ● All 140 FabricPC tests pass (was 127 + 13 new). Summary of fixes applied to the single test file:
 
   Critical:

@@ -112,6 +112,7 @@ def diagnose_energy_breakdown(
         "stage_taps": 0.0,
         "columns": 0.0,
         "combiner": 0.0,
+        "bypass": 0.0,
         "classifier": 0.0,
     }
 
@@ -126,12 +127,20 @@ def diagnose_energy_breakdown(
             categories["stage_taps"] += energy_sum
         elif node_name in ("combiner", "column_pool"):
             categories["combiner"] += energy_sum
+        elif node_name == "bypass_pool":
+            categories["bypass"] += energy_sum
         else:
             # ResNet backbone nodes: stem, s*b*_conv_*, s*b*_skip_*
             categories["backbone"] += energy_sum
 
     # Compute Gaussian vs CrossEntropy
-    e_gauss = categories["backbone"] + categories["stage_taps"] + categories["columns"] + categories["combiner"]
+    e_gauss = (
+        categories["backbone"]
+        + categories["stage_taps"]
+        + categories["columns"]
+        + categories["combiner"]
+        + categories["bypass"]
+    )
     e_ce = categories["classifier"]
 
     ratio = e_gauss / e_ce if e_ce > 1e-8 else float("inf")
@@ -165,9 +174,66 @@ def diagnose_column_outputs(
         for name in final_state.nodes
         if name.startswith("col_")
         or name.startswith("stage")
-        or name in ("combiner", "column_pool", "output")
+        or name in ("combiner", "column_pool", "output", "bypass_pool")
     ]
     return extract_latent_statistics(final_state, nodes=interesting)
+
+
+def diagnose_column_correlation(
+    params,
+    structure,
+    batch: Dict[str, jnp.ndarray],
+    rng_key: jax.Array,
+) -> Dict[str, float]:
+    """
+    Compute the maximum off-diagonal pairwise Pearson correlation between
+    column z_latent vectors after inference, on a fixed diagnostic batch.
+
+    High correlation across columns means the four (or N) columns are producing
+    redundant features. A sum combiner with redundant column outputs collapses
+    to a single feature; that is the load-bearing claim of Path D in
+    docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md.
+
+    Returns summary: max off-diagonal |corr|, mean off-diagonal |corr|.
+    """
+    _, _, final_state = get_graph_param_gradient(params, batch, structure, rng_key)
+    col_names = sorted(n for n in final_state.nodes if n.startswith("col_"))
+    if len(col_names) < 2:
+        return {"max_abs_offdiag": 0.0, "mean_abs_offdiag": 0.0}
+
+    flat_cols = []
+    for name in col_names:
+        z = final_state.nodes[name].z_latent
+        # collapse over batch+spatial axes; one row per column
+        flat = jnp.reshape(z, (-1,))
+        flat = flat - jnp.mean(flat)
+        norm = jnp.linalg.norm(flat) + 1e-8
+        flat_cols.append(flat / norm)
+
+    mat = jnp.stack(flat_cols, axis=0)  # (n_cols, n_features)
+    corr = jnp.matmul(mat, mat.T)
+    n = corr.shape[0]
+    mask = 1.0 - jnp.eye(n)
+    off = jnp.abs(corr) * mask
+    max_off = float(jnp.max(off))
+    mean_off = float(jnp.sum(off) / jnp.sum(mask))
+    return {"max_abs_offdiag": max_off, "mean_abs_offdiag": mean_off}
+
+
+def diagnose_classifier_edge_weights(params) -> Dict[str, float]:
+    """
+    Per-edge Frobenius norm of the classifier (Linear "output" node)'s weight
+    matrices, one per incoming edge. With --bypass_columns, this surfaces whether
+    the classifier is using the bypass edge or the column-pool edge — the load-
+    bearing test of Path A in the path-forward plan.
+    """
+    if "output" not in params.nodes:
+        return {}
+    out_weights = params.nodes["output"].weights
+    return {
+        edge_key: float(jnp.linalg.norm(W))
+        for edge_key, W in out_weights.items()
+    }
 
 
 # Model configurations with explicit stage channel counts for stage taps
@@ -378,6 +444,7 @@ def build_depth_spanning_graph(args):
         embed_dim=args.embed_dim,
         target_grid=target_grid,
         add_pos_embed=True,
+        apply_layer_norm=args.layer_norm_tokens,
     )
     stage3_tap = create_stage_tap(
         name="stage3_tap",
@@ -385,6 +452,7 @@ def build_depth_spanning_graph(args):
         embed_dim=args.embed_dim,
         target_grid=target_grid,
         add_pos_embed=True,
+        apply_layer_norm=args.layer_norm_tokens,
     )
     stage4_tap = create_stage_tap(
         name="stage4_tap",
@@ -392,11 +460,13 @@ def build_depth_spanning_graph(args):
         embed_dim=args.embed_dim,
         target_grid=target_grid,
         add_pos_embed=True,
+        apply_layer_norm=args.layer_norm_tokens,
     )
     stage4_pool = create_global_pool(
         name="stage4_pool",
         source_channels=stage4_channels,
         embed_dim=args.embed_dim,
+        apply_layer_norm=args.layer_norm_tokens,
     )
 
     nodes.extend([stage2_tap, stage3_tap, stage4_tap, stage4_pool])
@@ -417,6 +487,7 @@ def build_depth_spanning_graph(args):
             microcolumn_dim=args.microcolumn_dim,
             grid_size=target_grid,
             hidden_activation=args.column_activation,
+            apply_layer_norm=args.layer_norm_tokens,
         )
         columns.append(col)
 
@@ -472,6 +543,20 @@ def build_depth_spanning_graph(args):
         Edge(source=combiner, target=column_pool.slot("in")),
         Edge(source=column_pool, target=output.slot("in")),
     ])
+
+    # Optional bypass: stage4 backbone features go directly to the classifier in
+    # parallel with the columnar pathway. Guarantees non-regression vs. PC ResNet:
+    # if columns add no information, classifier learns to weight bypass heavily;
+    # if columns help, the column-pool→output edge weights grow.
+    if args.bypass_columns:
+        bypass_pool = AvgPool(
+            shape=(stage4_channels,),
+            name="bypass_pool",
+            global_pool=True,
+        )
+        nodes.append(bypass_pool)
+        edges.append(Edge(source=stage4_out, target=bypass_pool.slot("in")))
+        edges.append(Edge(source=bypass_pool, target=output.slot("in")))
 
     structure = graph(
         nodes=nodes,
@@ -640,6 +725,19 @@ def train_cifar10_depth_spanning(args):
                     f"std={cs['std']:.4f}"
                 )
 
+            corr = diagnose_column_correlation(
+                params, structure, diag_batch, diag_key
+            )
+            print(
+                f"    col-pair |corr|: max={corr['max_abs_offdiag']:.4f} "
+                f"mean={corr['mean_abs_offdiag']:.4f}"
+            )
+
+            edge_norms = diagnose_classifier_edge_weights(params)
+            if edge_norms:
+                pieces = [f"{k}={v:.4f}" for k, v in sorted(edge_norms.items())]
+                print(f"    output ||W|| per edge: {' '.join(pieces)}")
+
         return metrics
 
     print(f"\nTraining for {args.num_epochs} epochs...")
@@ -729,6 +827,24 @@ def parse_args():
         "--diagnose_energy",
         action="store_true",
         help="Log per-node-type energy breakdown (E_gauss/E_ce ratio)",
+    )
+    parser.add_argument(
+        "--bypass_columns",
+        action="store_true",
+        help=(
+            "Add a parallel global-pool of stage4 directly into the classifier, "
+            "alongside the column pathway. Guarantees non-regression vs. PC ResNet "
+            "baseline; classifier learns to weight bypass vs. columns."
+        ),
+    )
+    parser.add_argument(
+        "--layer_norm_tokens",
+        action="store_true",
+        help=(
+            "Apply LayerNorm along the embed_dim axis at the output of every "
+            "stage_tap, stage4_pool, and depth-spanning column. Pins activation "
+            "magnitude through the pipeline."
+        ),
     )
     return parser.parse_args()
 

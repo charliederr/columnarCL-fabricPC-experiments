@@ -59,6 +59,7 @@ from fabricpc.core.initializers import (
 )
 from fabricpc.core.types import NodeInfo, NodeParams, NodeState
 from fabricpc.nodes.base import NodeBase, SlotSpec
+from fabricpc.utils.helpers import layernorm
 
 
 class StageTapTokenizer(NodeBase):
@@ -112,6 +113,7 @@ class StageTapTokenizer(NodeBase):
         source_channels: int,
         target_grid: Tuple[int, int] = (8, 8),
         add_pos_embed: bool = True,
+        apply_layer_norm: bool = False,
         activation: Optional[ActivationBase] = IdentityActivation(),
         energy: Optional[EnergyFunctional] = GaussianEnergy(),
         weight_init: Optional[InitializerBase] = KaimingInitializer(),
@@ -126,6 +128,9 @@ class StageTapTokenizer(NodeBase):
             source_channels: Number of channels in source stage (e.g., 64 for stage4)
             target_grid: Target spatial grid (h, w) to pool/interpolate to
             add_pos_embed: Whether to add learnable position embeddings
+            apply_layer_norm: If True, layer-normalize the post-projection
+                pre_activation along the embed_dim axis before the activation
+                function. Pins the output magnitude regardless of upstream scale.
             activation: Output activation (default: Identity)
             energy: Energy functional (default: Gaussian)
             weight_init: Weight initializer
@@ -153,6 +158,7 @@ class StageTapTokenizer(NodeBase):
             source_channels=source_channels,
             target_grid=target_grid,
             add_pos_embed=add_pos_embed,
+            apply_layer_norm=apply_layer_norm,
         )
 
     @staticmethod
@@ -189,6 +195,7 @@ class StageTapTokenizer(NodeBase):
         tokens, embed_dim = node_shape
         source_channels = config.get("source_channels")
         add_pos_embed = config.get("add_pos_embed", True)
+        apply_layer_norm = config.get("apply_layer_norm", False)
 
         if source_channels is None:
             raise ValueError("StageTapTokenizer requires source_channels in config")
@@ -207,6 +214,10 @@ class StageTapTokenizer(NodeBase):
             weights["pos_embed"] = initialize(
                 keys[1], (1, tokens, embed_dim), pos_init
             )
+
+        if apply_layer_norm:
+            weights["ln_gamma"] = jnp.ones((embed_dim,))
+            biases["ln_beta"] = jnp.zeros((embed_dim,))
 
         return NodeParams(weights=weights, biases=biases)
 
@@ -273,6 +284,7 @@ class StageTapTokenizer(NodeBase):
         config = node_info.node_config
         target_grid = config.get("target_grid", (8, 8))
         add_pos_embed = config.get("add_pos_embed", True)
+        apply_layer_norm = config.get("apply_layer_norm", False)
         target_h, target_w = target_grid
         tokens = target_h * target_w
 
@@ -298,6 +310,14 @@ class StageTapTokenizer(NodeBase):
         # Add position embeddings
         if add_pos_embed and "pos_embed" in params.weights:
             pre_activation = pre_activation + params.weights["pos_embed"]
+
+        # Optional LayerNorm along embed_dim — pins output magnitude
+        if apply_layer_norm and "ln_gamma" in params.weights:
+            pre_activation = layernorm(
+                pre_activation,
+                params.weights["ln_gamma"],
+                params.biases["ln_beta"],
+            )
 
         # Apply activation
         activation = node_info.activation
@@ -361,6 +381,7 @@ class GlobalPoolNode(NodeBase):
         shape: Tuple[int, ...],
         name: str,
         source_channels: int,
+        apply_layer_norm: bool = False,
         activation: Optional[ActivationBase] = IdentityActivation(),
         energy: Optional[EnergyFunctional] = GaussianEnergy(),
         weight_init: Optional[InitializerBase] = KaimingInitializer(),
@@ -373,6 +394,8 @@ class GlobalPoolNode(NodeBase):
             shape: Output shape (1, embed_dim), e.g., (1, 64)
             name: Node name
             source_channels: Number of channels in source stage
+            apply_layer_norm: If True, layer-normalize the post-projection
+                pre_activation along the embed_dim axis before the activation.
             activation: Output activation (default: Identity)
             energy: Energy functional (default: Gaussian)
             weight_init: Weight initializer
@@ -395,6 +418,7 @@ class GlobalPoolNode(NodeBase):
             latent_init=latent_init,
             weight_init=weight_init,
             source_channels=source_channels,
+            apply_layer_norm=apply_layer_norm,
         )
 
     @staticmethod
@@ -429,6 +453,7 @@ class GlobalPoolNode(NodeBase):
 
         _, embed_dim = node_shape
         source_channels = config.get("source_channels")
+        apply_layer_norm = config.get("apply_layer_norm", False)
 
         if source_channels is None:
             raise ValueError("GlobalPoolNode requires source_channels in config")
@@ -441,6 +466,10 @@ class GlobalPoolNode(NodeBase):
         biases = {
             "b_proj": jnp.zeros((embed_dim,)),
         }
+
+        if apply_layer_norm:
+            weights["ln_gamma"] = jnp.ones((embed_dim,))
+            biases["ln_beta"] = jnp.zeros((embed_dim,))
 
         return NodeParams(weights=weights, biases=biases)
 
@@ -479,6 +508,15 @@ class GlobalPoolNode(NodeBase):
         # Expand to token format: (batch, embed_dim) → (batch, 1, embed_dim)
         pre_activation = x[:, None, :]
 
+        # Optional LayerNorm along embed_dim
+        config = node_info.node_config
+        if config.get("apply_layer_norm", False) and "ln_gamma" in params.weights:
+            pre_activation = layernorm(
+                pre_activation,
+                params.weights["ln_gamma"],
+                params.biases["ln_beta"],
+            )
+
         # Apply activation
         activation = node_info.activation
         z_mu = type(activation).forward(pre_activation, activation.config)
@@ -508,6 +546,7 @@ def create_stage_tap(
     embed_dim: int = 64,
     target_grid: Tuple[int, int] = (8, 8),
     add_pos_embed: bool = True,
+    apply_layer_norm: bool = False,
 ) -> StageTapTokenizer:
     """
     Create a StageTapTokenizer for a ResNet stage.
@@ -518,6 +557,7 @@ def create_stage_tap(
         embed_dim: Output embedding dimension
         target_grid: Target spatial grid (h, w)
         add_pos_embed: Whether to add position embeddings
+        apply_layer_norm: If True, LayerNorm the output along embed_dim
 
     Returns:
         Configured StageTapTokenizer
@@ -529,6 +569,7 @@ def create_stage_tap(
         source_channels=source_channels,
         target_grid=target_grid,
         add_pos_embed=add_pos_embed,
+        apply_layer_norm=apply_layer_norm,
     )
 
 
@@ -536,6 +577,7 @@ def create_global_pool(
     name: str,
     source_channels: int,
     embed_dim: int = 64,
+    apply_layer_norm: bool = False,
 ) -> GlobalPoolNode:
     """
     Create a GlobalPoolNode for the B pathway.
@@ -544,6 +586,7 @@ def create_global_pool(
         name: Node name (e.g., "stage4_pool")
         source_channels: Channel count of the source stage
         embed_dim: Output embedding dimension
+        apply_layer_norm: If True, LayerNorm the output along embed_dim
 
     Returns:
         Configured GlobalPoolNode
@@ -552,6 +595,7 @@ def create_global_pool(
         shape=(1, embed_dim),
         name=name,
         source_channels=source_channels,
+        apply_layer_norm=apply_layer_norm,
     )
 
 
