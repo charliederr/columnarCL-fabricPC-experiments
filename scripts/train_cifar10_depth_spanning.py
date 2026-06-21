@@ -64,7 +64,10 @@ from fabricpc.core.mupc import MuPCConfig
 from fabricpc.training import train_pcn, evaluate_pcn
 from fabricpc.training.train import get_graph_param_gradient
 from fabricpc.utils.data.dataloader import Cifar10Loader
-from fabricpc.utils.dashboarding.extractors import extract_node_energies
+from fabricpc.utils.dashboarding.extractors import (
+    extract_node_energies,
+    extract_latent_statistics,
+)
 
 from columnar_cl_fabricpc.columns import (
     StageTapTokenizer,
@@ -139,6 +142,32 @@ def diagnose_energy_breakdown(
         "E_ce": e_ce,
         "E_gauss/E_ce": ratio,
     }
+
+
+def diagnose_column_outputs(
+    params,
+    structure,
+    batch: Dict[str, jnp.ndarray],
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Compute per-column z_latent statistics after inference.
+
+    The "columns collapse to trivial outputs" claim is a statement about the
+    magnitude of column outputs. The relevant tensor is each column node's
+    z_latent after the inference loop has converged: that is the value passed
+    forward to the combiner. This function reports mean(|z_latent|), std, min,
+    max for every col_* node, plus the combiner and stage taps for context.
+    """
+    _, _, final_state = get_graph_param_gradient(params, batch, structure, rng_key)
+    interesting = [
+        name
+        for name in final_state.nodes
+        if name.startswith("col_")
+        or name.startswith("stage")
+        or name in ("combiner", "column_pool", "output")
+    ]
+    return extract_latent_statistics(final_state, nodes=interesting)
 
 
 # Model configurations with explicit stage channel counts for stage taps
@@ -519,7 +548,9 @@ def train_cifar10_depth_spanning(args):
     print(f"Val batches: {len(val_loader)}")
     print(f"Test batches: {len(test_loader)}")
 
-    # Energy diagnosis: sample batch for analysis
+    # Energy + column-output diagnosis: sample batch for analysis
+    diag_batch = None
+    diag_key = None
     if args.diagnose_energy:
         diag_batch_raw = next(iter(train_loader))
         diag_batch = {
@@ -534,6 +565,15 @@ def train_cifar10_depth_spanning(args):
         energy_breakdown = diagnose_energy_breakdown(params, structure, diag_batch, diag_key)
         for key, val in energy_breakdown.items():
             print(f"  {key}: {val:.4f}")
+
+        col_stats = diagnose_column_outputs(params, structure, diag_batch, diag_key)
+        print("Column outputs (z_latent statistics):")
+        for name in sorted(col_stats):
+            s = col_stats[name]
+            print(
+                f"  {name:18s} mean={s['mean']:+.4f} std={s['std']:.4f} "
+                f"min={s['min']:+.4f} max={s['max']:+.4f}"
+            )
         print("-" * 70)
 
     steps_per_epoch = len(train_loader)
@@ -564,6 +604,42 @@ def train_cifar10_depth_spanning(args):
         val_acc = float(metrics.get("accuracy", 0.0))
         best_val_acc = max(best_val_acc, val_acc)
         print(f"  Epoch {epoch_num}: val_acc={val_acc:.4f}")
+
+        if args.diagnose_energy and diag_batch is not None:
+            energy_breakdown = diagnose_energy_breakdown(
+                params, structure, diag_batch, diag_key
+            )
+            ratio = energy_breakdown["E_gauss/E_ce"]
+            print(
+                f"    E_gauss={energy_breakdown['E_gauss']:.4f} "
+                f"E_ce={energy_breakdown['E_ce']:.4f} "
+                f"ratio={ratio:.4f} "
+                f"combiner={energy_breakdown['combiner']:.4f} "
+                f"columns={energy_breakdown['columns']:.4f} "
+                f"stage_taps={energy_breakdown['stage_taps']:.4f}"
+            )
+            col_stats = diagnose_column_outputs(
+                params, structure, diag_batch, diag_key
+            )
+            col_names = sorted(n for n in col_stats if n.startswith("col_"))
+            if col_names:
+                mean_abs_per_col = [
+                    (abs(col_stats[n]["mean"]) + col_stats[n]["std"]) for n in col_names
+                ]
+                avg_col_magnitude = sum(mean_abs_per_col) / len(mean_abs_per_col)
+                print(
+                    f"    column |z|≈{avg_col_magnitude:.4f} "
+                    f"(per-col std range "
+                    f"{min(col_stats[n]['std'] for n in col_names):.4f}–"
+                    f"{max(col_stats[n]['std'] for n in col_names):.4f})"
+                )
+            if "combiner" in col_stats:
+                cs = col_stats["combiner"]
+                print(
+                    f"    combiner z_latent mean={cs['mean']:+.4f} "
+                    f"std={cs['std']:.4f}"
+                )
+
         return metrics
 
     print(f"\nTraining for {args.num_epochs} epochs...")
@@ -580,7 +656,7 @@ def train_cifar10_depth_spanning(args):
     )
     elapsed = time.time() - start_time
 
-    # Energy diagnosis: after training
+    # Energy + column-output diagnosis: after training
     if args.diagnose_energy:
         print("\n" + "-" * 70)
         print("Energy Diagnosis (after training)")
@@ -588,6 +664,15 @@ def train_cifar10_depth_spanning(args):
         energy_breakdown = diagnose_energy_breakdown(final_params, structure, diag_batch, diag_key)
         for key, val in energy_breakdown.items():
             print(f"  {key}: {val:.4f}")
+
+        col_stats = diagnose_column_outputs(final_params, structure, diag_batch, diag_key)
+        print("Column outputs (z_latent statistics):")
+        for name in sorted(col_stats):
+            s = col_stats[name]
+            print(
+                f"  {name:18s} mean={s['mean']:+.4f} std={s['std']:.4f} "
+                f"min={s['min']:+.4f} max={s['max']:+.4f}"
+            )
         print("-" * 70)
 
     print(f"\nTraining time: {elapsed:.1f}s")

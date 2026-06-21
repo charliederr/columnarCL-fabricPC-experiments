@@ -1,0 +1,107 @@
+=== tiny 1 epoch with per-epoch diagnostic ===
+======================================================================
+CIFAR-10 Depth-Spanning Columnar Architecture
+======================================================================
+Model: tiny
+Activation: leaky_relu
+Column activation: leaky_relu
+Columns: 4
+Column mode: all_active
+Shared columns: 2
+Active non-shared: 2
+Combiner: sum
+Embed dim: 64
+Microcolumn dim: 32
+Epochs: 1.0
+Batch size: 128
+Learning rate: 0.01
+Weight decay: 0.01
+Inference steps: 40
+Inference eta: 0.1
+
+Stage outputs: stage2=(32, 32, 16), stage3=(16, 16, 32), stage4=(8, 8, 64)
+Target grid: (8, 8), tokens: 64
+
+Active columns: [0, 1, 2, 3]
+Graph: 24 nodes, 41 edges
+Parameters: 181,914
+
+Loading CIFAR-10...
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1782062743.046561 1338935 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1782062743.047059 1338935 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1782062743.800111 1338935 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1782062743.800445 1338935 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1782062743.984051 1338935 cuda_executor.cc:1737] INTERNAL: CUDA Runtime error: Failed call to cudaGetRuntimeVersion: Error loading CUDA libraries. GPU will not be used.: Error loading CUDA libraries. GPU will not be used.
+W0000 00:00:1782062743.995221 1338935 gpu_device.cc:2365] Cannot dlopen some GPU libraries. Please make sure the missing libraries mentioned above are installed properly if you would like to use GPU. Follow the guide at https://www.tensorflow.org/install/gpu for how to download and setup the required libraries for your platform.
+Skipping registering GPU devices...
+Train batches: 352
+Val batches: 40
+Test batches: 79
+
+----------------------------------------------------------------------
+Energy Diagnosis (before training)
+----------------------------------------------------------------------
+  backbone: 0.0002
+  stage_taps: 0.0000
+  columns: 0.0001
+  combiner: 57.2745
+  classifier: 160.9080
+  E_gauss: 57.2747
+  E_ce: 160.9080
+  E_gauss/E_ce: 0.3559
+Column outputs (z_latent statistics):
+  col_00             mean=+0.0002 std=0.0065 min=-0.0412 max=+0.0599
+  col_01             mean=+0.0004 std=0.0057 min=-0.0375 max=+0.0323
+  col_02             mean=-0.0002 std=0.0063 min=-0.0436 max=+0.0591
+  col_03             mean=-0.0001 std=0.0059 min=-0.0461 max=+0.0416
+  column_pool        mean=+0.0028 std=0.1186 min=-0.3551 max=+0.2799
+  combiner           mean=+0.0000 std=0.0010 min=-0.0031 max=+0.0028
+  output             mean=+0.1000 std=0.3000 min=+0.0000 max=+1.0000
+  stage2_tap         mean=+0.0125 std=0.1093 min=-0.5808 max=+0.8507
+  stage3_tap         mean=-0.0043 std=0.0607 min=-0.4837 max=+0.3438
+  stage4_pool        mean=+0.0005 std=0.0210 min=-0.1183 max=+0.1075
+  stage4_tap         mean=-0.0038 std=0.0339 min=-0.2564 max=+0.1917
+----------------------------------------------------------------------
+
+Training for 1.0 epochs...
+    E_gauss=22.1842 E_ce=9.1301 ratio=2.4298 combiner=20.2232 columns=0.0301 stage_taps=0.0024
+    column |z|≈1.4558 (per-col std range 0.9111–2.0709)
+    combiner z_latent mean=-0.0010 std=0.0434
+Epoch 1/1: 100%|██████████| 352/352 [03:54<00:00,  1.50it/s, energy=0.2323, epoch=1/1]
+
+----------------------------------------------------------------------
+Energy Diagnosis (after training)
+----------------------------------------------------------------------
+  backbone: 1.9285
+  stage_taps: 0.0024
+  columns: 0.0301
+  combiner: 20.2232
+  classifier: 9.1301
+  E_gauss: 22.1842
+  E_ce: 9.1301
+  E_gauss/E_ce: 2.4298
+Column outputs (z_latent statistics):
+  col_00             mean=+0.0245 std=2.0709 min=-20.4356 max=+16.2077
+  col_01             mean=+0.0079 std=0.9111 min=-6.9252 max=+9.5740
+  col_02             mean=-0.0684 std=1.4211 min=-12.8136 max=+11.2702
+  col_03             mean=-0.0726 std=1.2465 min=-8.3866 max=+8.5997
+  column_pool        mean=+0.0011 std=0.0760 min=-0.1742 max=+0.1840
+  combiner           mean=-0.0010 std=0.0434 min=-0.3031 max=+0.2941
+  output             mean=+0.1000 std=0.3000 min=+0.0000 max=+1.0000
+  stage2_tap         mean=+0.0344 std=0.7651 min=-4.2574 max=+4.3881
+  stage3_tap         mean=+0.0683 std=2.7104 min=-11.9889 max=+12.4783
+  stage4_pool        mean=+0.1344 std=1.0250 min=-5.9864 max=+7.0229
+  stage4_tap         mean=-0.1112 std=2.0355 min=-13.6465 max=+11.3921
+----------------------------------------------------------------------
+
+Training time: 234.7s
+Evaluating on test set...
+
+======================================================================
+Results Summary
+======================================================================
+Test Accuracy: 0.1696 (16.96%)
+Best Val Accuracy: 0.1780
+exit=0

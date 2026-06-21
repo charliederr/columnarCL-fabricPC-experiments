@@ -1,0 +1,705 @@
+
+● All 140 FabricPC tests pass (was 127 + 13 new). Summary of fixes applied to the single test file:
+
+  Critical:
+  - Issue 1 (bypass of inference loop) — added test_run_inference_with_custom_node, which calls run_inference(...) end-to-end and asserts (a) the custom node's z_latent
+  evolved away from its initialization, (b) clamps are preserved, (c) values are finite.
+  - Issue 2 (default autodiff paths not exercised) — added test_forward_and_latent_grads and test_forward_and_weight_grads calling the inherited NodeBase methods directly
+  with is_clamped=False; both assert finiteness and shape congruence with inputs/params.
+  - Issue 3 (silent truncate/pad) — replaced the reshape-mask logic with per-edge learnable scalars and a strict shape check in initialize_params that raises ValueError on
+  mismatch. Added test_initialize_params_rejects_shape_mismatch to lock the contract.
+
+  High:
+  - Issue 4 (duplicate rng_key) — local class-scoped fixture removed; conftest's rng_key is inherited.
+  - Issue 5 (no **extra_config test) — added test_extra_config_reaches_node_info (verifies energy_weight, shell, route_prior land in node_info.node_config) and
+  test_extra_config_consumed_in_forward (verifies the forward reads energy_weight from node_config and the returned energy scales linearly with it, asserting the
+  documented 3× ratio).
+  - Issue 6 (hardcoded edge-key strings) — replaced with gather_inputs(node_info, structure, state) (FabricPC's own helper) and iteration over node_info.in_edges. No
+  string literal "input->custom:in" anywhere in the file.
+  - Issue 7 (jit test wrong calling convention) — the hand-rolled @jax.jit closure is gone; jit coverage now comes through run_inference's internal lax.fori_loop, which is
+  the real inference-loop calling convention.
+
+  Bonus shared infrastructure:
+  - _build_simple_graph() helper plus simple_custom_graph and simple_custom_state fixtures replace the eight near-identical setups (issue 17 from the review, even though
+  it was Low).
+  - ScaledSumNode.forward now uses type(activation).forward(...) (issue 9) and node_info.node_class.energy_functional(...), matching the established codebase pattern.
+
+  Tests went from 9 to 13; file length is roughly unchanged. All 140 tests in the FabricPC suite pass.
+
+✻ Worked for 5m 15s
+
+※ recap: We're hardening the FabricPC PR that adds `tests/test_external_custom_node.py` to verify the external custom-node contract. All critical and high issues from the
+  review are fixed and all 140 tests pass; next action is yours to commit and open the PR. (disable recaps in /config)
+
+❯ check in changes to git please                                                                                                                                           
+
+● Bash(git status && echo "---" && git diff --stat && echo "---" && git log --oneline -3)
+  ⎿  On branch feature/columnar_CC_adapter
+     Your branch is up to date with 'origin/feature/columnar_CC_adapter'.
+     … +13 lines (ctrl+o to expand)
+
+● Bash(pwd)
+  ⎿  /home/ni/repos/fpc/FabricPC
+
+● Bash(git add tests/test_external_custom_node.py && git commit -m "$(cat <<'EOF'
+      Strengthen external custom-node test: integration, autodiff paths, extra_config…)
+  ⎿  [feature/columnar_CC_adapter 5ad7343] Strengthen external custom-node test: integration, autodiff paths, extra_config
+      1 file changed, 239 insertions(+), 293 deletions(-)
+     On branch feature/columnar_CC_adapter
+     … +4 lines (ctrl+o to expand)
+
+● Committed as 5ad7343 on feature/columnar_CC_adapter: 1 file, +239/-293. Branch is now 1 commit ahead of origin; nothing pushed.
+
+✻ Crunched for 28s
+
+❯ push it                                                                                                                                                                  
+
+● Bash(git push 2>&1)
+  ⎿  To github.com:trueagi-io/FabricPC.git
+        d824887..5ad7343  feature/columnar_CC_adapter -> feature/columnar_CC_adapter
+
+● Pushed 5ad7343 to origin/feature/columnar_CC_adapter at github.com:trueagi-io/FabricPC.git.
+
+✻ Brewed for 11s
+
+❯ open a PR                                                                                                                                                                
+
+● Bash(gh pr list --limit 5 --state all 2>&1; echo "---"; gh repo view --json defaultBranchRef 2>&1)
+  ⎿  Error: Exit code 127
+     bash: gh: command not found
+     ---
+     bash: gh: command not found
+
+● Bash(git log --oneline origin/main..HEAD 2>&1 | head -10; echo "---"; git log -1 --format="%B" 2>&1)
+  ⎿  5ad7343 Strengthen external custom-node test: integration, autodiff paths, extra_config
+     d824887 Creating infrastructure to run experiments externally from this repository.
+     ---
+     … +12 lines (ctrl+o to expand)
+
+● gh isn't installed on this machine, so I can't open the PR directly. Let me prepare the PR title and body in a temp file and give you the URL.
+
+● Bash(git log d824887^..HEAD --oneline 2>&1)
+  ⎿  5ad7343 Strengthen external custom-node test: integration, autodiff paths, extra_config
+     d824887 Creating infrastructure to run experiments externally from this repository.
+
+● Write(FabricPC/PR_BODY.tmp.md)
+  ⎿  Wrote 21 lines to FabricPC/PR_BODY.tmp.md
+       2 ## Summary
+       3 Adds `tests/test_external_custom_node.py` — a contract test that verifies an external package can subclass `NodeBase`, integrate with FabricPC's graph cons
+         d through `run_inference`. Also verifies the `**extra_config` → `node_info.node_config` channel as the supported per-node static config surface for externa
+         l nodes.
+       5 The test defines `ScaledSumNode(NodeBase)`, a minimal demo node whose per-edge learnable scalars exercise a `NodeParams` shape distinct from `Linear`'s 2D
+ ▐▛███▜▌   Claude Code v2.1.178
+▝▜█████▛▘  Opus 4.7 · Claude Max
+  ▘▘ ▝▝    ~/repos/fpc
+
+
+✻ Conversation compacted (ctrl+o for history)
+
+
+❯ /compact                                                                                                                                                                 
+  ⎿  Compacted (ctrl+o to see full summary)
+  ⎿  Read ../../CLAUDE.md (2 lines)
+  ⎿  Referenced file crit-review-of-fpc-PR.md
+  ⎿  Read FabricPC/tests/conftest.py (28 lines)
+  ⎿  Plan file referenced (~/.claude/plans/cuddly-exploring-lovelace.md)
+
+❯ Please reingest the hibacaml pdf here, and then look inside columnarCL-fabricPC-experiments where we will be working for the results of the latest development, plans    
+  and experiments that I ran with another instance of claude. We will be using the python virtual environment: /home/ni/repos/fpc/virt-envs/fpcpy3.12                      
+  to do further work. I'd like to continue to improve upon the classification accuracy for cifar10. Proceed now please with whatever course of action you believe will be  
+  most productive and/or give you more information to focus future plans.                                                                                                  
+  
+  Read 2 files, listed 3 directories (ctrl+o to expand)
+  ⎿  Loaded columnarCL-fabricPC-experiments/CLAUDE.md
+  ⎿  Loaded columnarCL-fabricPC-experiments/AGENTS.md
+
+● PDF ingested. Now let me inventory the experiments repo, results, and most recent plans before taking action.
+
+● Bash(cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && ls docs/dev-plans/ docs/dev_plans/ 2>/dev/null)
+  ⎿  docs/dev-plans/:
+     2026-06-19-043356-rogdora43-plain-cifar10-pc-record.md
+     2026-06-19-094051-rogdora43-codex-hibacaml-colba-cifar10-accuracy-plan.md
+     … +14 lines (ctrl+o to expand)
+
+  Listed 2 directories (ctrl+o to expand)
+
+● Bash(git log --oneline -20 2>&1)
+  ⎿  bc2ea16 claude and everything else crashed here mid-run (the entire KDE desktop went down!)
+     76e8544 claude believes it is on the path of progress here -- we'll see, i guess...
+     af374f7 and now we proceed with letting claude write the plan
+     … +17 lines (ctrl+o to expand)
+
+● Let me load the most recent plans and the crash log to understand where the prior session left off.
+
+  Listed 1 directory (ctrl+o to expand)
+
+● Bash(for f in results/depth_spanning_tiny_10epoch_claude_singbuntu24_20260620_175116.log results/energy_diag_resnet18_1epoch_claude_singbuntu24_20260620_184431.log r…)
+  ⎿  ==== results/depth_spanning_tiny_10epoch_claude_singbuntu24_20260620_175116.log ====
+     Activation: leaky_relu
+     Column activation: leaky_relu
+     … +181 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● Let me read the most recent dev plan + session transcript first to understand the trajectory.
+
+  Read 3 files (ctrl+o to expand)
+
+● Let me check the actual results of those energy diagnosis runs and the current code state.
+
+● Bash(for f in results/energy_diag_resnet18_1epoch_claude_singbuntu24_20260620_184431.log results/energy_diag_tiny_1epoch_claude_singbuntu24_20260620_184334.log resul…)
+  ⎿  ==== energy_diag_resnet18_1epoch_claude_singbuntu24_20260620_184431.log ====
+     Columns: 4
+     Column mode: all_active
+     … +121 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(git log --oneline -30)
+  ⎿  bc2ea16 claude and everything else crashed here mid-run (the entire KDE desktop went down!)
+     76e8544 claude believes it is on the path of progress here -- we'll see, i guess...
+     af374f7 and now we proceed with letting claude write the plan
+     … +22 lines (ctrl+o to expand)
+
+● Bash(git status && git diff --stat HEAD~5..HEAD 2>/dev/null | head -40)
+  ⎿  On branch improve/plain-cifar10
+     Your branch is up to date with 'origin/improve/plain-cifar10'.
+     … +13 lines (ctrl+o to expand)
+
+● I have enough context to reconstruct the story. Before I act, let me note a critical observation:
+
+  The prior session's "Gaussian energy dominance" hypothesis is contradicted by its own diagnostic. The pre-training measurements show:
+  - tiny: E_gauss/E_ce = 0.36 (CE dominates)
+  - resnet18: E_gauss/E_ce = 0.41 (CE dominates)
+  
+  Essentially the same ratio — and CrossEntropy is ~2.5× larger than Gaussian in both. The hypothesis cannot explain why resnet18 collapses to 6.68% while tiny holds at
+  17.21%. Also, the per-component breakdown shows backbone/stage_taps/columns all have ~0 energy at init; only the combiner contributes to E_gauss.
+
+  Let me re-read the training script and combiner so my recommendation is grounded in actual code, not the prior session's misdiagnosis.
+
+  Read 1 file (ctrl+o to expand)
+
+● Let me check whether the per-epoch energy logging is already wired in the training loop, and confirm the venv exists.
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(ls /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python 2>&1 && /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -c "import fabricpc, columnar_cl_fabricpc; print(…)
+  ⎿  /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+     /home/ni/repos/fpc/FabricPC/fabricpc/__init__.py
+     /home/ni/repos/fpc/columnarCL-fabricPC-experiments/columnar_cl_fabricpc/__init__.py
+  ⎿  Allowed by auto mode classifier
+
+● Let me save the venv change to memory, then enhance the diagnostic to log per-epoch energy breakdown so we can actually validate or refute the dominance hypothesis with
+  training-trajectory data.
+
+  Read 1 file, wrote 3 memories (ctrl+o to expand)
+
+  Read 2 files (ctrl+o to expand)
+
+● Write(docs/dev-plans/2026-06-21-claude-reanalysis-of-energy-hypothesis.md)
+  ⎿  Wrote 119 lines to docs/dev-plans/2026-06-21-claude-reanalysis-of-energy-hypothesis.md
+       2 # Re-analysis: the prior session's energy-dominance hypothesis is not supported by its own measurement
+       3 Date: 2026-06-21
+       4 Machine identifier: this session is the one that prepared `claude-improved-migration-plan.md` and the FabricPC custom-node test PR; the prior columnar work
+          was done on `singbuntu24`.
+       5 
+       6 Scope: this document is a critical re-analysis of `docs/dev_plans/energy_scaling_and_hibacaml_plan.md` and the diagnostic logs at:
+       7 
+       8 - `results/energy_diag_tiny_1epoch_claude_singbuntu24_20260620_184334.log`
+       9 - `results/energy_diag_resnet18_1epoch_claude_singbuntu24_20260620_184431.log`
+      10 - `results/depth_spanning_tiny_10epoch_claude_singbuntu24_20260620_175116.log`
+     … +144 lines (ctrl+o to expand)
+     
+● Let me look at how to extract column output magnitudes from the graph state.
+
+  Searched for 1 pattern, read 2 files (ctrl+o to expand)
+
+● Now I'll add per-epoch energy and column-output trajectories to the training script.
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 4 lines, removed 1 line
+      64  from fabricpc.training import train_pcn, evaluate_pcn
+      65  from fabricpc.training.train import get_graph_param_gradient
+      66  from fabricpc.utils.data.dataloader import Cifar10Loader
+      67 -from fabricpc.utils.dashboarding.extractors import extract_node_energies                                                                                  
+      67 +from fabricpc.utils.dashboarding.extractors import (                                                                                                      
+      68 +    extract_node_energies,                                                                                                                                
+      69 +    extract_latent_statistics,                                                                                                                            
+      70 +)                                                                                                                                                         
+      71  
+      72  from columnar_cl_fabricpc.columns import (
+      73      StageTapTokenizer,
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 26 lines
+      144      }
+      145  
+      146  
+      147 +def diagnose_column_outputs(                                                                                                                             
+      148 +    params,                                                                                                                                              
+      149 +    structure,                                                                                                                                           
+      150 +    batch: Dict[str, jnp.ndarray],                                                                                                                       
+      151 +    rng_key: jax.Array,                                                                                                                                  
+      152 +) -> Dict[str, Dict[str, float]]:                                                                                                                        
+      153 +    """                                                                                                                                                  
+      154 +    Compute per-column z_latent statistics after inference.                                                                                              
+      155 +                                                                                                                                                         
+      156 +    The "columns collapse to trivial outputs" claim is a statement about the                                                                             
+      157 +    magnitude of column outputs. The relevant tensor is each column node's                                                                               
+      158 +    z_latent after the inference loop has converged: that is the value passed                                                                            
+      159 +    forward to the combiner. This function reports mean(|z_latent|), std, min,                                                                           
+      160 +    max for every col_* node, plus the combiner and stage taps for context.                                                                              
+      161 +    """                                                                                                                                                  
+      162 +    _, _, final_state = get_graph_param_gradient(params, batch, structure, rng_key)                                                                      
+      163 +    interesting = [                                                                                                                                      
+      164 +        name                                                                                                                                             
+      165 +        for name in final_state.nodes                                                                                                                    
+      166 +        if name.startswith("col_")                                                                                                                       
+      167 +        or name.startswith("stage")                                                                                                                      
+      168 +        or name in ("combiner", "column_pool", "output")                                                                                                 
+      169 +    ]                                                                                                                                                    
+      170 +    return extract_latent_statistics(final_state, nodes=interesting)                                                                                     
+      171 +                                                                                                                                                         
+      172 +                                                                                                                                                         
+      173  # Model configurations with explicit stage channel counts for stage taps
+      174  MODEL_CONFIGS = {
+      175      "tiny": {
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 12 lines, removed 1 line
+      548      print(f"Val batches: {len(val_loader)}")
+      549      print(f"Test batches: {len(test_loader)}")
+      550  
+      551 -    # Energy diagnosis: sample batch for analysis                                                                                                        
+      551 +    # Energy + column-output diagnosis: sample batch for analysis                                                                                        
+      552 +    diag_batch = None                                                                                                                                    
+      553 +    diag_key = None                                                                                                                                      
+      554      if args.diagnose_energy:
+      555          diag_batch_raw = next(iter(train_loader))
+      556          diag_batch = {
+     ...
+      565          energy_breakdown = diagnose_energy_breakdown(params, structure, diag_batch, diag_key)
+      566          for key, val in energy_breakdown.items():
+      567              print(f"  {key}: {val:.4f}")
+      568 +                                                                                                                                                         
+      569 +        col_stats = diagnose_column_outputs(params, structure, diag_batch, diag_key)                                                                     
+      570 +        print("Column outputs (z_latent statistics):")                                                                                                   
+      571 +        for name in sorted(col_stats):                                                                                                                   
+      572 +            s = col_stats[name]                                                                                                                          
+      573 +            print(                                                                                                                                       
+      574 +                f"  {name:18s} mean={s['mean']:+.4f} std={s['std']:.4f} "                                                                                
+      575 +                f"min={s['min']:+.4f} max={s['max']:+.4f}"                                                                                               
+      576 +            )                                                                                                                                            
+      577          print("-" * 70)
+      578  
+      579      steps_per_epoch = len(train_loader)
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 36 lines
+      604          val_acc = float(metrics.get("accuracy", 0.0))
+      605          best_val_acc = max(best_val_acc, val_acc)
+      606          print(f"  Epoch {epoch_num}: val_acc={val_acc:.4f}")
+      607 +                                                                                                                                                         
+      608 +        if args.diagnose_energy and diag_batch is not None:                                                                                              
+      609 +            energy_breakdown = diagnose_energy_breakdown(                                                                                                
+      610 +                params, structure, diag_batch, diag_key                                                                                                  
+      611 +            )                                                                                                                                            
+      612 +            ratio = energy_breakdown["E_gauss/E_ce"]                                                                                                     
+      613 +            print(                                                                                                                                       
+      614 +                f"    E_gauss={energy_breakdown['E_gauss']:.4f} "                                                                                        
+      615 +                f"E_ce={energy_breakdown['E_ce']:.4f} "                                                                                                  
+      616 +                f"ratio={ratio:.4f} "                                                                                                                    
+      617 +                f"combiner={energy_breakdown['combiner']:.4f} "                                                                                          
+      618 +                f"columns={energy_breakdown['columns']:.4f} "                                                                                            
+      619 +                f"stage_taps={energy_breakdown['stage_taps']:.4f}"                                                                                       
+      620 +            )                                                                                                                                            
+      621 +            col_stats = diagnose_column_outputs(                                                                                                         
+      622 +                params, structure, diag_batch, diag_key                                                                                                  
+      623 +            )                                                                                                                                            
+      624 +            col_names = sorted(n for n in col_stats if n.startswith("col_"))                                                                             
+      625 +            if col_names:                                                                                                                                
+      626 +                mean_abs_per_col = [                                                                                                                     
+      627 +                    (abs(col_stats[n]["mean"]) + col_stats[n]["std"]) for n in col_names                                                                 
+      628 +                ]                                                                                                                                        
+      629 +                avg_col_magnitude = sum(mean_abs_per_col) / len(mean_abs_per_col)                                                                        
+      630 +                print(                                                                                                                                   
+      631 +                    f"    column |z|≈{avg_col_magnitude:.4f} "                                                                                           
+      632 +                    f"(per-col std range "                                                                                                               
+      633 +                    f"{min(col_stats[n]['std'] for n in col_names):.4f}–"                                                                                
+      634 +                    f"{max(col_stats[n]['std'] for n in col_names):.4f})"                                                                                
+      635 +                )                                                                                                                                        
+      636 +            if "combiner" in col_stats:                                                                                                                  
+      637 +                cs = col_stats["combiner"]                                                                                                               
+      638 +                print(                                                                                                                                   
+      639 +                    f"    combiner z_latent mean={cs['mean']:+.4f} "                                                                                     
+      640 +                    f"std={cs['std']:.4f}"                                                                                                               
+      641 +                )                                                                                                                                        
+      642 +                                                                                                                                                         
+      643          return metrics
+      644  
+      645      print(f"\nTraining for {args.num_epochs} epochs...")
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 10 lines, removed 1 line
+      656      )
+      657      elapsed = time.time() - start_time
+      658  
+      659 -    # Energy diagnosis: after training                                                                                                                   
+      659 +    # Energy + column-output diagnosis: after training                                                                                                   
+      660      if args.diagnose_energy:
+      661          print("\n" + "-" * 70)
+      662          print("Energy Diagnosis (after training)")
+     ...
+      664          energy_breakdown = diagnose_energy_breakdown(final_params, structure, diag_batch, diag_key)
+      665          for key, val in energy_breakdown.items():
+      666              print(f"  {key}: {val:.4f}")
+      667 +                                                                                                                                                         
+      668 +        col_stats = diagnose_column_outputs(final_params, structure, diag_batch, diag_key)                                                               
+      669 +        print("Column outputs (z_latent statistics):")                                                                                                   
+      670 +        for name in sorted(col_stats):                                                                                                                   
+      671 +            s = col_stats[name]                                                                                                                          
+      672 +            print(                                                                                                                                       
+      673 +                f"  {name:18s} mean={s['mean']:+.4f} std={s['std']:.4f} "                                                                                
+      674 +                f"min={s['min']:+.4f} max={s['max']:+.4f}"                                                                                               
+      675 +            )                                                                                                                                            
+      676          print("-" * 70)
+      677  
+      678      print(f"\nTraining time: {elapsed:.1f}s")
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -c "import ast; ast.parse(open('scripts/train_cifar10_depth_spanning.py').read()); print('syntax ok')")
+  ⎿  syntax ok
+  ⎿  Allowed by auto mode classifier
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick --diagnose_energy 2>&1 | grep -vE 'it/s\]|^Epoch [0-9]+/[0-9.]…)
+  ⎿  WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+     I0000 00:00:1782062656.536540 1332531 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-
+     off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+     … +77 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+     
+● Bash(mkdir -p results && TS=$(date +%Y%m%d_%H%M%S) && LOG="results/depth_spanning_tiny_1epoch_diag_${TS}.log" && echo "=== tiny 1 epoch with per-epoch diagnostic ===…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(TS=$(date +%Y%m%d_%H%M%S) && LOG="results/depth_spanning_resnet18_1epoch_diag_${TS}.log" && echo "=== resnet18 1 epoch with per-epoch diagnostic ===" > "$LOG" &…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Let me wait for the runs to complete. While I wait, let me record a memory about the diagnostic pattern so future sessions avoid the prior mistake.
+
+  Read 1 file, listed 1 directory, wrote 2 memories (ctrl+o to expand)
+
+● Already at initialization the resnet18 column z_latent magnitudes are 6× smaller than tiny's (std 0.0009 vs 0.0060). That is striking — the columns aren't "collapsing"
+  during training; they start collapsed. Let me check the stage tap initialization while training continues.
+
+  Searched for 2 patterns, read 1 file (ctrl+o to expand)
+
+● Both runs are still in their training phases. The init-time data already tells a clear story (resnet18 has 6× smaller column outputs and 50× smaller stage4_pool at
+  init), but I'll wait for the trajectory data before reporting. Let me set up a long fallback in case anything hangs.
+
+● Bash(ps -ef | grep -E 'train_cifar10_depth|python.*scripts' | grep -v grep | head -10)
+  ⎿  ni       1338935 1338898 99 13:25 ?        00:05:50 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model tiny --n
+     um_epochs 1 --num_columns 4 --diagnose_energy
+     ni       1339696 1339660 99 13:25 ?        00:06:31 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model resnet18
+      --num_epochs 1 --num_columns 4 --diagnose_energy
+     
+● I'll wait for the harness notification when the background runs complete.
+
+✻ Crunched for 10m 55s · 2 shells still running
+
+※ recap: Goal: improve CIFAR-10 accuracy with HiBaCaML/ColBa columns. I added per-epoch energy and column-output diagnostics to train_cifar10_depth_spanning.py and have 
+  tiny + resnet18 1-epoch runs in progress. Next: read the trajectory data once both finish and report what it shows. (disable recaps in /config)
+  
+● Background command "Run tiny 1 epoch in background with per-epoch diagnostic" completed (exit code 0)
+
+  Read 1 file (ctrl+o to expand)
+
+● Tiny finished. Striking finding: E_gauss/E_ce starts at 0.36 (CE dominant) but flips to 2.43 (Gauss dominant) after 1 epoch. Column std blew up from 0.006 to 0.9–2.0.
+  Test acc 16.96%. So the dominance hypothesis IS real — but only during training, not at init. Let me wait for resnet18.
+
+● Bash(ps -ef | grep -E 'train_cifar10_depth' | grep -v grep)
+  ⎿  ni       1339696 1339660 99 13:25 ?        00:10:17 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model resnet18
+      --num_epochs 1 --num_columns 4 --diagnose_energy
+
+● Waiting on resnet18.
+
+✻ Cooked for 41s · 1 shell still running
+
+● Background command "Run resnet18 1 epoch in background with per-epoch diagnostic" completed (exit code 0)
+
+  Read 1 file (ctrl+o to expand)
+
+● I have decisive data. Let me write the findings and update memory.
+
+● Write(docs/dev-plans/2026-06-21-claude-findings-resnet18-vs-tiny-trajectory.md)
+  ⎿  Wrote 104 lines to docs/dev-plans/2026-06-21-claude-findings-resnet18-vs-tiny-trajectory.md
+      2 # Findings: resnet18 vs tiny — column-output trajectory during training
+      3 Date: 2026-06-21
+      4 Venv: `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python`
+      5 Inputs:
+      6 - `results/depth_spanning_tiny_1epoch_diag_20260621_132537.log`
+      7 - `results/depth_spanning_resnet18_1epoch_diag_20260621_132547.log`
+      8 
+      9 These two 1-epoch runs use the per-epoch instrumentation added to `scripts/train_cifar10_depth_spanning.py` (functions `diagnose_energy_breakdown` and `diag
+        nose_column_outputs`). All other hyperparameters are identical: `--num_columns 4`, `--column_mode all_active`, `--combiner sum`, batch 128, lr 0.01, infer_s
+        teps 40.
+     … +133 lines (ctrl+o to expand)
+
+  Wrote 2 memories (ctrl+o to expand)
+
+● Here's what the diagnostic produced, and the call I'd put back to you.
+
+  What I did
+
+  - Re-ingested the HiBaCaML paper.
+  - Read the dev plans and prior session transcript in columnarCL-fabricPC-experiments/docs/dev-plans/.
+  - Checked the prior session's energy diagnostic (results/energy_diag_*.log). Its pre-training numbers (E_gauss/E_ce = 0.36 tiny, 0.41 resnet18) contradict the dominance
+  hypothesis it justified — written up in docs/dev-plans/2026-06-21-claude-reanalysis-of-energy-hypothesis.md.
+  - Wired per-epoch energy and column z_latent stats into scripts/train_cifar10_depth_spanning.py:epoch_callback.
+  - Ran 1-epoch tiny and resnet18 diagnostics on virt-envs/fpcpy3.12. Logs in results/depth_spanning_{tiny,resnet18}_1epoch_diag_20260621_132*.log. Full write-up:
+  docs/dev-plans/2026-06-21-claude-findings-resnet18-vs-tiny-trajectory.md.
+
+  What the data shows
+  
+  - E_gauss/E_ce after epoch 1 is essentially identical for both models (2.43 tiny, 2.30 resnet18). The dominance hypothesis does NOT separate working from failing.
+  - The actual differentiator is column output magnitude. After 1 epoch:
+    - tiny columns reach std 0.9–2.07; combiner z_latent std 0.043; test acc 16.96%
+    - resnet18 columns reach std 0.13–0.24; combiner z_latent std 0.0031 (noise floor); test acc 10.00% (chance)
+  - At init, resnet18 stage features are 3–50× weaker than tiny's (e.g. stage4_pool std: 0.0004 vs 0.021), so resnet18 columns start 6× narrower and never catch up.
+  - Mechanism: no BatchNorm/LayerNorm in make_residual_block, so variance drift through 16 convs (resnet18) vs 6 (tiny) compounds. Stage-tap projections from 256→64
+  channels further suppress magnitude.
+
+  Important framing point
+  
+  Both configurations are worse than the no-column PC ResNet baseline (37.9–42.45%). On plain single-task CIFAR-10, the depth-spanning columns are hurting. This is
+  consistent with the paper — it pitches ColBa for continual learning (Split-CIFAR), not for raw plain-CIFAR accuracy, and explicitly disclaims leaderboard-style accuracy
+  claims.
+  
+  Three honest paths forward (I deliberately did NOT pick one for you):
+
+  1. Run the actual Split-CIFAR-10 task the paper targets; stop optimizing plain CIFAR-10 with this architecture.
+  2. Keep plain CIFAR-10 as the metric, fix the scale collapse: token LayerNorm after stage taps, projection rescaling, or swap to the paper's recommended shallow conv
+  stem (Conv 3→32 → Conv 32→64 stride 2 → Conv 64→64).
+  3. Treat plain CIFAR-10 as a backbone-quality question, drop the columns from this metric, and use train_cifar10_pc_resnet.py to push the 42.45% ceiling separately.
+
+  Which one do you want to pursue?
+
+✻ Cooked for 2m 27s
+
+※ recap: Goal: improve CIFAR-10 accuracy with the HiBaCaML/ColBa columnar architecture. Diagnostic done: depth-spanning columns underperform the no-column PC ResNet 
+  baseline on both backbones. Next action: pick one of three paths (Split-CIFAR, fix scale collapse, or drop columns). (disable recaps in /config)
+
+❯ For clarification regarding option 1. In order to pursue the paper's claims we need to get the columnar architecture to perform at least adequately on just regular      
+  cifar10 before be try to get continual learning (split-cifar10) results that can even make sense, so that's why we're  not yet pursuing split cifar10 like is mentioned  
+  in the paper. So the path forward is going to be somewhere between your 2 and 3 and will depend on intermediate results which way we go. I want to try to get a columnar 
+  architecture working with cifar10 because my sense is that if we can succeed with that, it'll be easier to then switch to split cifar10 and not lose too much ground,    
+  since we'll already have the correct architecture in place and we can then try to tune for continual learning. Based on what I've explained here please write up a new   
+  .md file in dev-plans proposing a path (or several?) forward.                                                                                                            
+  
+● Writing the plan now.
+  
+● Write(docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md)
+  ⎿  Wrote 235 lines to docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md
+       1 # Path forward: a columnar architecture that performs adequately on plain CIFAR-10
+       2 
+       3 Date: 2026-06-21
+       4 Venv: `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python`
+       5 References:
+       6 - HiBaCaML paper: `/home/ni/repos/fpc/hibacaml_agi26.pdf` (Goertzel, Derr, Taye 2026), particularly §6 "Scaling to Split-CIFAR"
+       7 - Prior diagnostic: `docs/dev-plans/2026-06-21-claude-findings-resnet18-vs-tiny-trajectory.md`
+       8 - Prior plan being re-scoped: `docs/dev_plans/energy_scaling_and_hibacaml_plan.md`
+       9
+      10 ## Goal restated
+     … +306 lines (ctrl+o to expand)
+
+● Plan written to docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md.
+
+  Structure of the plan
+
+  - Goal & constraints — keep columns present (rules out a "drop columns" terminal), one structural axis changes per experiment.
+  - Five candidate paths (A residual bypass, B paper's shallow stem, C normalization, D concat combiner, E paper's 40-column sparse pool), each with mechanism,
+  what-must-be-true, failure mode, cost, pros/cons — per AGENTS.md.
+  - Three-stage sequencing with explicit go/no-go criteria. Stage 1 combines Path A (residual bypass) + Path C (token normalization) on tiny because together they
+  guarantee non-regression vs. the PC ResNet baseline AND test whether columns add information. Stage 2 branches: if Stage 1 says columns add information, scale to
+  resnet18; if it says they don't, switch backbone to the paper's shallow stem. Stage 3 (terminal) scales the column pool toward the paper's N_col=40, k_total=9 config.
+  - Cross-cutting measurements — added per-column z_latent correlation matrix, which the prior session never recorded and is load-bearing for Path D's hypothesis.
+  - Open questions — does FabricPC already provide a LayerNorm node; how PC inference behaves with normalization; resnet18-alone baseline; paper-stem-alone baseline.
+  - Two decisions for you — Stage 1 anchor (tiny recommended) and norm type (defer until quick check).
+
+  Once you pick Stage 1 anchor and confirm the open question on existing FabricPC normalizers, I can implement the --bypass_columns and --layer_norm_tokens flags and
+  launch Stage 1's four-cell run matrix.
+
+✻ Cogitated for 3m 24s
+
+❯ feel free to check directly -- the FabricPC codebase is right here so you should be able to figure out whether the LayerNorm you are asking about is available (I        
+  suspect it is)                                                                                                                                                           
+  
+  Searched for 1 pattern (ctrl+o to expand)
+  
+● Bash(ls /home/ni/repos/fpc/FabricPC/fabricpc/nodes/ 2>&1 && echo "---" && /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -c "import fabricpc.nodes as n; print([x…)
+  ⎿  base.py
+     convolutional.py
+     identity.py
+     … +15 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+  Searched for 1 pattern, read 2 files (ctrl+o to expand)
+
+● Confirmed. Findings:
+
+  - No standalone LayerNormNode — dir(fabricpc.nodes) does not list one; only IdentityNode, Linear, ConvNode, AvgPool/MaxPool, SkipConnection, EmbeddingNode, and the
+  transformer family.
+  - A layernorm function does exist at fabricpc/utils/helpers.py:4-19 — standard LN along the last axis with learnable gamma/beta, used by every transformer node.
+  - The FabricPC-idiomatic pattern is to fuse LayerNorm inside the node's forward, not to build it as a separate node. Concretely (transformer_v2.py:289-312, LnMlp1Node):
+    - initialize_params registers ln_gamma (ones, shape (embed_dim,)) and ln_beta (zeros) alongside the other weights/biases.
+    - forward calls x_norm = layernorm(x, params.weights["ln_gamma"], params.biases["ln_beta"]) on the input before further processing.
+  - PC-inference compatibility is already validated — TransformerBlock and LnMlp1Node train under train_pcn. The transformer comment at transformer.py:193 notes a known
+  subtlety: "Pre-norm LayerNorm absorbs the external muPC forward_scale" — LN cancels the per-node muPC scaling because it renormalizes regardless of input magnitude. Not
+  a blocker, but means muPC forward-scale tuning becomes a no-op once LN is in front of a node.
+
+  Let me fold this into the plan.
+
+● Update(docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md)
+  ⎿  Added 1 line, removed 1 line
+      72  
+      73  **Failure mode:** Column outputs reach reasonable magnitude but still don't carry discriminative information, because the depth-spanning K/L/B pathways av
+          erage out diversity. Detectable: per-column correlation matrix at the combiner input. High off-diagonal correlation ⇒ columns are redundant.
+      74  
+      75 -**Cost:** Small — `LayerNorm` (or its FabricPC equivalent — see Open Questions below) added at known positions in the graph. No new node types if FabricPC
+         - has a usable normalizer; otherwise a tiny `LayerNormNode` is one file.                                                                                   
+      75 +**Cost:** Small. FabricPC provides the layer-norm primitive — see "FabricPC normalization primitive" below — so implementation is constructor-flag + a few
+         + lines in `StageTapTokenizer.forward` and `DepthSpanningColumnNode.forward`. No new node type is needed.                                                  
+      76  
+      77  **Pros:** Direct intervention on the measured failure mode (scale collapse). Compatible with both Path A and Path B. Cheapest to implement.
+      78  
+
+● Update(docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md)
+  ⎿  Added 3 lines, removed 1 line
+      76  
+      77  **Pros:** Direct intervention on the measured failure mode (scale collapse). Compatible with both Path A and Path B. Cheapest to implement.
+      78  
+      79 -**Cons:** Treats only the scale axis. If post-normalization columns are still redundant or low-rank, accuracy will not improve. Also: BatchNorm-family nor
+         -malization complicates PC inference because batch statistics depend on the *current* batch state; LayerNorm or GroupNorm avoids this but the FabricPC inte
+         -gration needs to be checked.                                                                                                                              
+      79 +**Cons:** Treats only the scale axis. If post-normalization columns are still redundant or low-rank, accuracy will not improve. BatchNorm-family normaliza
+         +tion complicates PC inference because batch statistics depend on the current batch's `z_latent`, but the chosen primitive (`fabricpc.utils.helpers.layerno
+         +rm`) computes statistics per-sample along the last axis, so PC inference convergence is unaffected by it in principle — and is empirically fine in the exi
+         +sting transformer nodes that use the same function.                                                                                                       
+      80  
+      81 +One subtlety to flag: LayerNorm in front of a node renormalizes the input magnitude, which makes the muPC forward-scale of that node a no-op. The FabricPC
+         + transformer code notes this at `transformer.py:193` ("Pre-norm LayerNorm absorbs the external muPC forward_scale"). For our purposes this is fine — we ar
+         +e not relying on per-node muPC scaling once the upstream is normalized — but the `MuPCConfig(include_output=False)` line in `build_depth_spanning_graph` s
+         +hould be revisited if LN ends up everywhere.                                                                                                              
+      82 +                                                                                                                                                          
+      83  ### Path D — Concat combiner with a wider classifier head
+      84  
+      85  **Mechanism:** Replace the sum-combiner (which lets four column outputs interfere destructively) with a concat-along-embed_dim combiner producing shape `(
+          num_tokens, num_columns × embed_dim)`. The classifier sees a vector of size `num_columns × embed_dim` after pooling, giving each column its own non-interf
+          ering output channel.
+
+● Update(docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md)
+  ⎿  Added 2 lines, removed 1 line
+      196  | file | change | why |
+      197  |---|---|---|
+      198  | `scripts/train_cifar10_depth_spanning.py` | Add `--bypass_columns` flag; build a parallel `pooled_stage4 → Add ← column_pool → output` topology with le
+           arnable scalars. Add `--layer_norm_tokens` flag. | Implements Paths A and C. |
+      199 -| `columnar_cl_fabricpc/columns/layer_norm.py` (NEW) | Thin LayerNormNode that normalizes along the last axis with affine parameters. Only added if `fabr
+          -icpc.nodes` does not already provide one — confirm via grep before writing. | Implements Path C. |                                                       
+      199 +| `columnar_cl_fabricpc/columns/stage_taps.py` | Fuse LayerNorm into `StageTapTokenizer.forward` and `GlobalPoolNode.forward`, gated by an `apply_layer_n
+          +orm: bool = False` constructor arg. Use `fabricpc.utils.helpers.layernorm` and register `ln_gamma` / `ln_beta` in `initialize_params` (pattern from `fabr
+          +icpc/nodes/transformer_v2.py:LnMlp1Node`). | Implements Path C upstream of columns. |                                                                    
+      200 +| `columnar_cl_fabricpc/columns/depth_spanning_column.py` | Same: fuse LayerNorm into `DepthSpanningColumnNode.forward` on the final K+L+B output, same c
+          +onstructor arg. | Implements Path C on column outputs. |                                                                                                 
+      201  | `scripts/train_cifar10_depth_spanning.py` | Add `MODEL_CONFIGS["paper_stem"]` per Path B, with three conv layers and explicit stage outputs. | Implemen
+           ts Path B for Stage 2 no-go branch. |
+      202  | `scripts/train_cifar10_depth_spanning.py` | Extend `diagnose_column_outputs` to compute the per-column pairwise `z_latent` correlation matrix. | Cross-
+           cutting measurement #4. |
+      203  | `docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md` | (this file) | Plan of record. |
+
+● Update(docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md)
+  ⎿  Added 11 lines, removed 5 lines
+      202  | `scripts/train_cifar10_depth_spanning.py` | Extend `diagnose_column_outputs` to compute the per-column pairwise `z_latent` correlation matrix. | Cross-
+           cutting measurement #4. |
+      203  | `docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md` | (this file) | Plan of record. |
+      204  
+      205 -## Open questions                                                                                                                                        
+      205 +## FabricPC normalization primitive                                                                                                                      
+      206  
+      207 -1. **Does FabricPC already provide a LayerNorm-equivalent node?** Path C's implementation cost depends on this. Action: grep `FabricPC/fabricpc/nodes` fo
+          -r `LayerNorm` / `Norm` before writing a new node.                                                                                                        
+      207 +Investigated directly (`grep -rniE "LayerNorm|GroupNorm" FabricPC/fabricpc`; `python -c "import fabricpc.nodes; dir(fabricpc.nodes)"`). Findings:        
+      208  
+      209 -2. **How does PC inference interact with normalization?** LayerNorm computes statistics from the current batch's pre-activation; under `train_pcn`, the i
+          -nference loop iteratively updates `z_latent` while these statistics shift. The convergence behavior needs at least a quick check. GroupNorm with no batch
+          - dependence is a safer alternative if convergence is fragile.                                                                                            
+      209 +- **No standalone `LayerNormNode` exists.** The `fabricpc.nodes` module exports `IdentityNode`, `Linear`, `ConvNode`, `AvgPool`/`MaxPool`, `SkipConnectio
+          +n`, `EmbeddingNode`, and the transformer family, but no normalizer node.                                                                                 
+      210 +- **A `layernorm` function does exist** at `fabricpc/utils/helpers.py:4` — standard LN along the last axis with learnable `gamma`/`beta`. Already used by
+          + `TransformerBlock`, `MhaResidualNode`, `LnMlp1Node`, and `Mlp2ResidualNode` and therefore already validated under `train_pcn`.                          
+      211 +- **The idiomatic FabricPC pattern is fusion into the affected node's `forward`,** not a separate node. From `fabricpc/nodes/transformer_v2.py:LnMlp1Node
+          +`: register `ln_gamma` (ones, shape `(embed_dim,)`) and `ln_beta` (zeros) in `initialize_params`; call `layernorm(x, params.weights["ln_gamma"], params.b
+          +iases["ln_beta"])` on inputs at the top of `forward`.                                                                                                    
+      212  
+      211 -3. **What is the resnet18-backbone PC ResNet baseline?** The 37.9% / 42.45% numbers are for the tiny configuration. Resnet18-alone (no columns) accuracy 
+          -is needed as the Path A bypass baseline for Stage 2. Action: run `train_cifar10_pc_resnet.py --model resnet18 --num_epochs 5` once.                      
+      213 +Action for Path C: gate this behavior on a per-node `apply_layer_norm: bool = False` constructor flag, set from a single `--layer_norm_tokens` CLI flag i
+          +n the training script. No new node type. The earlier open question about choosing layer-norm vs. group-norm becomes moot since the existing primitive is 
+          +layer-norm and per-sample, with batch dependence already absent.                                                                                         
+      214  
+      213 -4. **At what scale does the paper's stem start matching standard CIFAR-10 conv baselines?** The stem has ~50K parameters. Standard 3-layer conv on CIFAR-
+          -10 hits ~50–60% accuracy with batch norm; without batch norm and with PC inference, the number may be much lower. This baseline ("stem alone, no columns"
+          -) is needed before Stage 2 no-go can be interpreted.                                                                                                     
+      215 +## Open questions                                                                                                                                        
+      216  
+      217 +1. **What is the resnet18-backbone PC ResNet baseline?** The 37.9% / 42.45% numbers are for the tiny configuration. Resnet18-alone (no columns) accuracy 
+          +is needed as the Path A bypass baseline for Stage 2. Action: run `train_cifar10_pc_resnet.py --model resnet18 --num_epochs 5` once.                      
+      218 +                                                                                                                                                         
+      219 +2. **At what scale does the paper's stem start matching standard CIFAR-10 conv baselines?** The stem has ~50K parameters. Standard 3-layer conv on CIFAR-
+          +10 hits ~50–60% accuracy with batch norm; without batch norm and with PC inference, the number may be much lower. This baseline ("stem alone, no columns"
+          +) is needed before Stage 2 no-go can be interpreted.                                                                                                     
+      220 +                                                                                                                                                         
+      221  ## Risks
+      222  
+      223  1. **The depth-spanning column may be too elaborate.** The K/L/B/B_pool four-slot design assumes each microcolumn contributes complementary information.
+           If diagnostic measurement #4 (per-column correlation) shows columns are highly correlated, simpler `ColumnarNode` from `columnar_cl_fabricpc/columns/colu
+           mn.py` might be a better testbed. Plan does not currently include this pivot.
+
+● Update(docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md)
+  ⎿  Added 3 lines, removed 3 lines
+      235  
+      236  ## Decision the user makes next
+      237  
+      238 -Two choices upstream of any implementation:                                                                                                              
+      238 +One choice upstream of any implementation:                                                                                                               
+      239  
+      240  1. **Stage 1 anchor**: start with `tiny` backbone (incremental, builds on the 17% known number) or `resnet18` (tests the bypass-fix on the harder case im
+           mediately). Recommendation: tiny, because Stage 1's interpretation is cleanest when one factor changes at a time.
+      241  
+      242 -2. **Layer-norm vs group-norm in Path C**: layer-norm is the standard choice for transformer-style attention combiners, group-norm avoids batch-dependenc
+          -e concerns under PC inference. Recommendation: defer until open question 2 is answered by a quick experiment.                                            
+      242 +(The previous "layer-norm vs group-norm" question is resolved by the FabricPC inventory above — use `fabricpc.utils.helpers.layernorm`.)                 
+      243  
+      244 -After these two are settled, Stage 1's four-cell matrix can be launched directly. Each cell is a single `python scripts/train_cifar10_depth_spanning.py .
+          -..` invocation with the new flags.                                                                                                                       
+      244 +After Stage 1 anchor is settled, the matrix can be launched directly. Each cell is a single `python scripts/train_cifar10_depth_spanning.py ...` invocati
+          +on with the new flags.                                                                                                                                   
+
+● Plan updated. Summary of what changed:
+
+  - Open Question #1 resolved: no standalone LayerNormNode, but fabricpc.utils.helpers.layernorm exists, is validated under train_pcn (used by TransformerBlock,
+  LnMlp1Node, MhaResidualNode, Mlp2ResidualNode), and the idiomatic pattern is to fuse it into the affected node's forward. Pattern reference:
+  fabricpc/nodes/transformer_v2.py:LnMlp1Node:289-312.
+  - Open Question #2 dissolves: layer-norm-vs-group-norm question is moot since the existing primitive is layer-norm along the last axis, per-sample, with no batch
+  dependence.
+  - Path C cost is even lower than I estimated: constructor flag + ~5 lines in two existing files (StageTapTokenizer/GlobalPoolNode and DepthSpanningColumnNode). No new
+  files.
+  - Files-to-modify table updated to point at the two existing files and the LnMlp1Node pattern as the template.
+  - Decision-for-user count reduced to one: Stage 1 anchor (tiny vs resnet18), recommendation tiny.
+
+  Ready to pick the anchor and implement Stage 1's flags and run matrix on your green light.
+
+✻ Brewed for 1m 53s
+  
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── migration-plan-critical-review ──
+❯ go ahead with tiny anchor
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+
