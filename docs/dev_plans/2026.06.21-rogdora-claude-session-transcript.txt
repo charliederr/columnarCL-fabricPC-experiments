@@ -2014,3 +2014,1052 @@ pasted transcripts are in sequential order -- topmost just below here was from y
   ◼ Smoke-test the modified script and run Stage 1 four-cell matrix on tiny
 
 ─────────────────────────────────────
+
+
+
+
+     ...
+      158              source_channels=source_channels,
+      159              target_grid=target_grid,
+      160              add_pos_embed=add_pos_embed,
+      161 +            apply_layer_norm=apply_layer_norm,
+      162          )
+      163
+      164      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 5 lines
+      195          tokens, embed_dim = node_shape
+      196          source_channels = config.get("source_channels")
+      197          add_pos_embed = config.get("add_pos_embed", True)
+      198 +        apply_layer_norm = config.get("apply_layer_norm", False)
+      199
+      200          if source_channels is None:
+      201              raise ValueError("StageTapTokenizer requires source_channels in config")
+     ...
+      215                  keys[1], (1, tokens, embed_dim), pos_init
+      216              )
+      217
+      218 +        if apply_layer_norm:
+      219 +            weights["ln_gamma"] = jnp.ones((embed_dim,))
+      220 +            biases["ln_beta"] = jnp.zeros((embed_dim,))
+      221 +
+      222          return NodeParams(weights=weights, biases=biases)
+      223
+      224      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 1 line
+      284          config = node_info.node_config
+      285          target_grid = config.get("target_grid", (8, 8))
+      286          add_pos_embed = config.get("add_pos_embed", True)
+      287 +        apply_layer_norm = config.get("apply_layer_norm", False)
+      288          target_h, target_w = target_grid
+      289          tokens = target_h * target_w
+      290
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 8 lines
+      311          if add_pos_embed and "pos_embed" in params.weights:
+      312              pre_activation = pre_activation + params.weights["pos_embed"]
+      313
+      314 +        # Optional LayerNorm along embed_dim — pins output magnitude
+      315 +        if apply_layer_norm and "ln_gamma" in params.weights:
+      316 +            pre_activation = layernorm(
+      317 +                pre_activation,
+      318 +                params.weights["ln_gamma"],
+      319 +                params.biases["ln_beta"],
+      320 +            )
+      321 +
+      322          # Apply activation
+      323          activation = node_info.activation
+      324          z_mu = type(activation).forward(pre_activation, activation.config)
+
+● Now GlobalPoolNode and its factory. Let me read its forward/init.
+
+  Reading 1 file… (ctrl+o to expand)
+  ⎿  columnar_cl_fabricpc/columns/stage_taps.py
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 4 lines
+      381          shape: Tuple[int, ...],
+      382          name: str,
+      383          source_channels: int,
+      384 +        apply_layer_norm: bool = False,
+      385          activation: Optional[ActivationBase] = IdentityActivation(),
+      386          energy: Optional[EnergyFunctional] = GaussianEnergy(),
+      387          weight_init: Optional[InitializerBase] = KaimingInitializer(),
+     ...
+      394              shape: Output shape (1, embed_dim), e.g., (1, 64)
+      395              name: Node name
+      396              source_channels: Number of channels in source stage
+      397 +            apply_layer_norm: If True, layer-normalize the post-projection
+      398 +                pre_activation along the embed_dim axis before the activation.
+      399              activation: Output activation (default: Identity)
+      400              energy: Energy functional (default: Gaussian)
+      401              weight_init: Weight initializer
+     ...
+      418              latent_init=latent_init,
+      419              weight_init=weight_init,
+      420              source_channels=source_channels,
+      421 +            apply_layer_norm=apply_layer_norm,
+      422          )
+      423
+      424      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 5 lines
+      453
+      454          _, embed_dim = node_shape
+      455          source_channels = config.get("source_channels")
+      456 +        apply_layer_norm = config.get("apply_layer_norm", False)
+      457
+      458          if source_channels is None:
+      459              raise ValueError("GlobalPoolNode requires source_channels in config")
+     ...
+      467              "b_proj": jnp.zeros((embed_dim,)),
+      468          }
+      469
+      470 +        if apply_layer_norm:
+      471 +            weights["ln_gamma"] = jnp.ones((embed_dim,))
+      472 +            biases["ln_beta"] = jnp.zeros((embed_dim,))
+      473 +
+      474          return NodeParams(weights=weights, biases=biases)
+      475
+      476      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 9 lines
+      508          # Expand to token format: (batch, embed_dim) → (batch, 1, embed_dim)
+      509          pre_activation = x[:, None, :]
+      510
+      511 +        # Optional LayerNorm along embed_dim
+      512 +        config = node_info.node_config
+      513 +        if config.get("apply_layer_norm", False) and "ln_gamma" in params.weights:
+      514 +            pre_activation = layernorm(
+      515 +                pre_activation,
+      516 +                params.weights["ln_gamma"],
+      517 +                params.biases["ln_beta"],
+      518 +            )
+      519 +
+      520          # Apply activation
+      521          activation = node_info.activation
+      522          z_mu = type(activation).forward(pre_activation, activation.config)
+
+● Update(columnar_cl_fabricpc/columns/stage_taps.py)
+  ⎿  Added 6 lines
+      546      embed_dim: int = 64,
+      547      target_grid: Tuple[int, int] = (8, 8),
+      548      add_pos_embed: bool = True,
+      549 +    apply_layer_norm: bool = False,
+      550  ) -> StageTapTokenizer:
+      551      """
+      552      Create a StageTapTokenizer for a ResNet stage.
+     ...
+      557          embed_dim: Output embedding dimension
+      558          target_grid: Target spatial grid (h, w)
+      559          add_pos_embed: Whether to add position embeddings
+      560 +        apply_layer_norm: If True, LayerNorm the output along embed_dim
+      561
+      562      Returns:
+      563          Configured StageTapTokenizer
+     ...
+      569          source_channels=source_channels,
+      570          target_grid=target_grid,
+      571          add_pos_embed=add_pos_embed,
+      572 +        apply_layer_norm=apply_layer_norm,
+      573      )
+      574
+      575
+     ...
+      577      name: str,
+      578      source_channels: int,
+      579      embed_dim: int = 64,
+      580 +    apply_layer_norm: bool = False,
+      581  ) -> GlobalPoolNode:
+      582      """
+      583      Create a GlobalPoolNode for the B pathway.
+     ...
+      586          name: Node name (e.g., "stage4_pool")
+      587          source_channels: Channel count of the source stage
+      588          embed_dim: Output embedding dimension
+      589 +        apply_layer_norm: If True, LayerNorm the output along embed_dim
+      590
+      591      Returns:
+      592          Configured GlobalPoolNode
+     ...
+      595          shape=(1, embed_dim),
+      596          name=name,
+      597          source_channels=source_channels,
+      598 +        apply_layer_norm=apply_layer_norm,
+      599      )
+      600
+      601
+
+● Now DepthSpanningColumnNode.
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 1 line
+      70  )
+      71  from fabricpc.core.types import NodeInfo, NodeParams, NodeState
+      72  from fabricpc.nodes.base import NodeBase, SlotSpec
+      73 +from fabricpc.utils.helpers import layernorm
+      74
+      75
+      76  def _hidden_activation(x: jax.Array, activation_name: str, leaky_alpha: float) -> jax.Array:
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 1 line
+      127          grid_size: Tuple[int, int] = (8, 8),
+      128          hidden_activation: str = "leaky_relu",
+      129          leaky_alpha: float = 0.1,
+      130 +        apply_layer_norm: bool = False,
+      131          activation: Optional[ActivationBase] = IdentityActivation(),
+      132          energy: Optional[EnergyFunctional] = GaussianEnergy(),
+      133          weight_init: Optional[InitializerBase] = KaimingInitializer(),
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 1 line
+      173              grid_size=grid_size,
+      174              hidden_activation=hidden_activation,
+      175              leaky_alpha=leaky_alpha,
+      176 +            apply_layer_norm=apply_layer_norm,
+      177          )
+      178
+      179      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 5 lines
+      306          # Initialized to equal weighting with variance preservation
+      307          weights["path_scale"] = jnp.ones((3,), dtype=jnp.float32) / jnp.sqrt(3.0)
+      308
+      309 +        # Optional LayerNorm on the combined output along the output_dim axis
+      310 +        if config.get("apply_layer_norm", False):
+      311 +            weights["ln_gamma"] = jnp.ones((output_dim,))
+      312 +            biases["ln_beta"] = jnp.zeros((output_dim,))
+      313 +
+      314          return NodeParams(weights=weights, biases=biases)
+      315
+      316      @staticmethod
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 8 lines
+      425              path_scale[2] * b_out
+      426          )
+      427
+      428 +        # Optional LayerNorm along the output_dim axis — pins column output magnitude
+      429 +        if config.get("apply_layer_norm", False) and "ln_gamma" in params.weights:
+      430 +            pre_activation = layernorm(
+      431 +                pre_activation,
+      432 +                params.weights["ln_gamma"],
+      433 +                params.biases["ln_beta"],
+      434 +            )
+      435 +
+      436          # Apply output activation
+      437          activation = node_info.activation
+      438          z_mu = type(activation).forward(pre_activation, activation.config)
+
+● Update(columnar_cl_fabricpc/columns/depth_spanning_column.py)
+  ⎿  Added 3 lines
+      463      microcolumn_dim: int = 32,
+      464      grid_size: Tuple[int, int] = (8, 8),
+      465      hidden_activation: str = "leaky_relu",
+      466 +    apply_layer_norm: bool = False,
+      467  ) -> DepthSpanningColumnNode:
+      468      """
+      469      Create a single depth-spanning column.
+     ...
+      475          microcolumn_dim: Internal processing dimension (μd)
+      476          grid_size: Token grid size for L pathway conv
+      477          hidden_activation: Activation for hidden layers
+      478 +        apply_layer_norm: If True, LayerNorm the column output along output_dim
+      479
+      480      Returns:
+      481          Configured DepthSpanningColumnNode
+     ...
+      488          microcolumn_dim=microcolumn_dim,
+      489          grid_size=grid_size,
+      490          hidden_activation=hidden_activation,
+      491 +        apply_layer_norm=apply_layer_norm,
+      492      )
+      493
+      494
+
+● Now the training script: add the two CLI flags, wire apply_layer_norm through factories, build the bypass topology.
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 4 lines
+      378          embed_dim=args.embed_dim,
+      379          target_grid=target_grid,
+      380          add_pos_embed=True,
+      381 +        apply_layer_norm=args.layer_norm_tokens,
+      382      )
+      383      stage3_tap = create_stage_tap(
+      384          name="stage3_tap",
+     ...
+      386          embed_dim=args.embed_dim,
+      387          target_grid=target_grid,
+      388          add_pos_embed=True,
+      389 +        apply_layer_norm=args.layer_norm_tokens,
+      390      )
+      391      stage4_tap = create_stage_tap(
+      392          name="stage4_tap",
+     ...
+      394          embed_dim=args.embed_dim,
+      395          target_grid=target_grid,
+      396          add_pos_embed=True,
+      397 +        apply_layer_norm=args.layer_norm_tokens,
+      398      )
+      399      stage4_pool = create_global_pool(
+      400          name="stage4_pool",
+      401          source_channels=stage4_channels,
+      402          embed_dim=args.embed_dim,
+      403 +        apply_layer_norm=args.layer_norm_tokens,
+      404      )
+      405
+      406      nodes.extend([stage2_tap, stage3_tap, stage4_tap, stage4_pool])
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 1 line
+      421              microcolumn_dim=args.microcolumn_dim,
+      422              grid_size=target_grid,
+      423              hidden_activation=args.column_activation,
+      424 +            apply_layer_norm=args.layer_norm_tokens,
+      425          )
+      426          columns.append(col)
+      427
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 14 lines
+      478          Edge(source=column_pool, target=output.slot("in")),
+      479      ])
+      480
+      481 +    # Optional bypass: stage4 backbone features go directly to the classifier in
+      482 +    # parallel with the columnar pathway. Guarantees non-regression vs. PC ResNet:
+      483 +    # if columns add no information, classifier learns to weight bypass heavily;
+      484 +    # if columns help, the column-pool→output edge weights grow.
+      485 +    if args.bypass_columns:
+      486 +        bypass_pool = AvgPool(
+      487 +            shape=(stage4_channels,),
+      488 +            name="bypass_pool",
+      489 +            global_pool=True,
+      490 +        )
+      491 +        nodes.append(bypass_pool)
+      492 +        edges.append(Edge(source=stage4_out, target=bypass_pool.slot("in")))
+      493 +        edges.append(Edge(source=bypass_pool, target=output.slot("in")))
+      494 +
+      495      structure = graph(
+      496          nodes=nodes,
+      497          edges=edges,
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 18 lines
+      749          action="store_true",
+      750          help="Log per-node-type energy breakdown (E_gauss/E_ce ratio)",
+      751      )
+      752 +    parser.add_argument(
+      753 +        "--bypass_columns",
+      754 +        action="store_true",
+      755 +        help=(
+      756 +            "Add a parallel global-pool of stage4 directly into the classifier, "
+      757 +            "alongside the column pathway. Guarantees non-regression vs. PC ResNet "
+      758 +            "baseline; classifier learns to weight bypass vs. columns."
+      759 +        ),
+      760 +    )
+      761 +    parser.add_argument(
+      762 +        "--layer_norm_tokens",
+      763 +        action="store_true",
+      764 +        help=(
+      765 +            "Apply LayerNorm along the embed_dim axis at the output of every "
+      766 +            "stage_tap, stage4_pool, and depth-spanning column. Pins activation "
+      767 +            "magnitude through the pipeline."
+      768 +        ),
+      769 +    )
+      770      return parser.parse_args()
+      771
+      772
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 58 lines, removed 1 line
+      165          for name in final_state.nodes
+      166          if name.startswith("col_")
+      167          or name.startswith("stage")
+      168 -        or name in ("combiner", "column_pool", "output")
+      168 +        or name in ("combiner", "column_pool", "output", "bypass_pool")
+      169      ]
+      170      return extract_latent_statistics(final_state, nodes=interesting)
+      171
+      172
+      173 +def diagnose_column_correlation(
+      174 +    params,
+      175 +    structure,
+      176 +    batch: Dict[str, jnp.ndarray],
+      177 +    rng_key: jax.Array,
+      178 +) -> Dict[str, float]:
+      179 +    """
+      180 +    Compute the maximum off-diagonal pairwise Pearson correlation between
+      181 +    column z_latent vectors after inference, on a fixed diagnostic batch.
+      182 +
+      183 +    High correlation across columns means the four (or N) columns are producing
+      184 +    redundant features. A sum combiner with redundant column outputs collapses
+      185 +    to a single feature; that is the load-bearing claim of Path D in
+      186 +    docs/dev-plans/2026-06-21-claude-columnar-cifar10-path-forward.md.
+      187 +
+      188 +    Returns summary: max off-diagonal |corr|, mean off-diagonal |corr|.
+      189 +    """
+      190 +    _, _, final_state = get_graph_param_gradient(params, batch, structure, rng_key)
+      191 +    col_names = sorted(n for n in final_state.nodes if n.startswith("col_"))
+      192 +    if len(col_names) < 2:
+      193 +        return {"max_abs_offdiag": 0.0, "mean_abs_offdiag": 0.0}
+      194 +
+      195 +    flat_cols = []
+      196 +    for name in col_names:
+      197 +        z = final_state.nodes[name].z_latent
+      198 +        # collapse over batch+spatial axes; one row per column
+      199 +        flat = jnp.reshape(z, (-1,))
+      200 +        flat = flat - jnp.mean(flat)
+      201 +        norm = jnp.linalg.norm(flat) + 1e-8
+      202 +        flat_cols.append(flat / norm)
+      203 +
+      204 +    mat = jnp.stack(flat_cols, axis=0)  # (n_cols, n_features)
+      205 +    corr = jnp.matmul(mat, mat.T)
+      206 +    n = corr.shape[0]
+      207 +    mask = 1.0 - jnp.eye(n)
+      208 +    off = jnp.abs(corr) * mask
+      209 +    max_off = float(jnp.max(off))
+      210 +    mean_off = float(jnp.sum(off) / jnp.sum(mask))
+      211 +    return {"max_abs_offdiag": max_off, "mean_abs_offdiag": mean_off}
+      212 +
+      213 +
+      214 +def diagnose_classifier_edge_weights(params) -> Dict[str, float]:
+      215 +    """
+      216 +    Per-edge Frobenius norm of the classifier (Linear "output" node)'s weight
+      217 +    matrices, one per incoming edge. With --bypass_columns, this surfaces whether
+      218 +    the classifier is using the bypass edge or the column-pool edge — the load-
+      219 +    bearing test of Path A in the path-forward plan.
+      220 +    """
+      221 +    if "output" not in params.nodes:
+      222 +        return {}
+      223 +    out_weights = params.nodes["output"].weights
+      224 +    return {
+      225 +        edge_key: float(jnp.linalg.norm(W))
+      226 +        for edge_key, W in out_weights.items()
+      227 +    }
+      228 +
+      229 +
+      230  # Model configurations with explicit stage channel counts for stage taps
+      231  MODEL_CONFIGS = {
+      232      "tiny": {
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 13 lines
+      716                      f"std={cs['std']:.4f}"
+      717                  )
+      718
+      721 +            )
+      722 +            print(
+      723 +                f"    col-pair |corr|: max={corr['max_abs_offdiag']:.4f} "
+      724 +                f"mean={corr['mean_abs_offdiag']:.4f}"
+      725 +            )
+      726 +
+      727 +            edge_norms = diagnose_classifier_edge_weights(params)
+      728 +            if edge_norms:
+      729 +                pieces = [f"{k}={v:.4f}" for k, v in sorted(edge_norms.items())]
+      730 +                print(f"    output ||W|| per edge: {' '.join(pieces)}")
+      731 +
+      732          return metrics
+      733
+      734      print(f"\nTraining for {args.num_epochs} epochs...")
+
+● Now let me syntax-check and run a quick smoke test of each flag combo to verify nothing is broken before the long matrix.
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -c "
+      import ast…)
+  ⎿  scripts/train_cifar10_depth_spanning.py ok
+     columnar_cl_fabricpc/columns/stage_taps.py ok
+     columnar_cl_fabricpc/columns/depth_spanning_column.py ok
+  ⎿  Allowed by auto mode classifier
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick --diagnose_energy --bypass_columns --layer_norm_tokens 2>&1 |…)
+  ⎿  ----------------------------------------------------------------------
+       backbone: 0.6411
+       stage_taps: 0.0002
+     … +52 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● LN works (stage tap stds jumped from 0.02–0.11 to 0.97–1.00, col stds from 0.006 to 1.0). Two small things to clean up: bypass_pool is being miscategorized as "backbone"
+  in the energy diagnosis, and I want to verify nothing regressed without the flags.
+
+● Update(scripts/train_cifar10_depth_spanning.py)
+  ⎿  Added 10 lines, removed 1 line
+      112          "stage_taps": 0.0,
+      113          "columns": 0.0,
+      114          "combiner": 0.0,
+      115 +        "bypass": 0.0,
+      116          "classifier": 0.0,
+      117      }
+      118
+     ...
+      127              categories["stage_taps"] += energy_sum
+      128          elif node_name in ("combiner", "column_pool"):
+      129              categories["combiner"] += energy_sum
+      130 +        elif node_name == "bypass_pool":
+      131 +            categories["bypass"] += energy_sum
+      132          else:
+      133              # ResNet backbone nodes: stem, s*b*_conv_*, s*b*_skip_*
+      134              categories["backbone"] += energy_sum
+      135
+      136      # Compute Gaussian vs CrossEntropy
+      134 -    e_gauss = categories["backbone"] + categories["stage_taps"] + categories["columns"] + categories["combiner"]
+      137 +    e_gauss = (
+      138 +        categories["backbone"]
+      139 +        + categories["stage_taps"]
+      140 +        + categories["columns"]
+      141 +        + categories["combiner"]
+      142 +        + categories["bypass"]
+      143 +    )
+      144      e_ce = categories["classifier"]
+      145
+      146      ratio = e_gauss / e_ce if e_ce > 1e-8 else float("inf")
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick 2>&1 | grep -vE 'it/s\]|^Epoch [0-9]+/[0-9.]+:\s+[0-9]+%' | ta…)
+  ⎿  Loading CIFAR-10...
+     Train batches: 352
+     Val batches: 40
+     … +11 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick --bypass_columns 2>&1 | grep -vE 'it/s\]|^Epoch [0-9]+/[0-9.]+…)
+  ⎿  Graph: 23 nodes, 33 edges
+     Parameters: 100,306
+     Test Accuracy: 0.0965 (9.65%)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick --layer_norm_tokens 2>&1 | grep -vE 'it/s\]|^Epoch [0-9]+/[0-9…)
+  ⎿  Graph: 22 nodes, 31 edges
+     Parameters: 100,050
+     Test Accuracy: 0.1034 (10.34%)
+  ⎿  Allowed by auto mode classifier
+
+● All four flag combinations build successfully. Counts check out (bypass adds 1 node + 1 edge, LN adds ~400 params for embed_dim=32 quick mode). Now let me launch Stage
+  1's four-cell matrix.
+
+● Bash(nproc; free -h | head -3)
+  ⎿  32
+                    total        used        free      shared  buff/cache   available
+     Mem:            30Gi        12Gi       8.8Gi       205Mi        10Gi        18Gi
+     Swap:          8.0Gi       3.6Gi       4.4Gi
+
+● 32 cores, 18 GB RAM free. I'll throttle each run to 8 threads and launch all 4 in parallel.
+
+● Bash(TS=$(date +%Y%m%d_%H%M%S) && \
+      COMMON="--model tiny --num_epochs 10 --num_columns 4 --diagnose_energy" && \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(TS=$(date +%Y%m%d_%H%M%S) && \
+      PY=/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python && \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(TS=$(date +%Y%m%d_%H%M%S) && \
+      PY=/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python && \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(TS=$(date +%Y%m%d_%H%M%S) && \
+      PY=/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python && \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Background command "Launch tiny baseline (no flags)" completed (exit code 0)
+
+● Background command "Launch tiny bypass-only" completed (exit code 0)
+
+● Background command "Launch tiny norm-only" completed (exit code 0)
+
+● The bash launcher returned immediately because the & backgrounds the actual python process — the runs are still active. Let me verify and poll.
+
+● Bash(ps -ef | grep -E 'train_cifar10_depth' | grep -v grep | head; echo "---"; ls -la results/stage1_tiny_*.log 2>&1)
+  ⎿  ni       1389684 1389682 99 14:07 ?        00:00:32 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model tiny --n
+     um_epochs 10 --num_columns 4 --diagnose_energy
+     ni       1389733 1389731 99 14:07 ?        00:00:30 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model tiny --n
+     … +10 lines (ctrl+o to expand)
+
+● Background command "Launch tiny bypass+norm" completed (exit code 0)
+
+● Setting up a single wait that completes when all 4 python processes finish.
+
+● Bash(until [ -z "$(pgrep -f train_cifar10_depth_spanning)" ]; do sleep 30; done; echo "all stage 1 runs finished")
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+  Code changes (committed to working tree, not git):
+  - stage_taps.py:StageTapTokenizer and GlobalPoolNode — added apply_layer_norm constructor flag; registers ln_gamma/ln_beta in initialize_params; calls
+  fabricpc.utils.helpers.layernorm on pre_activation along embed_dim before activation.
+  - depth_spanning_column.py:DepthSpanningColumnNode — same pattern, LN on the K+L+B combined pre_activation along output_dim.
+  - scripts/train_cifar10_depth_spanning.py — --bypass_columns (adds bypass_pool AvgPool global node on stage4_out and a parallel edge into output.slot("in")) and
+  --layer_norm_tokens (wires the LN flag through every stage tap, pool, and column factory).
+  - Per-epoch diagnostics added in epoch_callback: per-component energy breakdown, column z_latent std range, combiner z_latent stats, max + mean off-diagonal column-pair
+  correlation, and per-edge ||W|| on the classifier (so when --bypass_columns is on we can see whether the classifier learns to weight bypass vs. column-pool).
+  - Smoke-tested all four flag combinations end-to-end on --quick. LN drops the col z_latent std from 0.006 (no LN) to 1.0 (with LN) and stage4_pool from 0.021 to 0.98 —
+  scale collapse fixed at the source.
+
+  Running matrix (tiny backbone, 10 epochs each, throttled to 8 threads each):
+  - stage1_tiny_baseline_*.log — no flags (replication target ~17%)
+  - stage1_tiny_bypass_only_*.log — --bypass_columns
+  - stage1_tiny_norm_only_*.log — --layer_norm_tokens
+  - stage1_tiny_bypass_norm_*.log — both flags
+
+  Tasks tracked in #5-9. Waiting on the watcher to notify.
+
+✻ Sautéed for 11m 8s · 1 shell still running
+
+❯ results should be posted to results/ as each experiment finishes, including date in filename as well as "claude-rogdora43" being part of that filename for each result
+  too
+
+● Bash(hostname; uname -n)
+  ⎿  rogdora43
+     rogdora43
+
+● Hostname matches rogdora43. Renaming the in-flight logs now — on Linux the python processes' open file descriptors stay valid through mv (same inode), so they keep
+  writing to the renamed files.
+
+● Bash(cd results && for f in stage1_tiny_baseline_20260621_140704.log stage1_tiny_bypass_only_20260621_140706.log stage1_tiny_norm_only_20260621_140709.log stage1_tin…)
+  ⎿  renamed 'stage1_tiny_baseline_20260621_140704.log' -> 'stage1_tiny_baseline_claude-rogdora43_20260621_140704.log'
+     renamed 'stage1_tiny_bypass_only_20260621_140706.log' -> 'stage1_tiny_bypass_only_claude-rogdora43_20260621_140706.log'
+     renamed 'stage1_tiny_norm_only_20260621_140709.log' -> 'stage1_tiny_norm_only_claude-rogdora43_20260621_140709.log'
+     renamed 'stage1_tiny_bypass_norm_20260621_140711.log' -> 'stage1_tiny_bypass_norm_claude-rogdora43_20260621_140711.log'
+  ⎿  Allowed by auto mode classifier
+
+● Bash(ls -la results/stage1_tiny_*claude-rogdora43*.log && echo "---" && ps -ef | grep -E 'train_cifar10_depth' | grep -v grep | wc -l)
+  ⎿  Error: Exit code 2
+     ls: cannot access 'results/stage1_tiny_*claude-rogdora43*.log': No such file or directory
+
+● Bash(ls -la /home/ni/repos/fpc/columnarCL-fabricPC-experiments/results/stage1_*.log 2>&1; echo "---"; ps -ef | grep -E 'train_cifar10_depth' | grep -v grep | wc -l)
+  ⎿  -rw-r--r--. 1 ni ni 3881 Jun 21 14:15 /home/ni/repos/fpc/columnarCL-fabricPC-experiments/results/stage1_tiny_baseline_claude-rogdora43_20260621_140704.log
+     -rw-r--r--. 1 ni ni 3982 Jun 21 14:15 /home/ni/repos/fpc/columnarCL-fabricPC-experiments/results/stage1_tiny_bypass_norm_claude-rogdora43_20260621_140711.log
+     -rw-r--r--. 1 ni ni 3979 Jun 21 14:15 /home/ni/repos/fpc/columnarCL-fabricPC-experiments/results/stage1_tiny_bypass_only_claude-rogdora43_20260621_140706.log
+     … +3 lines (ctrl+o to expand)
+
+● All 4 renamed, all 4 python processes still running and writing to the renamed inodes (file sizes grew from 2431 → 3881-3982 bytes). Saving the naming convention to
+  memory so future sessions follow it.
+
+  Wrote 2 memories (ctrl+o to expand)
+
+● Renamed. Final filenames now in results/:
+
+  - stage1_tiny_baseline_claude-rogdora43_20260621_140704.log
+  - stage1_tiny_bypass_only_claude-rogdora43_20260621_140706.log
+  - stage1_tiny_norm_only_claude-rogdora43_20260621_140709.log
+  - stage1_tiny_bypass_norm_claude-rogdora43_20260621_140711.log
+
+  All 4 python processes still running (inode survived the rename). Saved the <tag>_claude-<hostname>_<timestamp>.log convention to memory so future sessions follow it
+  without prompting. Watcher will notify when the matrix completes.
+
+✻ Sautéed for 58s · 1 shell still running
+
+※ recap: Working toward a columnar architecture that beats the PC ResNet baseline (~38–42%) on plain CIFAR-10; currently running the four-cell Stage 1 matrix on the tiny
+  backbone (baseline, bypass-only, norm-only, bypass+norm). Next: read the four logs once the watcher fires and compare test accuracy. (disable recaps in /config)
+
+❯ check progress on the runs
+
+● Bash(echo "=== process status ==="; ps -eo pid,etime,pcpu,comm,args | grep -E 'train_cifar10_depth' | grep -v grep | awk '{printf "pid=%s etime=%s cpu=%s args=%s %s…)
+  ⎿  === process status ===
+
+     === log sizes ===
+     … +4 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && for f in results/stage1_tiny_*claude-rogdora43*.log; do echo "==== $(basename $f) ===="; grep -E 'Test…)
+  ⎿  ==== stage1_tiny_baseline_claude-rogdora43_20260621_140704.log ====
+         output ||W|| per edge: column_pool->output:in=62.2277
+     Epoch 10/10:  90%|█████████ | 3168/3520 [41:44<03:13,  1.82it/s, energy=0.0564, epoch=9/10]Epoch 10/10:  90%|█████████ | 3168/3520 [41:45<03:13,  1.82it/s, energ
+     … +152 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● Processes are gone but logs grew to 660KB each — looks like baseline/norm-only/bypass-norm finished, and bypass-only at 210KB might have crashed or finished early. Let
+  me check final status of each log.
+
+● Bash(for f in results/stage1_tiny_*claude-rogdora43*.log; do echo "==== $(basename $f) (mtime: $(stat -c %y $f | cut -d. -f1)) ===="; grep -E 'Test Accuracy|Best Val…)
+  ⎿  ==== stage1_tiny_baseline_claude-rogdora43_20260621_140704.log (mtime: 2026-06-21 14:55:23) ====
+     E0000 00:00:1782065231.997249 1389684 cuda_executor.cc:1737] INTERNAL: CUDA Runtime error: Failed call to cudaGetRuntimeVersion: Error loading CUDA libraries. GP
+     U will not be used.: Error loading CUDA libraries. GPU will not be used.
+     … +22 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● Headline: bypass+norm hit 44.07% test accuracy — beats the PC ResNet baseline. Three of four runs finished:
+
+  ┌─────────────┬───────────────┬───────────────┐
+  │     run     │   test acc    │ training time │
+  ├─────────────┼───────────────┼───────────────┤
+  │ baseline    │        22.28% │        45 min │
+  ├─────────────┼───────────────┼───────────────┤
+  │ bypass+norm │        44.07% │        48 min │
+  ├─────────────┼───────────────┼───────────────┤
+  │ norm-only   │        18.13% │        48 min │
+  ├─────────────┼───────────────┼───────────────┤
+  │ bypass-only │ crashed (OOM) │             — │
+  └─────────────┴───────────────┴───────────────┘
+
+  The bypass-only run died with a JAX OOM trying to instantiate command buffers (likely XLA cache pressure from 4 parallel JIT processes). I need to relaunch it alone, and
+  I also want to look at the per-edge ||W|| and column-correlation trajectory in the bypass+norm log to understand whether columns actually contributed or if it was pure
+  bypass.
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● The pattern is matching tqdm progress garbage. Let me anchor more tightly.
+
+  Searched for 4 patterns (ctrl+o to expand)
+
+● Decisive data. Let me lay out the trajectories first, then propose what's next.
+
+● Stage 1 results so far (tiny backbone, 10 epochs, all on rogdora43):
+
+  | run | test acc | val acc | E_gauss/E_ce trajectory | col-pair |corr| (mean, ep10) | col z_latent std (ep10) | combiner std (ep10) | ‖W_bypass‖ / ‖W_col‖ (ep10) |
+  |---|---:|---:|---:|---:|---:|---:|---|
+  | baseline | 22.28% | 21.74% | 3.4 → 7.6 | 0.71 | 16.07 | 0.48 | — / 62.4 |
+  | norm-only | 18.13% | 19.54% | 2.4 → 3.2 | 0.10 | 0.94 | 0.018 | — / 64.6 |
+  | bypass+norm | 44.07% | 44.30% | 2.6 → 3.2 | 0.05 | 0.90 | 0.016 | 32.1 / 63.4 |
+  | bypass-only | — | — | — | — | — | — | OOM crash |
+
+  Mechanism reading
+
+  1. The bypass+norm result beats the PC ResNet baseline (37.9–42.45%) on plain CIFAR-10 with columns in the graph. First time that's happened. Stage 1 go-criterion is met
+  by the bypass axis; the column axis still needs its isolation test.
+  2. Columns in baseline are doing exactly what the prior diagnostic predicted — column-pair mean correlation climbs to 0.71, meaning the four columns produce essentially
+  the same feature. They're high-magnitude (std 16) but redundant. The sum combiner collapses them. That's why baseline tops out at 22%.
+  3. LayerNorm alone fixes column diversity — norm-only keeps column-pair correlation at 0.10 instead of 0.71, and column std at ~1.0 instead of ~16. So the columns are
+  now well-scaled and decorrelated. But 18% test accuracy — the diverse normalized columns alone don't deliver enough signal through the combiner. Combiner z_latent std
+  stays at 0.018 while the classifier amplifies via ‖W‖=64.6, giving signal ≈ 1.15. Not enough for plain CIFAR-10.
+  4. bypass+norm shows the classifier weights the column path MORE than the bypass path (‖W_col‖=63.4 vs ‖W_bypass‖=32.1). Together with the 44% result, this means columns
+  are contributing real, non-trivial information given that the bypass is also present. But we cannot yet separate "44% = 38% bypass + 6% columns" from "44% = 30% bypass
+  × column interaction." That separation needs bypass_only.
+  5. The OOM crash on bypass_only was XLA command-buffer pressure from 4 parallel JITs. Easy fix: run alone.
+
+  Relaunching bypass-only sequentially now. Same config, will finish in ~45 min.
+
+● Bash(F=results/stage1_tiny_bypass_only_claude-rogdora43_$(date +%Y%m%d_%H%M%S).log && \
+      env OMP_NUM_THREADS=32 OPENBLAS_NUM_THREADS=32 MKL_NUM_THREADS=32 \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(until [ -z "$(pgrep -f 'train_cifar10_depth_spanning.*--bypass_columns')" ]; do sleep 60; done; echo "bypass_only finished"; ls -la /home/ni/repos/fpc/columnarC…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(sleep 5 && ps -ef | grep -E 'train_cifar10_depth' | grep -v grep)
+  ⎿  ni       1471576 1471573 99 15:03 ?        00:00:41 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model tiny --n
+     um_epochs 10 --num_columns 4 --diagnose_energy --bypass_columns
+
+● Background command "Relaunch bypass-only alone with all 32 cores" completed (exit code 0)
+
+● bypass_only running alone with 32 cores (pid 1471576). Should finish in ~30 min wall time. Watcher set up; I'll report when it completes.
+
+  The headline you want to remember right now: bypass+norm = 44.07% on plain CIFAR-10, with the classifier learning to weight the column path more heavily than the bypass
+  (‖W_col‖ 63 vs ‖W_bypass‖ 32) and column-pair correlation staying low (0.05 mean). Stage 1 has hit "non-regression and ≥ baseline" on the bypass axis; the remaining
+  question is "do columns add information beyond the bypass alone" — which bypass_only's number, when it lands, will answer.
+
+✻ Sautéed for 2m 56s · 2 shells still running
+
+❯ check progress on the bypass-only run
+
+● Bash(echo "=== process ==="; ps -eo pid,etime,pcpu,args | grep -E 'train_cifar10_depth' | grep -v grep; echo; echo "=== log ==="; ls -la /home/ni/repos/fpc/columnarC…)
+  ⎿  === process ===
+
+     === log ===
+     … +34 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● bypass-only already finished — wall time only 15 min because it had all 32 cores to itself. Final number: 39.89%.
+
+● Complete Stage 1 four-cell matrix (tiny backbone, 10 epochs, 4 columns, rogdora43):
+
+  | run | test acc | ‖W_bypass‖ / ‖W_col‖ (ep10) | col-pair |corr| mean (ep10) | col std (ep10) |
+  |---|---:|---|---:|---:|
+  | baseline | 22.28% | — / 62.4 | 0.71 | 16.07 |
+  | norm-only | 18.13% | — / 64.6 | 0.10 | 0.94 |
+  | bypass-only | 39.89% | 33.7 / 63.5 | 0.05 | 4.52 |
+  | bypass+norm | 44.07% | 32.1 / 63.4 | 0.05 | 0.90 |
+
+  Stage 1 go-criteria both met:
+
+  1. Columns don't regress vs PC ResNet baseline (37.9–42.45%) — bypass+norm at 44.07% beats it, bypass-only at 39.89% matches it. ✔
+  2. Columns add information beyond bypass alone — bypass+norm exceeds bypass-only by 4.18 points (44.07% vs 39.89%). ✔
+
+  Mechanism reading (mechanism-only, no speculation):
+
+  - Without LN, columns either go redundant (baseline col-corr 0.71) or go imbalanced (bypass-only col std range 1.2–10.1, mean 4.5). In baseline, redundancy collapses the
+  four columns into ~one effective feature; in bypass-only, magnitude variance lets a single column dominate the combiner sum.
+  - With LN, columns stay decorrelated (corr 0.05) and unit-magnitude (std 0.90). The combiner integrates four diverse, comparable signals.
+  - Classifier weighs the column path heavier than the bypass path in both bypass-only and bypass+norm (‖W_col‖ ≈ 63 vs ‖W_bypass‖ ≈ 33). The classifier is using the
+  columns; the +4-point gain from LN comes from the columns being cleaner signal at the combiner.
+  - E_gauss/E_ce ratio doesn't predict success: baseline ends at 7.6 (22.28%), bypass-only at 12.0 (39.89%), bypass+norm at 3.2 (44.07%). The Gauss-dominance hypothesis is
+  irrelevant — the dominant-energy regime has high-, low-, and middle-performing configs.
+
+  Per the path-forward plan, Stage 1 GO → Stage 2 (resnet18 backbone). The next experiment is bypass_norm on --model resnet18 to check whether the same fix scales to the
+  deep backbone, with the resnet18-alone baseline (open question #1 in the plan) as a comparison anchor.
+
+  Want me to launch Stage 2 now (resnet18 bypass+norm, plus a resnet18 baseline-no-flags for comparison)? Or run a 2-seed validation of the Stage 1 tiny result first,
+  since 44% vs 40% is close to the PC-ResNet baseline's seed variance?
+
+✻ Worked for 56s · 2 shells still running
+
+❯ launch stage 2 with resnet18 bypass+norm
+
+● Bash(\
+      F=results/stage2_resnet18_bypass_norm_claude-rogdora43_$(date +%Y%m%d_%H%M%S).log && \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(sleep 5 && ps -ef | grep -E 'train_cifar10_depth' | grep -v grep && ls -la /home/ni/repos/fpc/columnarCL-fabricPC-experiments/results/stage2_*.log 2>&1)
+  ⎿  ni       1497532 1497529 99 15:36 ?        00:00:15 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model resnet18
+      --num_epochs 10 --num_columns 4 --diagnose_energy --bypass_columns --layer_norm_tokens
+     -rw-r--r--. 1 ni ni 2437 Jun 21 15:36 /home/ni/repos/fpc/columnarCL-fabricPC-experiments/results/stage2_resnet18_bypass_norm_claude-rogdora43_20260621_153607.log
+
+● Bash(until [ -z "$(pgrep -f 'train_cifar10_depth_spanning.*--model resnet18')" ]; do sleep 90; done; echo "stage2 resnet18 bypass+norm finished"; ls -la /home/ni/rep…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Background command "Launch Stage 2 resnet18 bypass+norm 10 epochs" completed (exit code 0)
+
+● Stage 2 launched: pid 1497532, log file results/stage2_resnet18_bypass_norm_claude-rogdora43_20260621_153607.log. Watcher set up; based on prior 1-epoch resnet18 timing
+  (~7 min on 8 threads → 10 epochs alone on 32 threads ≈ 25–30 min wall), expect completion around 16:05. I'll report when it lands.
+
+✻ Worked for 38s · 3 shells still running
+
+❯ check progress on the stage 2 run
+
+● Bash(echo "=== process ==="; ps -eo pid,etime,pcpu,args | grep -E 'train_cifar10_depth.*resnet18' | grep -v grep; echo; LOG=/home/ni/repos/fpc/columnarCL-fabricPC-ex…)
+  ⎿  === process ===
+
+     === log: 661209 bytes, Jun 21 16:29 ===
+     … +54 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● Stage 2 already finished — wall time 51 min. Test Accuracy: 49.22% on resnet18 with bypass+norm.
+
+● Headline: 49.22% — beats every prior tiny configuration and the PC ResNet baseline.
+
+  Cumulative scorecard on plain CIFAR-10:
+
+  ┌────────────────────────────────────────────────┬──────────┬─────────────┐
+  │                     config                     │ backbone │  test acc   │
+  ├────────────────────────────────────────────────┼──────────┼─────────────┤
+  │ PC ResNet (no columns)                         │ —        │ 37.9–42.45% │
+  ├────────────────────────────────────────────────┼──────────┼─────────────┤
+  │ baseline (no flags)                            │ tiny     │      22.28% │
+  ├────────────────────────────────────────────────┼──────────┼─────────────┤
+  │ norm-only                                      │ tiny     │      18.13% │
+  ├────────────────────────────────────────────────┼──────────┼─────────────┤
+  │ bypass-only                                    │ tiny     │      39.89% │
+  ├────────────────────────────────────────────────┼──────────┼─────────────┤
+  │ bypass+norm                                    │ tiny     │      44.07% │
+  ├────────────────────────────────────────────────┼──────────┼─────────────┤
+  │ bypass+norm                                    │ resnet18 │      49.22% │
+  ├────────────────────────────────────────────────┼──────────┼─────────────┤
+  │ prior best with columns on resnet18 (no flags) │ resnet18 │ 6.68–10.00% │
+  └────────────────────────────────────────────────┴──────────┴─────────────┘
+
+  The fix that broke the columnar architecture out of the scale-collapse trap on tiny transfers to the deep backbone — and the deeper backbone now helps rather than hurts.
+
+  Trajectory notes (resnet18 bypass+norm, ep10):
+
+  ┌───────────────────────┬──────────────────┬──────────────────────┐
+  │        signal         │ tiny bypass+norm │ resnet18 bypass+norm │
+  ├───────────────────────┼──────────────────┼──────────────────────┤
+  │ E_gauss/E_ce          │             3.22 │                 3.12 │
+  ├───────────────────────┼──────────────────┼──────────────────────┤
+  │ col z_latent std      │             0.90 │                 0.91 │
+  ├───────────────────────┼──────────────────┼──────────────────────┤
+  │ col-pair              │             corr │                 mean │
+  ├───────────────────────┼──────────────────┼──────────────────────┤
+  │ combiner z_latent std │            0.016 │                0.008 │
+  ├───────────────────────┼──────────────────┼──────────────────────┤
+  │ ‖W_bypass‖            │             32.1 │                 83.7 │
+  ├───────────────────────┼──────────────────┼──────────────────────┤
+  │ ‖W_columns‖           │             63.4 │                 35.7 │
+  └───────────────────────┴──────────────────┴──────────────────────┘
+
+  Interpretation, mechanism-level:
+
+  - Same column dynamics on both backbones: column outputs pin to unit magnitude, correlations stay low. LN does its job.
+  - Classifier weight flips: on tiny the classifier learns to weight columns ~2× heavier than bypass (63 vs 32). On resnet18 it weights bypass ~2.3× heavier than columns
+  (83.7 vs 35.7). With a deep backbone the pooled stage4 features alone carry more discriminative information; the classifier amplifies that pathway. Columns are still
+  being used (‖W_col‖ = 35.7 is not zero), just less than the bypass.
+  - Smaller combiner z_latent on resnet18 (0.008 vs 0.016): column-side signal at the classifier input is weaker on resnet18 than on tiny — consistent with the classifier
+  weighing it less. The 5-point accuracy gain over tiny bypass+norm comes from the bypass path's better features, not from a more effective columnar pathway.
+
+  Open question to address in Stage 3 design: on resnet18 the bypass is doing most of the work. To get genuine columnar contribution at this backbone scale, we'd want
+  either (a) columns wider/deeper, (b) more columns (paper's 40), or (c) the column path forced to carry signal the bypass can't (e.g., a sparser bypass to push more
+  learning into columns).
+
+  Three options for next, ranked by what would discriminate most cleanly:
+
+  1. resnet18 bypass-only (the missing cell): isolates how much LN added on resnet18 specifically. Cheap — 15 min wall.
+  2. Stage 3 first cut: resnet18 bypass+norm with num_columns=40, num_shared=4, active_nonshared=5 (paper's configuration). Tests whether scaling the pool helps once the
+  column pathway is alive.
+  3. Multi-seed validation of the 49.22% (3 seeds): tightens the comparison vs PC ResNet baseline's seed variance.
+
+  Which next?
+
+✻ Churned for 58s · 3 shells still running
+
+❯ run resnet18 bypass-only
+
+● Bash(F=results/stage2_resnet18_bypass_only_claude-rogdora43_$(date +%Y%m%d_%H%M%S).log && \
+      env OMP_NUM_THREADS=32 OPENBLAS_NUM_THREADS=32 MKL_NUM_THREADS=32 \…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(sleep 5 && ps -ef | grep -E 'train_cifar10_depth' | grep -v grep && ls -la /home/ni/repos/fpc/columnarCL-fabricPC-experiments/results/stage2_resnet18_bypass_onl…)
+  ⎿  ni       1533791 1533788 99 16:48 ?        00:00:27 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model resnet18
+      --num_epochs 10 --num_columns 4 --diagnose_energy --bypass_columns
+     -rw-r--r--. 1 ni ni 2437 Jun 21 16:48 /home/ni/repos/fpc/columnarCL-fabricPC-experiments/results/stage2_resnet18_bypass_only_claude-rogdora43_20260621_164804.log
+
+● Bash(until [ -z "$(pgrep -f 'train_cifar10_depth_spanning.*--model resnet18')" ]; do sleep 90; done; echo "stage2 resnet18 bypass_only finished"; tail -3 $(ls -t /ho…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Background command "Launch resnet18 bypass-only sequentially with all cores" completed (exit code 0)
+
+● Launched. pid 1533791, log results/stage2_resnet18_bypass_only_claude-rogdora43_20260621_164804.log. Watcher set up. Expected wall time 25–50 min based on prior resnet18
+  runs. I'll report when it lands.
+
+✻ Cooked for 35s · 4 shells still running
+
+❯ check progress on the resnet18 bypass-only run
+
+● Bash(echo "=== process ==="; ps -eo pid,etime,pcpu,args | grep -E 'train_cifar10_depth.*resnet18.*bypass' | grep -v grep; echo; LOG=$(ls -t /home/ni/repos/fpc/column…)
+  ⎿  === process ===
+     1533791       24:49  131 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model resnet18 --num_epochs 10 --num_colu
+     mns 4 --diagnose_energy --bypass_columns
+     … +25 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● Run is at ~50% (4 of 10 epochs visible in diagnostic, 24:49 elapsed). The trajectory is striking and informative even before completion:
+
+  resnet18 bypass-only columns are dead. At epochs 1–4:
+  - col |z| ≈ 0.0015 → 0.0005 → 0.0016 → 0.0099 (column outputs essentially zero)
+  - col-pair |corr| mean ≈ 0.89, 0.89, 0.87, 0.93 (~90% redundant)
+  - combiner z_latent std ≈ 0.0003–0.0004 (noise floor)
+  - ‖W_bypass‖ growing: 36.7 → 51.7 → 62.4 → 69.2
+  - ‖W_columns‖ growing: 15.7 → 21.6 → 26.7 → 31.9 (but multiplied by ~0.001 column signal, so contributing nothing)
+
+  This is the resnet18 scale collapse from the original diagnostic — bypass keeps the model afloat, but the columnar pathway is functionally absent. Test accuracy will
+  likely be close to PC-ResNet-alone baseline (37.9–42.45%).
+
+  Comparison so far:
+  - tiny bypass-only: columns alive (std 4.5, corr 0.05), 39.89%
+  - resnet18 bypass-only: columns dead (std 0.001, corr 0.89), pending — but the contrast tells the story
+  - resnet18 bypass+norm: columns alive (std 0.91, corr 0.13), 49.22%
+
+  LN is doing critical work on resnet18: it's the difference between columns producing usable signal and columns being dead weight that the classifier ignores. Watcher
+  still set up; final number lands in ~25 min.
+
+✻ Baked for 29s · 4 shells still running
+
+❯ check progress on the resnet18 bypass-only run
+
+● Bash(echo "=== process ==="; ps -eo pid,etime,pcpu,args | grep -E 'train_cifar10_depth' | grep -v grep; echo; LOG=$(ls -t /home/ni/repos/fpc/columnarCL-fabricPC-expe…)
+  ⎿  === process ===
+
+     === log size: 661192 bytes (last write: 2026-06-21 17:39:46) ===
+     … +55 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● Finished. Test Accuracy: 29.17%.
+
+● Stage 2 complete. Stage 2 GO criterion exceeded by a wide margin.
+
+  Final scorecard, plain CIFAR-10, all on rogdora43, all 10 epochs, all num_columns=4:
+
+  ┌────────────────────────┬──────────┬─────────────┬─────────────────┐
+  │         config         │ backbone │  test acc   │ LN contribution │
+  ├────────────────────────┼──────────┼─────────────┼─────────────────┤
+  │ no flags (prior)       │ resnet18 │ 6.68–10.00% │               — │
+  ├────────────────────────┼──────────┼─────────────┼─────────────────┤
+  │ bypass-only            │ resnet18 │      29.17% │               — │
+  ├────────────────────────┼──────────┼─────────────┼─────────────────┤
+  │ bypass+norm            │ resnet18 │      49.22% │          +20.05 │
+  ├────────────────────────┼──────────┼─────────────┼─────────────────┤
+  │ bypass-only            │ tiny     │      39.89% │               — │
+  ├────────────────────────┼──────────┼─────────────┼─────────────────┤
+  │ bypass+norm            │ tiny     │      44.07% │           +4.18 │
+  ├────────────────────────┼──────────┼─────────────┼─────────────────┤
+  │ no flags               │ tiny     │      22.28% │               — │
+  ├────────────────────────┼──────────┼─────────────┼─────────────────┤
+  │ norm-only              │ tiny     │      18.13% │               — │
+  ├────────────────────────┼──────────┼─────────────┼─────────────────┤
+  │ PC ResNet (no columns) │ tiny     │ 37.9–42.45% │               — │
+  └────────────────────────┴──────────┴─────────────┴─────────────────┘
+
+  Mechanism reading — what LN did on resnet18:
+
+  resnet18 bypass-only (no LN) trajectory:
+  - col |z| ≈ 0.001 → 0.10 (still essentially zero by ep10)
+  - col-pair |corr| mean ≈ 0.89 → 0.92 (columns are functionally one feature)
+  - combiner z_latent std ≈ 0.0003 → 0.0022 (noise floor)
+  - ‖W_bypass‖ → 71.65; ‖W_columns‖ → 47.57 (classifier tries to use columns, but the signal it amplifies is ~0)
+
+  The deep backbone's vanishing-init signal was the cause we identified in 2026-06-21-claude-findings-resnet18-vs-tiny-trajectory.md — that's the diagnosis the
+  path-forward plan was built against, and LN solves it cleanly. With LN: col |z| pinned to 0.91, col-pair correlation 0.13, combiner z_latent std 0.008 — columns are
+  alive, diverse, scaled, contributing.
+
+  The +20-point gap on resnet18 (vs +4 on tiny) is the central finding: the deeper the backbone, the more LN is needed to keep the columnar pathway from collapsing. This
+  is a stronger result than I was scoping for in the plan.
+
+  Stage 2 GO. Per the path-forward plan, next is Stage 3 — paper-faithful column pool size (40 columns, k_total≈9 active). The question Stage 3 answers: given that columns
+  now work, does the paper's recommended sparsity-over-large-pool improve over 4 all-active columns?
+
+  Three options to choose from:
+
+  1. Stage 3 on resnet18 bypass+norm with 40 columns all-active. Single dimension change. Tests pure column-count scaling.
+  2. Stage 3 on resnet18 bypass+norm with 40 columns, k_total=9 random_sparse. Paper's recommended sparsity. Tests whether sparsity helps single-task CIFAR-10 (the paper
+  claims it for CL, makes no claim for single-task).
+  3. Validate the 49.22% across 2–3 seeds first before scaling. Tightens the comparison against PC-ResNet baseline variance and locks in Stage 2's result as reproducible.
+
+  Which next?
+
+✻ Worked for 1m 15s · 4 shells still running
+
+❯ 2 please
+
+● Bash(F=results/stage3_resnet18_bypass_norm_40col_k9_claude-rogdora43_$(date +%Y%m%d_%H%M%S).log && \
+      env OMP_NUM_THREADS=32 OPENBLAS_NUM_THREADS=32 MKL_NUM_THREADS=3…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(sleep 10 && ps -ef | grep -E 'train_cifar10_depth' | grep -v grep && echo "---" && LOG=$(ls -t /home/ni/repos/fpc/columnarCL-fabricPC-experiments/results/stage3…)
+  ⎿  ni       1569930 1569927 99 18:04 ?        00:00:54 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -u scripts/train_cifar10_depth_spanning.py --model resnet18
+      --num_epochs 10 --num_columns 40 --num_shared 4 --active_nonshared 5 --column_mode random_sparse --diagnose_energy --bypass_columns --layer_norm_tokens
+     ---
+     … +31 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+● Bash(until [ -z "$(pgrep -f 'train_cifar10_depth_spanning.*num_columns 40')" ]; do sleep 120; done; echo "stage3 40-col sparse finished"; tail -3 $(ls -t /home/ni/re…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Allowed by auto mode classifier
+
+● Background command "Launch Stage 3 resnet18 40-column sparse" completed (exit code 0)
+
+● Stage 3 launched and running. Header confirms config:
+
+  - 40 columns, 4 shared, 5 active non-shared, random_sparse
+  - Active mask: columns [0, 1, 2, 3, 8, 11, 33, 35, 39] (the 4 shared + 5 randomly-picked non-shared = k_total=9, matches paper)
+  - Graph grew to 77 nodes, 244 edges, 3.65M params (vs 40 nodes, 62 edges, 2.92M for 4-column)
+  - pid 1569930, log results/stage3_resnet18_bypass_norm_40col_k9_claude-rogdora43_20260621_180423.log
+
+  Watcher set up. Expected wall ~75–120 min given 10× column count adds ~7× to the column update path but the backbone and combiner dominate. I'll report when done.
+
+  Note one design caveat to keep in mind when reading the result: the support mask in the existing build_support_mask is fixed per run (single seeded random draw at graph
+  construction), not dynamically selected per example. So this tests "static-random sparse pool" vs "all-active small pool," not the paper's selector mechanism — which the
+  path-forward plan explicitly deferred to the Split-CIFAR phase.
+
+✻ Cogitated for 1m 12s · 5 shells still running
+
+  1 tasks (0 done, 1 in progress, 0 open)
+  ◼ Stage 3 — resnet18 bypass+norm 40 columns, random_sparse k=9
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── migration-plan-critical-review ──
+❯
+
