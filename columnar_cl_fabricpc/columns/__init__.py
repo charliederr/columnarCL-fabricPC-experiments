@@ -35,11 +35,15 @@ from columnar_cl_fabricpc.columns.depth_spanning_column import (
     create_depth_spanning_column,
     create_depth_spanning_column_pool,
 )
+from columnar_cl_fabricpc.columns.label_smoothed_ce import (
+    LabelSmoothedCrossEntropyEnergy,
+)
 
 __all__ = [
     "ClassificationHeadNode",
     "ColumnCombinerNode",
     "ColumnarNode",
+    "LabelSmoothedCrossEntropyEnergy",
     "ConvStemNode",
     "DepthSpanningColumnNode",
     "ExampleColumnNode",

@@ -73,6 +73,7 @@ from columnar_cl_fabricpc.columns import (
     StageTapTokenizer,
     GlobalPoolNode,
     DepthSpanningColumnNode,
+    LabelSmoothedCrossEntropyEnergy,
     create_stage_tap,
     create_global_pool,
     create_depth_spanning_column,
@@ -534,11 +535,18 @@ def build_depth_spanning_graph(args):
         name="column_pool",
         global_pool=True,
     )
+    if args.label_smoothing > 0.0:
+        classifier_energy = LabelSmoothedCrossEntropyEnergy(
+            smoothing=args.label_smoothing,
+            num_classes=10,
+        )
+    else:
+        classifier_energy = CrossEntropyEnergy()
     output = Linear(
         shape=(10,),
         name="output",
         activation=SoftmaxActivation(),
-        energy=CrossEntropyEnergy(),
+        energy=classifier_energy,
         flatten_input=True,
         weight_init=XavierInitializer(),
     )
@@ -745,6 +753,18 @@ def train_cifar10_depth_spanning(args):
 
         return metrics
 
+    iter_cb = None
+    if args.per_batch_energy_log:
+        log_every = max(1, int(args.per_batch_energy_log))
+
+        def iter_cb(epoch_idx, batch_idx, energy):
+            if batch_idx % log_every == 0:
+                print(
+                    f"    [iter] ep={epoch_idx + 1} batch={batch_idx} "
+                    f"energy={float(energy):.6f}"
+                )
+            return float(energy)
+
     print(f"\nTraining for {args.num_epochs} epochs...")
     start_time = time.time()
     final_params, _, _ = train_pcn(
@@ -756,6 +776,7 @@ def train_cifar10_depth_spanning(args):
         rng_key=train_key,
         verbose=False,
         epoch_callback=epoch_callback,
+        iter_callback=iter_cb,
     )
     elapsed = time.time() - start_time
 
@@ -858,6 +879,27 @@ def parse_args():
             "Make LayerNorm's gamma=1.0 and beta=0.0 non-learnable scalar "
             "constants (only effective with --layer_norm_tokens). Removes the "
             "rescale path that lets training drift between magnitude basins."
+        ),
+    )
+    parser.add_argument(
+        "--per_batch_energy_log",
+        type=int,
+        default=0,
+        help=(
+            "Log the per-batch total training energy every N batches "
+            "(0 = disabled). Useful for localizing collapse moments between "
+            "epochs. With 352 batches/epoch, log_every=5 gives ~70 lines/epoch."
+        ),
+    )
+    parser.add_argument(
+        "--label_smoothing",
+        type=float,
+        default=0.0,
+        help=(
+            "Label-smoothing factor for the classifier's cross-entropy energy "
+            "(0.0 = plain CE; 0.1 is the CIFAR-10 standard). Prevents the loss "
+            "from saturating, keeping the gradient signal alive against weight "
+            "decay erosion. Implemented in columnar_cl_fabricpc, not FabricPC."
         ),
     )
     return parser.parse_args()
