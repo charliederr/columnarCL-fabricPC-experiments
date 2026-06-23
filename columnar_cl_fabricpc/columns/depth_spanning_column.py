@@ -128,6 +128,7 @@ class DepthSpanningColumnNode(NodeBase):
         hidden_activation: str = "leaky_relu",
         leaky_alpha: float = 0.1,
         apply_layer_norm: bool = False,
+        fix_ln_gamma: bool = False,
         activation: Optional[ActivationBase] = IdentityActivation(),
         energy: Optional[EnergyFunctional] = GaussianEnergy(),
         weight_init: Optional[InitializerBase] = KaimingInitializer(),
@@ -174,6 +175,7 @@ class DepthSpanningColumnNode(NodeBase):
             hidden_activation=hidden_activation,
             leaky_alpha=leaky_alpha,
             apply_layer_norm=apply_layer_norm,
+            fix_ln_gamma=fix_ln_gamma,
         )
 
     @staticmethod
@@ -307,7 +309,7 @@ class DepthSpanningColumnNode(NodeBase):
         weights["path_scale"] = jnp.ones((3,), dtype=jnp.float32) / jnp.sqrt(3.0)
 
         # Optional LayerNorm on the combined output along the output_dim axis
-        if config.get("apply_layer_norm", False):
+        if config.get("apply_layer_norm", False) and not config.get("fix_ln_gamma", False):
             weights["ln_gamma"] = jnp.ones((output_dim,))
             biases["ln_beta"] = jnp.zeros((output_dim,))
 
@@ -426,12 +428,14 @@ class DepthSpanningColumnNode(NodeBase):
         )
 
         # Optional LayerNorm along the output_dim axis — pins column output magnitude
-        if config.get("apply_layer_norm", False) and "ln_gamma" in params.weights:
-            pre_activation = layernorm(
-                pre_activation,
-                params.weights["ln_gamma"],
-                params.biases["ln_beta"],
-            )
+        if config.get("apply_layer_norm", False):
+            if config.get("fix_ln_gamma", False):
+                gamma = jnp.float32(1.0)
+                beta = jnp.float32(0.0)
+            else:
+                gamma = params.weights["ln_gamma"]
+                beta = params.biases["ln_beta"]
+            pre_activation = layernorm(pre_activation, gamma, beta)
 
         # Apply output activation
         activation = node_info.activation
@@ -464,6 +468,7 @@ def create_depth_spanning_column(
     grid_size: Tuple[int, int] = (8, 8),
     hidden_activation: str = "leaky_relu",
     apply_layer_norm: bool = False,
+    fix_ln_gamma: bool = False,
 ) -> DepthSpanningColumnNode:
     """
     Create a single depth-spanning column.
@@ -476,6 +481,8 @@ def create_depth_spanning_column(
         grid_size: Token grid size for L pathway conv
         hidden_activation: Activation for hidden layers
         apply_layer_norm: If True, LayerNorm the column output along output_dim
+        fix_ln_gamma: If True (and apply_layer_norm), gamma/beta are non-learnable
+            scalar 1.0 / 0.0
 
     Returns:
         Configured DepthSpanningColumnNode
@@ -489,6 +496,7 @@ def create_depth_spanning_column(
         grid_size=grid_size,
         hidden_activation=hidden_activation,
         apply_layer_norm=apply_layer_norm,
+        fix_ln_gamma=fix_ln_gamma,
     )
 
 

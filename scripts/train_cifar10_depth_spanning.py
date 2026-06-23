@@ -445,6 +445,7 @@ def build_depth_spanning_graph(args):
         target_grid=target_grid,
         add_pos_embed=True,
         apply_layer_norm=args.layer_norm_tokens,
+        fix_ln_gamma=args.fix_ln_gamma,
     )
     stage3_tap = create_stage_tap(
         name="stage3_tap",
@@ -453,6 +454,7 @@ def build_depth_spanning_graph(args):
         target_grid=target_grid,
         add_pos_embed=True,
         apply_layer_norm=args.layer_norm_tokens,
+        fix_ln_gamma=args.fix_ln_gamma,
     )
     stage4_tap = create_stage_tap(
         name="stage4_tap",
@@ -461,12 +463,14 @@ def build_depth_spanning_graph(args):
         target_grid=target_grid,
         add_pos_embed=True,
         apply_layer_norm=args.layer_norm_tokens,
+        fix_ln_gamma=args.fix_ln_gamma,
     )
     stage4_pool = create_global_pool(
         name="stage4_pool",
         source_channels=stage4_channels,
         embed_dim=args.embed_dim,
         apply_layer_norm=args.layer_norm_tokens,
+        fix_ln_gamma=args.fix_ln_gamma,
     )
 
     nodes.extend([stage2_tap, stage3_tap, stage4_tap, stage4_pool])
@@ -488,6 +492,7 @@ def build_depth_spanning_graph(args):
             grid_size=target_grid,
             hidden_activation=args.column_activation,
             apply_layer_norm=args.layer_norm_tokens,
+            fix_ln_gamma=args.fix_ln_gamma,
         )
         columns.append(col)
 
@@ -844,6 +849,15 @@ def parse_args():
             "Apply LayerNorm along the embed_dim axis at the output of every "
             "stage_tap, stage4_pool, and depth-spanning column. Pins activation "
             "magnitude through the pipeline."
+        ),
+    )
+    parser.add_argument(
+        "--fix_ln_gamma",
+        action="store_true",
+        help=(
+            "Make LayerNorm's gamma=1.0 and beta=0.0 non-learnable scalar "
+            "constants (only effective with --layer_norm_tokens). Removes the "
+            "rescale path that lets training drift between magnitude basins."
         ),
     )
     return parser.parse_args()
