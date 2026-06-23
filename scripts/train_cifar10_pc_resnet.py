@@ -263,11 +263,13 @@ def train_cifar10_pc_resnet(args):
     optimizer = optax.adamw(schedule, weight_decay=args.weight_decay)
     train_config = {"num_epochs": args.num_epochs}
 
-    best_val_acc = 0.0
+    best_val_acc = -1.0
+    best_val_epoch = None
+    best_params = None
     final_epoch = math.ceil(args.num_epochs)
 
     def epoch_callback(epoch_idx, params, structure, config, rng_key):
-        nonlocal best_val_acc
+        nonlocal best_val_acc, best_val_epoch, best_params
         epoch_num = epoch_idx + 1
         if args.eval_every <= 0:
             return None
@@ -276,7 +278,10 @@ def train_cifar10_pc_resnet(args):
 
         metrics = evaluate_pcn(params, structure, val_loader, config, eval_key)
         val_acc = float(metrics.get("accuracy", 0.0))
-        best_val_acc = max(best_val_acc, val_acc)
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_val_epoch = epoch_num
+            best_params = params
         print(f"  Epoch {epoch_num}: val_acc={val_acc:.4f}")
         return metrics
 
@@ -294,10 +299,17 @@ def train_cifar10_pc_resnet(args):
     )
     elapsed = time.time() - start_time
 
-    print(f"\nTraining time: {elapsed:.1f}s")
-    print("Evaluating on test set...")
+    eval_params = best_params if best_params is not None else final_params
+    if best_params is not None:
+        print(
+            f"\nTraining time: {elapsed:.1f}s"
+            f"\nEvaluating best validation params from epoch {best_val_epoch} on test set..."
+        )
+    else:
+        print(f"\nTraining time: {elapsed:.1f}s")
+        print("Evaluating final params on test set...")
     test_metrics = evaluate_pcn(
-        final_params, structure, test_loader, train_config, eval_key
+        eval_params, structure, test_loader, train_config, eval_key
     )
     test_acc = float(test_metrics.get("accuracy", 0.0))
 
@@ -305,8 +317,9 @@ def train_cifar10_pc_resnet(args):
     print("Results Summary")
     print("=" * 60)
     print(f"Test Accuracy: {test_acc:.4f} ({test_acc * 100:.2f}%)")
-    if best_val_acc > 0.0:
+    if best_params is not None:
         print(f"Best Val Accuracy: {best_val_acc:.4f}")
+        print(f"Best Val Epoch: {best_val_epoch}")
     return test_acc
 
 
