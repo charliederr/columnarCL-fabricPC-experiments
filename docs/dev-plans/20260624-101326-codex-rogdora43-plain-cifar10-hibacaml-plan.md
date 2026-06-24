@@ -65,6 +65,9 @@ This changes the priority order. The next useful work is not to add Split-CIFAR,
 | `z_col_pool` | The vector produced by averaging the combiner output over the token axis. |
 | `z_col_norm` | The normalized column readout vector produced from `z_col_pool` before the classifier. |
 | `r_c` | The internal certificate vector emitted by column `c`. |
+| `h_c` | The protected hard-kernel feature slice inside column `c`. |
+| `s_c,i` | The shell feature slice inside column `c`, where `i=1` is the inner shell, `i=2` is the middle shell, and `i=3` is the outer shell. |
+| `d_route` | A directed depth route that projects information between non-adjacent backbone stages or non-adjacent shell depths inside a column. |
 
 ## Chosen Direction
 
@@ -132,6 +135,52 @@ The hard-kernel and shell design is central to the paper, but adding it before t
 
 The plain CIFAR-10 test is whether shell structure improves accuracy or stability across seeds before it is used for continual learning.
 
+The implementation should partition each column's feature width into `h_c` plus `s_c,1`, `s_c,2`, and `s_c,3`. The hard-kernel slice `h_c` is always present in the forward and predictive-coding inference graph. The inner shell `s_c,1` should receive the strongest regularity pressure because it represents reusable structure. The middle shell `s_c,2` should receive moderate regularity pressure because it represents semi-general structure. The outer shell `s_c,3` should receive the weakest stability pressure because it represents task-local exploratory structure.
+
+This does not require pruning at the first implementation step. The first step should only create the slices, route them separately, log their norms, and report their ablation effects. Pruning, promotion, and demotion should wait until the shell slices can be measured.
+
+### Phase 5A: Add Depth-Skip Routes Inside Columns
+
+The current depth-spanning column already consumes multiple backbone stages, but it mostly compresses them into one token stream. A deeper columnar architecture should let a column carry non-adjacent depth information through explicit directed routes. A `d_route` is a learned projection from one depth source to a non-adjacent target inside the same column, for example from the stage-2 token map to the stage-4 shell state, or from an early shell slice to a later shell slice.
+
+The biological analogy should stay secondary to the implementation. In code, the mechanism is a small set of directed graph edges with separate parameters, normalization, and ablation labels. These edges let fine spatial features from shallow stages influence deeper class features without requiring every update to pass through adjacent stage transformations.
+
+Start with three route families:
+
+- Bottom-up depth routes from stage 2 to stage 4 shell states. These routes test whether shallow spatial detail helps class decisions after the normal stage hierarchy has compressed the image.
+- Top-down prediction routes from stage 4 shell states to stage 2 token predictions. These routes test whether deeper class features improve predictive-coding inference over shallow token states.
+- Cross-shell depth routes from `s_c,3` to `s_c,1` through a gated projection. These routes test whether task-local exploratory structure can contribute to reusable inner-shell structure without directly overwriting `h_c`.
+
+Each route family should have an explicit lesion switch for evaluation. A lesion switch means the route output is set to zero during evaluation while all trained parameters remain unchanged. This creates a direct test of whether the trained model uses that route.
+
+### Phase 5B: Make Concentric Shells Measurable Before Making Them Adaptive
+
+The shell implementation should deepen the experimental design as much as the architecture. Each run should report shell-resolved statistics:
+
+- Norm and standard deviation for `h_c`, `s_c,1`, `s_c,2`, and `s_c,3`.
+- Class-conditioned ablation accuracy for each shell slice.
+- Route-conditioned ablation accuracy for each `d_route` family.
+- Correlation between shell slices in different columns.
+- Predictive-coding energy contribution by shell slice when that is available from the graph.
+
+The most important first result is not whether shell pruning improves accuracy. The first result is whether the shells specialize. If `h_c`, `s_c,1`, `s_c,2`, and `s_c,3` have indistinguishable ablation effects and indistinguishable class usage, then the architecture is only a larger dense column. If the shell slices show different ablation profiles, then pruning, promotion, and demotion become meaningful next steps.
+
+### Phase 5C: Deepen Plain-CIFAR Testing
+
+Plain CIFAR-10 should become a richer testbed before Split-CIFAR. The current summary metric, final test accuracy, is necessary but too coarse to judge a columnar architecture. Add a fixed evaluation suite derived from the same CIFAR-10 validation and test images, without changing the data loader:
+
+- Clean validation and test accuracy.
+- Per-class accuracy and confusion matrix.
+- Column-only, bypass-only, and combined accuracy.
+- Hard-kernel-only, inner-shell-only, middle-shell-only, and outer-shell-only accuracy.
+- Route-lesioned accuracy for each `d_route` family.
+- Accuracy under deterministic occlusion patches, grayscale conversion, and crop severity transforms.
+- Calibration summaries such as negative log likelihood and expected calibration error if logits are available.
+
+The deterministic perturbation probes should be generated from the existing CIFAR-10 arrays at evaluation time. They should use fixed seeds and fixed transform settings. This keeps the loader stable while testing whether columnar mechanisms help with nuisance variation.
+
+The expected pattern for a useful shell architecture is not that every shell improves every metric. A better pattern would be that `h_c` and `s_c,1` support clean accuracy and stable class identity, while `s_c,3` and selected `d_route` paths contribute more under occlusion, crop shifts, or class-specific confusions. That would give the later Split-CIFAR work a concrete reason to preserve inner structure and adapt outer structure.
+
 ### Phase 6: Move Back To Split-CIFAR
 
 Return to Split-CIFAR only when plain CIFAR-10 passes these conditions:
@@ -139,6 +188,7 @@ Return to Split-CIFAR only when plain CIFAR-10 passes these conditions:
 - Three-seed median test accuracy improves over the older 49% target, or there is clear evidence that the architecture change improves validation accuracy and column contribution even before matching that target.
 - Removing the column pathway after training lowers validation accuracy by a measurable amount.
 - Removing the bypass pathway after training still leaves column-only accuracy well above chance.
+- Lesioning shell slices or depth routes produces interpretable accuracy changes rather than near-zero changes everywhere.
 - The support selector's one-swap audit finds and applies local improvements on plain CIFAR-10 contexts.
 - Runs are reproducible from a recorded config, seed, commit, and backend.
 
@@ -196,6 +246,7 @@ Pros:
 
 - It is the most faithful implementation of the paper's internal column structure.
 - It creates the substrate needed for conservative pruning and reuse certificates.
+- It makes non-adjacent depth routes and shell-specific certificates possible.
 
 Cons:
 
@@ -203,6 +254,21 @@ Cons:
 - It makes failed runs harder to diagnose because pooling, selection, shells, and certificates would all change at once.
 
 Decision: implement readout normalization and ablations first, then support selection, then shell semantics.
+
+### Add Unrestricted Non-Adjacent Connections Throughout The Graph
+
+Pros:
+
+- It could increase representational capacity quickly.
+- It might recover useful shallow spatial information that the stage hierarchy loses.
+
+Cons:
+
+- It would be hard to distinguish a columnar mechanism from a dense residual network with extra edges.
+- It would make predictive-coding energy harder to interpret because many unstructured routes could explain the same target.
+- It would weaken the later Split-CIFAR test because there would be no clear inner-shell, outer-shell, or route-level unit to preserve or adapt.
+
+Decision: add a small number of named `d_route` families inside columns, each with evaluation-time lesion reporting.
 
 ### Normalize Column Readout And Add Ablations First
 
@@ -227,7 +293,10 @@ Decision: this is the chosen next step.
 4. If seed 42 improves and ablation shows column contribution, run seeds 99 and 7.
 5. If column contribution is still near zero, test an attention or concatenation readout before changing column count.
 6. After column contribution is measurable, implement a small plain-CIFAR support selector with one-swap audits.
-7. After support selection works, add certificate logging and only then decide whether shell semantics are the next best change.
+7. After support selection works, split each column into `h_c`, `s_c,1`, `s_c,2`, and `s_c,3` and add shell-resolved logging.
+8. Add a small set of named depth-skip route families inside columns and report route-lesioned accuracy.
+9. Add the deterministic CIFAR-10 evaluation suite: per-class metrics, shell lesions, route lesions, and fixed perturbation probes.
+10. Add certificate logging and only then decide whether pruning, promotion, and demotion should be activated.
 
 ## Command Discipline
 
