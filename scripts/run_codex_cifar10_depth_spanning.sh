@@ -5,10 +5,12 @@ repo_root="/home/ni/repos/fpc/columnarCL-fabricPC-experiments"
 python_bin="${FPC_PYTHON:-/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python}"
 seed="${1:-42}"
 lr="${2:-0.01}"
-diagnose_mode="${3:-}"
+diagnose_mode="${3:-nodiag}"
+num_epochs="${4:-10}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
+epochs_label="${num_epochs//./p}"
 diagnose_label="nodiag"
 extra_args=()
 
@@ -17,7 +19,7 @@ if [[ "$diagnose_mode" == "diagnose" || "$diagnose_mode" == "--diagnose_energy" 
     extra_args+=(--diagnose_energy)
 fi
 
-log_path="${repo_root}/results/codex_resnet18_bypass_norm_fixedln_seed${seed}_lr${lr_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+log_path="${repo_root}/results/codex_resnet18_bypass_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -30,6 +32,7 @@ mkdir -p results
     echo "python: $python_bin"
     echo "seed: $seed"
     echo "lr: $lr"
+    echo "num_epochs: $num_epochs"
     echo "diagnose: $diagnose_label"
     "$python_bin" -c "import jax; print(jax.devices()); print(jax.default_backend())"
     "$python_bin" scripts/train_cifar10_depth_spanning.py \
@@ -44,7 +47,7 @@ mkdir -p results
         --embed_dim 64 \
         --microcolumn_dim 32 \
         --batch_size 128 \
-        --num_epochs 10 \
+        --num_epochs "$num_epochs" \
         --lr "$lr" \
         --weight_decay 0.01 \
         --infer_steps 40 \
