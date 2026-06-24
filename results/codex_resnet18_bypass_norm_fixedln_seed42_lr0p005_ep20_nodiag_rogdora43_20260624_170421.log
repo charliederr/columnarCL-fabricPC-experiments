@@ -1,0 +1,59 @@
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 7af3fbee25c415559fcde67996176a3324102c70
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M columnar_cl_fabricpc/columns/__init__.py
+ M columnar_cl_fabricpc/columns/accuracy_nodes.py
+ M scripts/train_cifar10_depth_spanning.py
+?? docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+?? tests/test_pooled_readout_norm.py
+python: /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+seed: 42
+lr: 0.005
+num_epochs: 20
+diagnose: nodiag
+[CudaDevice(id=0)]
+gpu
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1782335069.437280   14955 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1782335069.437782   14955 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1782335070.313782   14955 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1782335070.314119   14955 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1782335070.409908   14955 cuda_executor.cc:1737] INTERNAL: CUDA Runtime error: Failed call to cudaGetRuntimeVersion: Error loading CUDA libraries. GPU will not be used.: Error loading CUDA libraries. GPU will not be used.
+W0000 00:00:1782335070.420924   14955 gpu_device.cc:2365] Cannot dlopen some GPU libraries. Please make sure the missing libraries mentioned above are installed properly if you would like to use GPU. Follow the guide at https://www.tensorflow.org/install/gpu for how to download and setup the required libraries for your platform.
+Skipping registering GPU devices...
+======================================================================
+CIFAR-10 Depth-Spanning Columnar Architecture
+======================================================================
+Model: resnet18
+Activation: leaky_relu
+Column activation: leaky_relu
+Columns: 4
+Column mode: all_active
+Shared columns: 2
+Active non-shared: 2
+Combiner: sum
+Embed dim: 64
+Microcolumn dim: 32
+Epochs: 20.0
+Batch size: 128
+Learning rate: 0.005
+Weight decay: 0.01
+Inference steps: 40
+Inference eta: 0.1
+
+Stage outputs: stage2=(16, 16, 64), stage3=(8, 8, 128), stage4=(4, 4, 256)
+Target grid: (4, 4), tokens: 16
+
+Active columns: [0, 1, 2, 3]
+Graph: 42 nodes, 65 edges
+Parameters: 2,924,634
+
+Loading CIFAR-10...
+Train batches: 352
+Val batches: 40
+Test batches: 79
+
+Training for 20.0 epochs...
+  0%|          | 0/7040 [00:00<?, ?it/s]Epoch 1/20:   0%|          | 0/7040 [00:00<?, ?it/s]

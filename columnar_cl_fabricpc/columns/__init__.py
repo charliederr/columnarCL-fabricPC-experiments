@@ -38,6 +38,10 @@ from columnar_cl_fabricpc.columns.depth_spanning_column import (
 from columnar_cl_fabricpc.columns.label_smoothed_ce import (
     LabelSmoothedCrossEntropyEnergy,
 )
+from columnar_cl_fabricpc.columns.accuracy_nodes import (
+    PooledFeatureNormNode,
+    create_pooled_feature_norm,
+)
 
 __all__ = [
     "ClassificationHeadNode",
@@ -49,6 +53,7 @@ __all__ = [
     "ExampleColumnNode",
     "GlobalPoolNode",
     "PatchEmbedNode",
+    "PooledFeatureNormNode",
     "StageTapTokenizer",
     "create_cifar10_conv_stem",
     "create_cifar10_patch_embed",
@@ -60,5 +65,6 @@ __all__ = [
     "create_depth_spanning_column",
     "create_depth_spanning_column_pool",
     "create_global_pool",
+    "create_pooled_feature_norm",
     "create_stage_tap",
 ]

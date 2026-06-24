@@ -47,6 +47,7 @@ import optax
 
 from fabricpc.nodes import ConvNode, Linear, IdentityNode, SkipConnection, AvgPool
 from fabricpc.core.topology import Edge
+from fabricpc.core.types import GraphParams, GraphStructure, NodeParams
 from fabricpc.graph_assembly import TaskMap, graph
 from fabricpc.core.inference import InferenceSGDNormClip
 from fabricpc.graph_initialization import initialize_params
@@ -77,6 +78,7 @@ from columnar_cl_fabricpc.columns import (
     create_stage_tap,
     create_global_pool,
     create_depth_spanning_column,
+    create_pooled_feature_norm,
 )
 from columnar_cl_fabricpc.columns.accuracy_nodes import MaskedColumnCombinerNode
 
@@ -126,7 +128,7 @@ def diagnose_energy_breakdown(
             categories["columns"] += energy_sum
         elif node_name.startswith("stage") and ("tap" in node_name or "pool" in node_name):
             categories["stage_taps"] += energy_sum
-        elif node_name in ("combiner", "column_pool"):
+        elif node_name in ("combiner", "column_pool", "column_readout_norm"):
             categories["combiner"] += energy_sum
         elif node_name == "bypass_pool":
             categories["bypass"] += energy_sum
@@ -175,7 +177,13 @@ def diagnose_column_outputs(
         for name in final_state.nodes
         if name.startswith("col_")
         or name.startswith("stage")
-        or name in ("combiner", "column_pool", "output", "bypass_pool")
+        or name in (
+            "combiner",
+            "column_pool",
+            "column_readout_norm",
+            "output",
+            "bypass_pool",
+        )
     ]
     return extract_latent_statistics(final_state, nodes=interesting)
 
@@ -225,8 +233,7 @@ def diagnose_classifier_edge_weights(params) -> Dict[str, float]:
     """
     Per-edge Frobenius norm of the classifier (Linear "output" node)'s weight
     matrices, one per incoming edge. With --bypass_columns, this surfaces whether
-    the classifier is using the bypass edge or the column-pool edge — the load-
-    bearing test of Path A in the path-forward plan.
+    the classifier is using the bypass edge or the normalized column-readout edge.
     """
     if "output" not in params.nodes:
         return {}
@@ -235,6 +242,93 @@ def diagnose_classifier_edge_weights(params) -> Dict[str, float]:
         edge_key: float(jnp.linalg.norm(W))
         for edge_key, W in out_weights.items()
     }
+
+
+def output_input_edge_sources(structure: GraphStructure) -> Dict[str, str]:
+    """Return classifier input-edge keys by source node name."""
+    return {
+        edge.source: edge_key
+        for edge_key, edge in structure.edges.items()
+        if edge.target == "output" and edge.slot == "in"
+    }
+
+
+def mask_output_input_sources(
+    params: GraphParams,
+    structure: GraphStructure,
+    kept_sources: Tuple[str, ...],
+) -> GraphParams:
+    """
+    Zero classifier weights for output input edges outside `kept_sources`.
+
+    The predictive-coding graph is unchanged. Only the output node's per-edge
+    classifier matrices are masked in a copied parameter tree for evaluation.
+    """
+    kept = set(kept_sources)
+    output_params = params.nodes["output"]
+    masked_weights = {}
+    for edge_key, weight in output_params.weights.items():
+        edge = structure.edges.get(edge_key)
+        if edge is not None and edge.target == "output" and edge.source not in kept:
+            masked_weights[edge_key] = jnp.zeros_like(weight)
+        else:
+            masked_weights[edge_key] = weight
+
+    masked_output = NodeParams(
+        weights=masked_weights,
+        biases=output_params.biases,
+    )
+    return params._replace(nodes={**params.nodes, "output": masked_output})
+
+
+def evaluate_readout_ablations(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Evaluate classifier readout paths by masking output input edges.
+
+    The `combined` case evaluates the trained parameters. `column_only` keeps
+    the normalized column readout edge. `bypass_only` keeps the direct backbone
+    bypass edge when that edge exists.
+    """
+    edge_sources = output_input_edge_sources(structure)
+    column_source = "column_readout_norm"
+    if column_source not in edge_sources:
+        raise ValueError("Readout ablations require the column_readout_norm edge")
+
+    cases: List[Tuple[str, Tuple[str, ...]]] = [
+        ("combined", tuple(edge_sources.keys())),
+    ]
+    if column_source in edge_sources:
+        cases.append(("column_only", (column_source,)))
+    if "bypass_pool" in edge_sources:
+        cases.append(("bypass_only", ("bypass_pool",)))
+
+    results = {}
+    for case_name, kept_sources in cases:
+        case_params = (
+            params
+            if case_name == "combined"
+            else mask_output_input_sources(params, structure, kept_sources)
+        )
+        results[case_name] = evaluate_pcn(
+            case_params, structure, loader, config, rng_key
+        )
+    return results
+
+
+def print_ablation_results(title: str, results: Dict[str, Dict[str, float]]) -> None:
+    """Print readout ablation metrics in a compact table."""
+    print("\n" + title)
+    print("-" * len(title))
+    for case_name, metrics in results.items():
+        accuracy = float(metrics.get("accuracy", 0.0))
+        energy = float(metrics.get("energy", 0.0))
+        print(f"  {case_name:12s} acc={accuracy:.4f} energy={energy:.4f}")
 
 
 # Model configurations with explicit stage channel counts for stage taps
@@ -535,6 +629,11 @@ def build_depth_spanning_graph(args):
         name="column_pool",
         global_pool=True,
     )
+    column_readout_norm = create_pooled_feature_norm(
+        name="column_readout_norm",
+        feature_dim=args.embed_dim,
+        fix_ln_gamma=args.fix_ln_gamma,
+    )
     if args.label_smoothing > 0.0:
         classifier_energy = LabelSmoothedCrossEntropyEnergy(
             smoothing=args.label_smoothing,
@@ -551,16 +650,17 @@ def build_depth_spanning_graph(args):
         weight_init=XavierInitializer(),
     )
 
-    nodes.extend([column_pool, output])
+    nodes.extend([column_pool, column_readout_norm, output])
     edges.extend([
         Edge(source=combiner, target=column_pool.slot("in")),
-        Edge(source=column_pool, target=output.slot("in")),
+        Edge(source=column_pool, target=column_readout_norm.slot("in")),
+        Edge(source=column_readout_norm, target=output.slot("in")),
     ])
 
     # Optional bypass: stage4 backbone features go directly to the classifier in
     # parallel with the columnar pathway. Guarantees non-regression vs. PC ResNet:
     # if columns add no information, classifier learns to weight bypass heavily;
-    # if columns help, the column-pool→output edge weights grow.
+    # if columns help, the column_readout_norm-to-output edge weights grow.
     if args.bypass_columns:
         bypass_pool = AvgPool(
             shape=(stage4_channels,),
@@ -813,9 +913,17 @@ def train_cifar10_depth_spanning(args):
     else:
         print(f"\nTraining time: {elapsed:.1f}s")
         print("Evaluating final params on test set...")
-    test_metrics = evaluate_pcn(
-        eval_params, structure, test_loader, train_config, eval_key
+
+    ablation_key = jax.random.PRNGKey(args.seed + 2026)
+    val_ablation_metrics = evaluate_readout_ablations(
+        eval_params, structure, val_loader, train_config, ablation_key
     )
+    print_ablation_results("Validation Readout Ablations", val_ablation_metrics)
+
+    test_ablation_metrics = evaluate_readout_ablations(
+        eval_params, structure, test_loader, train_config, ablation_key
+    )
+    test_metrics = test_ablation_metrics["combined"]
     test_acc = float(test_metrics.get("accuracy", 0.0))
 
     print("\n" + "=" * 70)
@@ -825,6 +933,7 @@ def train_cifar10_depth_spanning(args):
     if best_params is not None:
         print(f"Best Val Accuracy: {best_val_acc:.4f}")
         print(f"Best Val Epoch: {best_val_epoch}")
+    print_ablation_results("Test Readout Ablations", test_ablation_metrics)
     return test_acc
 
 

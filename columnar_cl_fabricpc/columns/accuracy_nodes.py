@@ -25,6 +25,7 @@ from fabricpc.core.initializers import (
 )
 from fabricpc.core.types import NodeInfo, NodeParams, NodeState
 from fabricpc.nodes.base import NodeBase, SlotSpec
+from fabricpc.utils.helpers import layernorm
 
 
 def _hidden_activation(x: jax.Array, activation_name: str, leaky_alpha: float) -> jax.Array:
@@ -416,3 +417,102 @@ class MaskedColumnCombinerNode(NodeBase):
         state = state._replace(pre_activation=pre_activation, z_mu=z_mu, error=error)
         state = node_info.node_class.energy_functional(state, node_info)
         return jnp.sum(state.energy), state
+
+
+class PooledFeatureNormNode(NodeBase):
+    """
+    Normalize a pooled feature vector along its feature axis.
+
+    This node takes a pooled readout such as `column_pool` with shape
+    `(batch, feature_dim)` and emits a feature-normalized vector with the same
+    shape. It gives the graph a named latent for the normalized column readout.
+    """
+
+    def __init__(
+        self,
+        shape: Tuple[int, ...],
+        name: str,
+        fix_ln_gamma: bool = False,
+        activation=IdentityActivation(),
+        energy=GaussianEnergy(),
+        latent_init: Optional[InitializerBase] = NormalInitializer(std=0.02),
+    ):
+        if len(shape) != 1:
+            raise ValueError(
+                f"PooledFeatureNormNode shape must be (feature_dim,), got {shape}"
+            )
+        super().__init__(
+            shape=shape,
+            name=name,
+            activation=activation,
+            energy=energy,
+            latent_init=latent_init,
+            weight_init=None,
+            fix_ln_gamma=fix_ln_gamma,
+        )
+
+    @staticmethod
+    def get_slots() -> Dict[str, SlotSpec]:
+        return {"in": SlotSpec(name="in", is_multi_input=True)}
+
+    @staticmethod
+    def get_weight_fan_in(source_shape: Tuple[int, ...], config: Dict[str, Any]) -> int:
+        return source_shape[-1]
+
+    @staticmethod
+    def initialize_params(
+        key: jax.Array,
+        node_shape: Tuple[int, ...],
+        input_shapes: Dict[str, Tuple[int, ...]],
+        weight_init: Optional[InitializerBase] = None,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> NodeParams:
+        if config is None:
+            config = {}
+
+        feature_dim = node_shape[-1]
+        if config.get("fix_ln_gamma", False):
+            return NodeParams(weights={}, biases={})
+
+        return NodeParams(
+            weights={"ln_gamma": jnp.ones((feature_dim,), dtype=jnp.float32)},
+            biases={"ln_beta": jnp.zeros((feature_dim,), dtype=jnp.float32)},
+        )
+
+    @staticmethod
+    def forward(
+        params: NodeParams,
+        inputs: Dict[str, jnp.ndarray],
+        state: NodeState,
+        node_info: NodeInfo,
+    ) -> Tuple[jax.Array, NodeState]:
+        x = None
+        for inp in inputs.values():
+            x = inp if x is None else x + inp
+
+        if node_info.node_config.get("fix_ln_gamma", False):
+            gamma = jnp.float32(1.0)
+            beta = jnp.float32(0.0)
+        else:
+            gamma = params.weights["ln_gamma"]
+            beta = params.biases["ln_beta"]
+
+        pre_activation = layernorm(x, gamma, beta)
+        z_mu = node_info.activation.forward(pre_activation, node_info.activation.config)
+        error = state.z_latent - z_mu
+        state = state._replace(pre_activation=pre_activation, z_mu=z_mu, error=error)
+        state = node_info.node_class.energy_functional(state, node_info)
+        return jnp.sum(state.energy), state
+
+
+def create_pooled_feature_norm(
+    name: str,
+    feature_dim: int,
+    fix_ln_gamma: bool = False,
+) -> PooledFeatureNormNode:
+    """Create a pooled feature normalization node."""
+    return PooledFeatureNormNode(
+        shape=(feature_dim,),
+        name=name,
+        fix_ln_gamma=fix_ln_gamma,
+    )
