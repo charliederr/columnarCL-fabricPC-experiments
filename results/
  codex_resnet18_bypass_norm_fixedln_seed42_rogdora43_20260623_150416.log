@@ -1,0 +1,30 @@
+65d1c4178a3aecbf02fd47d0308f8b5f10bc2ed5
+  File "<string>", line 2
+    print(jax.devices()); print(jax.default_backend())
+IndentationError: unexpected indent
+usage: train_cifar10_depth_spanning.py [-h] [--model {resnet18,tiny}]
+                                       [--activation {relu,tanh,gelu,leaky_relu}]
+                                       [--column_activation {relu,tanh,gelu,leaky_relu}]
+                                       [--num_columns NUM_COLUMNS]
+                                       [--num_shared NUM_SHARED]
+                                       [--active_nonshared ACTIVE_NONSHARED]
+                                       [--column_mode {all_active,first_sparse,random_sparse}]
+                                       [--combiner {attention,sum}]
+                                       [--embed_dim EMBED_DIM]
+                                       [--microcolumn_dim MICROCOLUMN_DIM]
+                                       [--batch_size BATCH_SIZE]
+                                       [--num_epochs NUM_EPOCHS] [--lr LR]
+                                       [--weight_decay WEIGHT_DECAY]
+                                       [--infer_steps INFER_STEPS]
+                                       [--eta_infer ETA_INFER]
+                                       [--infer_max_norm INFER_MAX_NORM]
+                                       [--eval_every EVAL_EVERY] [--seed SEED]
+                                       [--quick] [--diagnose_energy]
+                                       [--bypass_columns]
+                                       [--layer_norm_tokens] [--fix_ln_gamma]
+                                       [--per_batch_energy_log PER_BATCH_ENERGY_LOG]
+                                       [--label_smoothing LABEL_SMOOTHING]
+train_cifar10_depth_spanning.py: error: argument --activation: expected one argument
+bash: leaky_relu: command not found...
+bash: --embed_dim: command not found...
+bash: --infer_max_norm: command not found...
