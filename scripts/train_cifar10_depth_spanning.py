@@ -78,7 +78,7 @@ from columnar_cl_fabricpc.columns import (
     create_stage_tap,
     create_global_pool,
     create_depth_spanning_column,
-    create_pooled_feature_norm,
+    create_global_avg_pool_norm,
 )
 from columnar_cl_fabricpc.columns.accuracy_nodes import MaskedColumnCombinerNode
 
@@ -98,7 +98,7 @@ def diagnose_energy_breakdown(
     - backbone: ResNet conv/skip nodes (s*b*, stem)
     - stage_taps: StageTapTokenizer nodes (stage*_tap, stage*_pool)
     - columns: DepthSpanningColumnNode (col_*)
-    - combiner: ColumnCombinerNode (combiner, column_pool)
+    - combiner: ColumnCombinerNode and normalized readout
     - classifier: CrossEntropy output node (output)
 
     Returns dict with per-category energy sums and E_gauss/E_ce ratio.
@@ -128,7 +128,7 @@ def diagnose_energy_breakdown(
             categories["columns"] += energy_sum
         elif node_name.startswith("stage") and ("tap" in node_name or "pool" in node_name):
             categories["stage_taps"] += energy_sum
-        elif node_name in ("combiner", "column_pool", "column_readout_norm"):
+        elif node_name in ("combiner", "column_readout_norm"):
             categories["combiner"] += energy_sum
         elif node_name == "bypass_pool":
             categories["bypass"] += energy_sum
@@ -179,7 +179,6 @@ def diagnose_column_outputs(
         or name.startswith("stage")
         or name in (
             "combiner",
-            "column_pool",
             "column_readout_norm",
             "output",
             "bypass_pool",
@@ -623,13 +622,8 @@ def build_depth_spanning_graph(args):
     for col in columns:
         edges.append(Edge(source=col, target=combiner.slot("in")))
 
-    # Global pool and classifier
-    column_pool = AvgPool(
-        shape=(args.embed_dim,),
-        name="column_pool",
-        global_pool=True,
-    )
-    column_readout_norm = create_pooled_feature_norm(
+    # Normalized readout and classifier
+    column_readout_norm = create_global_avg_pool_norm(
         name="column_readout_norm",
         feature_dim=args.embed_dim,
         fix_ln_gamma=args.fix_ln_gamma,
@@ -650,10 +644,9 @@ def build_depth_spanning_graph(args):
         weight_init=XavierInitializer(),
     )
 
-    nodes.extend([column_pool, column_readout_norm, output])
+    nodes.extend([column_readout_norm, output])
     edges.extend([
-        Edge(source=combiner, target=column_pool.slot("in")),
-        Edge(source=column_pool, target=column_readout_norm.slot("in")),
+        Edge(source=combiner, target=column_readout_norm.slot("in")),
         Edge(source=column_readout_norm, target=output.slot("in")),
     ])
 

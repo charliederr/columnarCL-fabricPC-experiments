@@ -12,7 +12,7 @@ from fabricpc.graph_assembly import TaskMap, graph
 from fabricpc.graph_initialization import initialize_params
 from fabricpc.nodes import IdentityNode
 
-from columnar_cl_fabricpc.columns import PooledFeatureNormNode
+from columnar_cl_fabricpc.columns import GlobalAvgPoolNormNode
 from scripts.train_cifar10_depth_spanning import (
     build_depth_spanning_graph,
     mask_output_input_sources,
@@ -20,34 +20,34 @@ from scripts.train_cifar10_depth_spanning import (
 )
 
 
-def test_pooled_feature_norm_fixed_params() -> None:
+def test_global_avg_pool_norm_fixed_params() -> None:
     """Fixed-gamma normalization registers no learnable parameters."""
-    params = PooledFeatureNormNode.initialize_params(
+    params = GlobalAvgPoolNormNode.initialize_params(
         jax.random.PRNGKey(0),
         node_shape=(4,),
-        input_shapes={"source->norm:in": (4,)},
+        input_shapes={"source->norm:in": (2, 4)},
         config={"fix_ln_gamma": True},
     )
     assert params.weights == {}
     assert params.biases == {}
 
 
-def test_pooled_feature_norm_learnable_params() -> None:
+def test_global_avg_pool_norm_learnable_params() -> None:
     """Learnable normalization registers one scale and one shift vector."""
-    params = PooledFeatureNormNode.initialize_params(
+    params = GlobalAvgPoolNormNode.initialize_params(
         jax.random.PRNGKey(0),
         node_shape=(4,),
-        input_shapes={"source->norm:in": (4,)},
+        input_shapes={"source->norm:in": (2, 4)},
         config={"fix_ln_gamma": False},
     )
     assert params.weights["ln_gamma"].shape == (4,)
     assert params.biases["ln_beta"].shape == (4,)
 
 
-def test_pooled_feature_norm_forward_normalizes_feature_axis() -> None:
-    """The output has zero feature mean and unit feature variance per sample."""
-    input_node = IdentityNode(shape=(4,), name="input")
-    norm_node = PooledFeatureNormNode(
+def test_global_avg_pool_norm_forward_pools_and_normalizes() -> None:
+    """The output averages tokens, then normalizes the feature axis."""
+    input_node = IdentityNode(shape=(2, 4), name="input")
+    norm_node = GlobalAvgPoolNormNode(
         shape=(4,),
         name="norm",
         fix_ln_gamma=True,
@@ -61,35 +61,39 @@ def test_pooled_feature_norm_forward_normalizes_feature_axis() -> None:
 
     x = jnp.asarray(
         [
-            [1.0, 2.0, 3.0, 4.0],
-            [2.0, 4.0, 6.0, 8.0],
+            [[1.0, 2.0, 3.0, 4.0], [3.0, 4.0, 5.0, 6.0]],
+            [[2.0, 4.0, 6.0, 8.0], [4.0, 6.0, 8.0, 10.0]],
         ],
         dtype=jnp.float32,
     )
+    output_shape = (x.shape[0], 4)
     state = NodeState(
-        z_latent=jnp.zeros_like(x),
-        z_mu=jnp.zeros_like(x),
-        error=jnp.zeros_like(x),
+        z_latent=jnp.zeros(output_shape, dtype=jnp.float32),
+        z_mu=jnp.zeros(output_shape, dtype=jnp.float32),
+        error=jnp.zeros(output_shape, dtype=jnp.float32),
         energy=jnp.zeros((x.shape[0],), dtype=jnp.float32),
-        pre_activation=jnp.zeros_like(x),
-        latent_grad=jnp.zeros_like(x),
+        pre_activation=jnp.zeros(output_shape, dtype=jnp.float32),
+        latent_grad=jnp.zeros(output_shape, dtype=jnp.float32),
     )
-    params = PooledFeatureNormNode.initialize_params(
+    params = GlobalAvgPoolNormNode.initialize_params(
         jax.random.PRNGKey(0),
         node_shape=(4,),
-        input_shapes={"input->norm:in": (4,)},
+        input_shapes={"input->norm:in": (2, 4)},
         config={"fix_ln_gamma": True},
     )
 
-    _, state = PooledFeatureNormNode.forward(
+    _, state = GlobalAvgPoolNormNode.forward(
         params,
         {"input->norm:in": x},
         state,
         structure.nodes["norm"].node_info,
     )
 
+    pooled = jnp.mean(x, axis=1)
+    assert state.z_mu.shape == output_shape
     assert jnp.allclose(jnp.mean(state.z_mu, axis=-1), 0.0, atol=1e-6)
     assert jnp.allclose(jnp.var(state.z_mu, axis=-1), 1.0, atol=1e-4)
+    assert not jnp.allclose(state.z_mu, pooled)
 
 
 def _tiny_depth_spanning_args() -> SimpleNamespace:
@@ -123,6 +127,7 @@ def test_depth_spanning_graph_routes_normalized_readout_to_output() -> None:
     assert "column_readout_norm" in output_sources
     assert "bypass_pool" in output_sources
     assert "column_pool" not in output_sources
+    assert "column_pool" not in structure.nodes
 
 
 def test_mask_output_input_sources_zeroes_only_dropped_edges() -> None:
@@ -147,4 +152,3 @@ def test_mask_output_input_sources_zeroes_only_dropped_edges() -> None:
         masked.nodes["output"].weights[bypass_edge],
         jnp.zeros_like(params.nodes["output"].weights[bypass_edge]),
     )
-

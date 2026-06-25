@@ -419,13 +419,13 @@ class MaskedColumnCombinerNode(NodeBase):
         return jnp.sum(state.energy), state
 
 
-class PooledFeatureNormNode(NodeBase):
+class GlobalAvgPoolNormNode(NodeBase):
     """
-    Normalize a pooled feature vector along its feature axis.
+    Globally average a token or spatial feature tensor and normalize the result.
 
-    This node takes a pooled readout such as `column_pool` with shape
-    `(batch, feature_dim)` and emits a feature-normalized vector with the same
-    shape. It gives the graph a named latent for the normalized column readout.
+    This node replaces a separate average-pooling node followed by a separate
+    feature-normalization node. It gives the classifier a normalized readout
+    while adding only one predictive-coding latent on the readout path.
     """
 
     def __init__(
@@ -439,7 +439,7 @@ class PooledFeatureNormNode(NodeBase):
     ):
         if len(shape) != 1:
             raise ValueError(
-                f"PooledFeatureNormNode shape must be (feature_dim,), got {shape}"
+                f"GlobalAvgPoolNormNode shape must be (feature_dim,), got {shape}"
             )
         super().__init__(
             shape=shape,
@@ -490,6 +490,10 @@ class PooledFeatureNormNode(NodeBase):
         for inp in inputs.values():
             x = inp if x is None else x + inp
 
+        spatial_axes = tuple(range(1, x.ndim - 1))
+        if spatial_axes:
+            x = jnp.mean(x, axis=spatial_axes)
+
         if node_info.node_config.get("fix_ln_gamma", False):
             gamma = jnp.float32(1.0)
             beta = jnp.float32(0.0)
@@ -505,13 +509,13 @@ class PooledFeatureNormNode(NodeBase):
         return jnp.sum(state.energy), state
 
 
-def create_pooled_feature_norm(
+def create_global_avg_pool_norm(
     name: str,
     feature_dim: int,
     fix_ln_gamma: bool = False,
-) -> PooledFeatureNormNode:
-    """Create a pooled feature normalization node."""
-    return PooledFeatureNormNode(
+) -> GlobalAvgPoolNormNode:
+    """Create a global-average-pool and feature-normalization node."""
+    return GlobalAvgPoolNormNode(
         shape=(feature_dim,),
         name=name,
         fix_ln_gamma=fix_ln_gamma,
