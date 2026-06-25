@@ -14,6 +14,9 @@ from fabricpc.nodes import IdentityNode
 
 from columnar_cl_fabricpc.columns import GlobalAvgPoolNormNode
 from scripts.train_cifar10_depth_spanning import (
+    COLUMN_TEACHER_NODE,
+    COLUMN_TEACHER_TARGET,
+    ColumnTeacherTargetLoader,
     build_depth_spanning_graph,
     mask_output_input_sources,
     mask_output_source_feature_slice,
@@ -129,6 +132,34 @@ def test_depth_spanning_graph_routes_raw_column_pool_to_output() -> None:
     assert "bypass_pool" in output_sources
     assert "column_readout_norm" not in output_sources
     assert "column_readout_norm" not in structure.nodes
+
+
+def test_depth_spanning_graph_adds_column_teacher_head() -> None:
+    """The column teacher head receives class error from the pooled columns only."""
+    structure, _ = build_depth_spanning_graph(_tiny_depth_spanning_args())
+
+    assert structure.task_map[COLUMN_TEACHER_TARGET] == COLUMN_TEACHER_NODE
+    teacher_sources = {
+        edge.source
+        for edge in structure.edges.values()
+        if edge.target == COLUMN_TEACHER_NODE and edge.slot == "in"
+    }
+
+    assert teacher_sources == {"column_pool"}
+
+
+def test_column_teacher_target_loader_duplicates_labels() -> None:
+    """The training wrapper adds column_y without changing x or y."""
+    x = jnp.ones((2, 4, 4, 3), dtype=jnp.float32)
+    y = jnp.eye(10, dtype=jnp.float32)[:2]
+    wrapped = ColumnTeacherTargetLoader([(x, y)])
+
+    batch = next(iter(wrapped))
+
+    assert set(batch) == {"x", "y", COLUMN_TEACHER_TARGET}
+    assert jnp.allclose(batch["x"], x)
+    assert jnp.allclose(batch["y"], y)
+    assert jnp.allclose(batch[COLUMN_TEACHER_TARGET], y)
 
 
 def test_mask_output_input_sources_zeroes_only_dropped_edges() -> None:

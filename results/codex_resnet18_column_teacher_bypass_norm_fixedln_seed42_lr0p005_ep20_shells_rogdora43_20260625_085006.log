@@ -1,0 +1,27 @@
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 20b075caf131c2adbc4589f3b2d1efe13ee1c01d
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10 [ahead 1]
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+ M scripts/run_codex_cifar10_depth_spanning.sh
+ M scripts/train_cifar10_depth_spanning.py
+ M tests/test_pooled_readout_norm.py
+?? results/codex_resnet18_bypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260625_061924.log
+?? results/codex_resnet18_column_teacher_bypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260625_085006.log
+python: /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+seed: 42
+lr: 0.005
+num_epochs: 20
+diagnose: shells
+column_teacher_head: enabled
+[CudaDevice(id=0)]
+gpu
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1782391813.709881  144674 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1782391813.710384  144674 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1782391814.501412  144674 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1782391814.501755  144674 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1782391814.594196  144674 cuda_executor.cc:1737] INTERNAL: CUDA Runtime error: Failed call to cudaGetRuntimeVersion: Error loading CUDA libraries. GPU will not be used.: Error loading CUDA libraries. GPU will not be used.
+W0000 00:00:1782391814.605125  144674 gpu_device.cc:2365] Cannot dlopen some GPU libraries. Please make sure the missing libraries mentioned above are installed properly if you would like to use GPU. Follow the guide at https://www.tensorflow.org/install/gpu for how to download and setup the required libraries for your platform.
+Skipping registering GPU devices...

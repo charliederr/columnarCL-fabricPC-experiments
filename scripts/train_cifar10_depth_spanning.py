@@ -36,7 +36,7 @@ import argparse
 import math
 import os
 import time
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.9")
@@ -85,6 +85,9 @@ from columnar_cl_fabricpc.columns.accuracy_nodes import MaskedColumnCombinerNode
 
 jax.config.update("jax_default_prng_impl", "threefry2x32")
 
+COLUMN_TEACHER_TARGET = "column_y"
+COLUMN_TEACHER_NODE = "column_teacher_output"
+
 
 def diagnose_energy_breakdown(
     params,
@@ -123,7 +126,7 @@ def diagnose_energy_breakdown(
     for node_name, energy_arr in node_energies.items():
         energy_sum = float(energy_arr.sum())
 
-        if node_name == "output":
+        if node_name in ("output", COLUMN_TEACHER_NODE):
             categories["classifier"] += energy_sum
         elif node_name.startswith("col_"):
             categories["columns"] += energy_sum
@@ -182,6 +185,7 @@ def diagnose_column_outputs(
             "combiner",
             "column_pool",
             "output",
+            COLUMN_TEACHER_NODE,
             "bypass_pool",
         )
     ]
@@ -498,6 +502,81 @@ def print_shell_norms(title: str, stats: Dict[str, Dict[str, float]]) -> None:
         )
 
 
+def make_classifier_energy(label_smoothing: float):
+    """Create the cross-entropy energy used by CIFAR-10 classifier heads."""
+    if label_smoothing > 0.0:
+        return LabelSmoothedCrossEntropyEnergy(
+            smoothing=label_smoothing,
+            num_classes=10,
+        )
+    return CrossEntropyEnergy()
+
+
+def batch_to_task_dict(batch_data: Any) -> Dict[str, jnp.ndarray]:
+    """Convert CIFAR loader batches into FabricPC task-key arrays."""
+    if isinstance(batch_data, (list, tuple)):
+        return {"x": jnp.array(batch_data[0]), "y": jnp.array(batch_data[1])}
+    if isinstance(batch_data, dict):
+        return {key: jnp.array(value) for key, value in batch_data.items()}
+    raise ValueError(f"Unsupported batch format: {type(batch_data)}")
+
+
+def add_column_teacher_target(batch: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Add `column_y`, the class target clamped to the column-only teacher head.
+
+    `column_y` uses the same one-hot CIFAR-10 label tensor as `y`. During
+    training, FabricPC clamps every batch key present in the graph task map,
+    so this target makes the column branch a supervised predictive-coding path.
+    """
+    if "y" not in batch:
+        raise ValueError("Column teacher batches require a 'y' label")
+    if COLUMN_TEACHER_TARGET in batch:
+        return batch
+    return {**batch, COLUMN_TEACHER_TARGET: batch["y"]}
+
+
+class ColumnTeacherTargetLoader:
+    """
+    Loader wrapper that duplicates CIFAR-10 labels for the column teacher head.
+
+    The underlying CIFAR loader is unchanged. This wrapper only changes the
+    batch task keys passed into FabricPC training.
+    """
+
+    def __init__(self, base_loader: Any):
+        self.base_loader = base_loader
+
+    def __len__(self) -> int:
+        return len(self.base_loader)
+
+    def __iter__(self):
+        for batch_data in self.base_loader:
+            yield add_column_teacher_target(batch_to_task_dict(batch_data))
+
+
+def evaluate_output_node(
+    params: GraphParams,
+    structure: GraphStructure,
+    output_node: str,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, float]:
+    """
+    Evaluate a named classifier node against CIFAR-10 labels.
+
+    The graph structure is unchanged except that the task-map key `y` points at
+    `output_node` for evaluation, so FabricPC reads predictions from that node.
+    """
+    if output_node not in structure.nodes:
+        raise ValueError(f"Unknown output node: {output_node}")
+    eval_structure = structure._replace(
+        task_map={**structure.task_map, "y": output_node}
+    )
+    return evaluate_pcn(params, eval_structure, loader, config, rng_key)
+
+
 # Model configurations with explicit stage channel counts for stage taps
 MODEL_CONFIGS = {
     "tiny": {
@@ -790,38 +869,39 @@ def build_depth_spanning_graph(args):
     for col in columns:
         edges.append(Edge(source=col, target=combiner.slot("in")))
 
-    # Raw pooled readout and classifier
+    # Raw pooled readout, combined classifier, and column-only teacher head.
     column_pool = AvgPool(
         shape=(args.embed_dim,),
         name="column_pool",
         global_pool=True,
     )
-    if args.label_smoothing > 0.0:
-        classifier_energy = LabelSmoothedCrossEntropyEnergy(
-            smoothing=args.label_smoothing,
-            num_classes=10,
-        )
-    else:
-        classifier_energy = CrossEntropyEnergy()
     output = Linear(
         shape=(10,),
         name="output",
         activation=SoftmaxActivation(),
-        energy=classifier_energy,
+        energy=make_classifier_energy(args.label_smoothing),
+        flatten_input=True,
+        weight_init=XavierInitializer(),
+    )
+    column_teacher_output = Linear(
+        shape=(10,),
+        name=COLUMN_TEACHER_NODE,
+        activation=SoftmaxActivation(),
+        energy=make_classifier_energy(args.label_smoothing),
         flatten_input=True,
         weight_init=XavierInitializer(),
     )
 
-    nodes.extend([column_pool, output])
+    nodes.extend([column_pool, output, column_teacher_output])
     edges.extend([
         Edge(source=combiner, target=column_pool.slot("in")),
         Edge(source=column_pool, target=output.slot("in")),
+        Edge(source=column_pool, target=column_teacher_output.slot("in")),
     ])
 
     # Optional bypass: stage4 backbone features go directly to the classifier in
-    # parallel with the columnar pathway. Guarantees non-regression vs. PC ResNet:
-    # if columns add no information, classifier learns to weight bypass heavily;
-    # if columns help, the column_pool-to-output edge weights grow.
+    # parallel with the columnar pathway, so readout ablations can separate
+    # backbone-only evidence from column-mediated evidence.
     if args.bypass_columns:
         bypass_pool = AvgPool(
             shape=(stage4_channels,),
@@ -835,7 +915,7 @@ def build_depth_spanning_graph(args):
     structure = graph(
         nodes=nodes,
         edges=edges,
-        task_map=TaskMap(x=image, y=output),
+        task_map=TaskMap(x=image, y=output, column_y=column_teacher_output),
         inference=InferenceSGDNormClip(
             eta_infer=args.eta_infer,
             infer_steps=args.infer_steps,
@@ -872,6 +952,7 @@ def train_cifar10_depth_spanning(args):
     print(f"Weight decay: {args.weight_decay}")
     print(f"Inference steps: {args.infer_steps}")
     print(f"Inference eta: {args.eta_infer}")
+    print("Column teacher head: enabled")
     print()
 
     master_key = jax.random.PRNGKey(args.seed)
@@ -911,16 +992,14 @@ def train_cifar10_depth_spanning(args):
     print(f"Train batches: {len(train_loader)}")
     print(f"Val batches: {len(val_loader)}")
     print(f"Test batches: {len(test_loader)}")
+    train_loader_with_teacher = ColumnTeacherTargetLoader(train_loader)
 
     # Energy, column-output, and shell diagnosis: sample batch for analysis
     diag_batch = None
     diag_key = None
     if args.diagnose_energy or args.diagnose_shells:
-        diag_batch_raw = next(iter(train_loader))
-        diag_batch = {
-            "x": jnp.array(diag_batch_raw[0]),
-            "y": jnp.array(diag_batch_raw[1]),
-        }
+        diag_batch_raw = next(iter(train_loader_with_teacher))
+        diag_batch = batch_to_task_dict(diag_batch_raw)
         diag_key = jax.random.PRNGKey(args.seed + 999)
 
     if args.diagnose_energy:
@@ -947,7 +1026,7 @@ def train_cifar10_depth_spanning(args):
             diagnose_shell_norms(params, structure, diag_batch, diag_key),
         )
 
-    steps_per_epoch = len(train_loader)
+    steps_per_epoch = len(train_loader_with_teacher)
     total_steps = max(1, round(args.num_epochs * steps_per_epoch))
     warmup_steps = min(total_steps - 1, int(0.05 * total_steps))
     schedule = optax.warmup_cosine_decay_schedule(
@@ -1048,7 +1127,7 @@ def train_cifar10_depth_spanning(args):
     final_params, _, _ = train_pcn(
         params=params,
         structure=structure,
-        train_loader=train_loader,
+        train_loader=train_loader_with_teacher,
         optimizer=optimizer,
         config=train_config,
         rng_key=train_key,
@@ -1098,6 +1177,18 @@ def train_cifar10_depth_spanning(args):
         eval_params, structure, val_loader, train_config, ablation_key
     )
     print_ablation_results("Validation Readout Ablations", val_ablation_metrics)
+    val_teacher_metrics = evaluate_output_node(
+        eval_params,
+        structure,
+        COLUMN_TEACHER_NODE,
+        val_loader,
+        train_config,
+        ablation_key,
+    )
+    print_ablation_results(
+        "Validation Column Teacher Head",
+        {COLUMN_TEACHER_NODE: val_teacher_metrics},
+    )
     if args.diagnose_shells:
         val_shell_metrics = evaluate_shell_readout_ablations(
             eval_params, structure, val_loader, train_config, ablation_key
@@ -1106,6 +1197,14 @@ def train_cifar10_depth_spanning(args):
 
     test_ablation_metrics = evaluate_readout_ablations(
         eval_params, structure, test_loader, train_config, ablation_key
+    )
+    test_teacher_metrics = evaluate_output_node(
+        eval_params,
+        structure,
+        COLUMN_TEACHER_NODE,
+        test_loader,
+        train_config,
+        ablation_key,
     )
     test_metrics = test_ablation_metrics["combined"]
     test_acc = float(test_metrics.get("accuracy", 0.0))
@@ -1118,6 +1217,10 @@ def train_cifar10_depth_spanning(args):
         print(f"Best Val Accuracy: {best_val_acc:.4f}")
         print(f"Best Val Epoch: {best_val_epoch}")
     print_ablation_results("Test Readout Ablations", test_ablation_metrics)
+    print_ablation_results(
+        "Test Column Teacher Head",
+        {COLUMN_TEACHER_NODE: test_teacher_metrics},
+    )
     if args.diagnose_shells:
         test_shell_metrics = evaluate_shell_readout_ablations(
             eval_params, structure, test_loader, train_config, ablation_key
@@ -1178,8 +1281,8 @@ def parse_args():
         action="store_true",
         help=(
             "Add a parallel global-pool of stage4 directly into the classifier, "
-            "alongside the column pathway. Guarantees non-regression vs. PC ResNet "
-            "baseline; classifier learns to weight bypass vs. columns."
+            "alongside the column pathway. Readout ablations then distinguish "
+            "backbone-only evidence from column-mediated evidence."
         ),
     )
     parser.add_argument(

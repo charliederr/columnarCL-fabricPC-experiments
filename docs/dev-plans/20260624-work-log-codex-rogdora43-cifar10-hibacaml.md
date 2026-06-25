@@ -333,3 +333,92 @@ Next full experiment for rogdora43:
 ```
 
 This command writes its output to `results/`, records commit and backend, runs the shell-typed depth-spanning architecture with raw `column_pool` readout, and enables shell diagnostics without per-epoch energy diagnostics.
+
+## 2026-06-25 Column Teacher Direction
+
+Timestamp and machine: 2026-06-25 08:45:36 EDT on `rogdora43`.
+
+Starting commit before the change: `20b075c`.
+
+Latest result ingested:
+
+- Result file: `results/codex_resnet18_bypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260625_061924.log`
+- Main combined validation accuracy: 49.64% at epoch 20.
+- Main combined test accuracy: 47.85%.
+- `column_only` accuracy through the main output readout: 10.00% on validation and test.
+- `bypass_only` accuracy through the main output readout: 49.16% on validation and 47.85% on test.
+- Shell readout lesions had almost no effect on combined accuracy.
+- Shell norms changed substantially: the hard-kernel slice grew while the middle-shell and outer-shell slices shrank.
+
+Interpretation:
+
+`column_pool` is the global average pooled output of the depth-spanning HiBaCaML-style columns. `bypass_pool` is the global average pooled backbone path from ResNet stage 4. `output` is the main CIFAR-10 classifier that receives both `column_pool` and optional `bypass_pool`. The shell-typed column changed its internal feature allocation, but the CIFAR-10 class error still reached the supervised output mostly through `bypass_pool`. The mechanism is visible in the ablations: `column_only` stayed at chance while `bypass_only` matched the combined classifier on test.
+
+Chosen next mechanism:
+
+Add `column_teacher_output`, a second terminal predictive-coding classifier fed only by `column_pool`. Add `column_y`, a training task key that carries the same one-hot CIFAR-10 label tensor as `y`, where `y` is the class target for the main combined output. FabricPC clamps every batch key that appears in the graph `TaskMap` during `train_pcn`, so `column_y` makes `column_teacher_output` a supervised CE node during predictive-coding inference and parameter learning. CE means cross entropy, the energy used by the class-label terminal node.
+
+This keeps the HiBaCaML direction intact. The column branch now receives direct class evidence while the main classifier still measures the combined backbone and column readout. It does not replace the upstream CIFAR loader. It wraps each training batch after loading so the training task dictionary contains `x`, `y`, and `column_y`.
+
+Alternatives considered:
+
+- Remove `bypass_pool`. This would force the main output to use columns, but it would also discard the comparison path that tells us whether columns help beyond the backbone.
+- Increase columns or switch the combiner to attention. This is architecturally relevant, but the previous result shows that more column capacity can still be unused if class error has an easier path through `bypass_pool`.
+- Add shell-specific regularization before the teacher head. This could make the shell norms look more balanced, but it would optimize a branch whose class readout is still at chance.
+
+Implemented files:
+
+- `scripts/train_cifar10_depth_spanning.py`
+- `scripts/run_codex_cifar10_depth_spanning.sh`
+- `tests/test_pooled_readout_norm.py`
+
+Implemented mechanism:
+
+- Added `COLUMN_TEACHER_TARGET = "column_y"` and `COLUMN_TEACHER_NODE = "column_teacher_output"`.
+- Added `column_teacher_output`, a softmax linear classifier with CE energy.
+- Connected `column_pool -> column_teacher_output`.
+- Added `TaskMap(x=image, y=output, column_y=column_teacher_output)`.
+- Added `ColumnTeacherTargetLoader`, which wraps the existing CIFAR loader and duplicates the one-hot `y` tensor into `column_y`.
+- Added `evaluate_output_node`, which evaluates any named classifier node by temporarily pointing the evaluation `y` task at that node.
+- Added final validation and test metrics for `column_teacher_output`.
+- Updated the runner log path to include `column_teacher`.
+
+Verification:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+```
+
+Result: `8 passed`.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py -q
+```
+
+Result: `23 passed`.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -q --ignore=tests/test_cifar_data.py
+```
+
+Result: `125 passed`.
+
+Next CUDA-backed experiment for `rogdora43`:
+
+```bash
+./scripts/run_codex_cifar10_depth_spanning.sh 42 0.005 shells 20
+```
+
+What to inspect after the run:
+
+- Main combined test accuracy.
+- `column_only` test accuracy through the main `output` readout.
+- `column_teacher_output` validation and test accuracy.
+- Shell readout lesions.
+- Shell L2 norms before and after training, where L2 norm is the square root of the sum of squared activations over a shell feature slice.

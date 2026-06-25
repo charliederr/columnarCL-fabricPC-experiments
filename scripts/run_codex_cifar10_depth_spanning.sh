@@ -25,7 +25,7 @@ elif [[ "$diagnose_mode" == "diag_shells" ]]; then
     extra_args+=(--diagnose_energy --diagnose_shells)
 fi
 
-log_path="${repo_root}/results/codex_resnet18_bypass_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+log_path="${repo_root}/results/codex_resnet18_column_teacher_bypass_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -40,6 +40,7 @@ mkdir -p results
     echo "lr: $lr"
     echo "num_epochs: $num_epochs"
     echo "diagnose: $diagnose_label"
+    echo "column_teacher_head: enabled"
     "$python_bin" -c "import jax; print(jax.devices()); print(jax.default_backend())"
     "$python_bin" scripts/train_cifar10_depth_spanning.py \
         --model resnet18 \
