@@ -508,3 +508,76 @@ What to inspect after the run:
 - Main combined validation trajectory. If it still collapses to chance, the teacher target is still disrupting shared latents.
 - `column_teacher_output` validation and test accuracy. If it stays near chance while the main classifier recovers, the teacher target is too high-level for the current column representation.
 - `column_only` through the main `output` readout. If this rises above chance, the combined classifier has begun using column class evidence.
+
+## 2026-06-25 Weighted Teacher 0.1 Result
+
+Timestamp and machine: 2026-06-25 19:04:28 EDT on `rogdora43`.
+
+Current commit while recording this result: `340a56c`.
+
+Completed result ingested:
+
+- Result file: `results/codex_resnet18_column_teacher0p1_bypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260625_165740.log`
+- `w_teacher = 0.1`, where `w_teacher` is the scalar multiplier on the `column_teacher_output` cross-entropy energy.
+- Main combined validation accuracy peaked at 43.86% at epoch 6.
+- Main combined test accuracy at the selected epoch was 43.05%.
+- `column_only` test accuracy through the main `output` readout was 15.85%.
+- `bypass_only` test accuracy through the main `output` readout was 43.23%.
+- `column_teacher_output` test accuracy was 12.81%.
+- Training energy ended around 0.028, so the full-weight teacher collapse was avoided.
+
+Validation trajectory:
+
+| Epoch | Validation accuracy |
+| --- | --- |
+| 1 | 28.92% |
+| 2 | 37.02% |
+| 3 | 39.84% |
+| 4 | 42.84% |
+| 5 | 40.86% |
+| 6 | 43.86% |
+| 7 | 41.40% |
+| 8 | 38.02% |
+| 9 | 27.92% |
+| 10 | 33.68% |
+| 11 | 34.58% |
+| 12 | 29.48% |
+| 13 | 37.46% |
+| 14 | 37.36% |
+| 15 | 31.10% |
+| 16 | 31.72% |
+| 17 | 31.06% |
+| 18 | 33.62% |
+| 19 | 35.62% |
+| 20 | 37.26% |
+
+Shell norms at the selected run endpoint:
+
+| Shell | Width | Mean L2 norm | Standard deviation |
+| --- | ---: | ---: | ---: |
+| `hard_kernel` | 22 | 4.1763 | 1.5187 |
+| `inner_shell` | 7 | 2.3080 | 0.7533 |
+| `middle_shell` | 14 | 3.6695 | 1.2343 |
+| `outer_shell` | 21 | 4.4774 | 0.8757 |
+
+Interpretation:
+
+The low-weight teacher head changed the column pathway in the intended direction but did not yet improve the main classifier. `column_only` rose from chance to 15.85% test, which means `column_pool` now carries some class information. `column_teacher_output` stayed weak at 12.81% test, which means the teacher head itself is not yet a strong classifier. `bypass_only` remained slightly above the combined output, which means the main `output` classifier still relies on the ResNet stage-4 bypass path rather than using the columns as useful additive evidence.
+
+Compared with the no-teacher shell run, `w_teacher = 0.1` traded main accuracy for a weak column signal. Compared with the full-weight teacher run, it avoided high-energy collapse. The useful result is that the target scale matters and that a nonzero teacher can make `column_pool` non-random.
+
+Next direction:
+
+Run one lower teacher-weight experiment before changing architecture. The next value is `w_teacher = 0.05`. This tests whether the model can retain the new above-chance column signal while recovering closer to the no-teacher main classifier. If `w_teacher = 0.05` still hurts main accuracy and keeps `column_teacher_output` near chance, the next architectural step should move supervision closer to the HiBaCaML shell structure instead of increasing the global teacher. That means shell-local or stage-local auxiliary predictive targets attached to the hard-kernel and shell slices, with each target receiving a small energy weight.
+
+Next CUDA-backed experiment for `rogdora43`:
+
+```bash
+./scripts/run_codex_cifar10_depth_spanning.sh 42 0.005 shells 20 0.05
+```
+
+What to inspect after the run:
+
+- Main combined test accuracy. Recovery toward the no-teacher 47.85% test result means the teacher is no longer disrupting the main path as strongly.
+- `column_only` test accuracy. Staying above chance means the lower teacher still trains class evidence into `column_pool`.
+- `column_teacher_output` test accuracy. If it remains near chance, global column-pool supervision is too coarse and the next target should be shell-local.
