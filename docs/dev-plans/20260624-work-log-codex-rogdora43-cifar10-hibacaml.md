@@ -187,3 +187,77 @@ Interpretation rule:
 
 - If validation no longer collapses and `bypass_only` recovers near the prior Phase 0 seed-42 level, then the added second readout latent was the destabilizing change.
 - If validation still collapses or `bypass_only` remains far below Phase 0, then normalizing the column readout itself is disrupting the classifier input geometry or the classifier's local predictive-coding update.
+
+## Single-Node Readout Isolation Result
+
+Result log:
+
+- `results/codex_resnet18_bypass_norm_fixedln_seed42_lr0p005_ep20_nodiag_rogdora43_20260624_225259.log`
+
+Run metadata from the log:
+
+- Commit at run start: `e392e9b6c12635c1b0369cfaf965372b8ac0d1d7`
+- Seed: 42
+- Learning rate: 0.005
+- Epochs: 20
+- Graph: 41 nodes, 64 edges
+- Parameters: 2,924,634
+- JAX devices: `[CudaDevice(id=0)]`
+- JAX backend: `gpu`
+
+Validation trajectory:
+
+| Epoch | Validation accuracy |
+| --- | --- |
+| 1 | 29.16% |
+| 2 | 34.26% |
+| 3 | 37.48% |
+| 4 | 41.16% |
+| 5 | 43.20% |
+| 6 | 40.94% |
+| 7 | 42.44% |
+| 8 | 44.46% |
+| 9 | 38.78% |
+| 10 | 42.68% |
+| 11 | 41.08% |
+| 12 | 43.40% |
+| 13 | 40.42% |
+| 14 | 32.94% |
+| 15 | 31.26% |
+| 16 | 27.34% |
+| 17 | 27.22% |
+| 18 | 26.20% |
+| 19 | 27.54% |
+| 20 | 27.80% |
+
+Best validation epoch was epoch 8. Best-validation test accuracy was 43.39%.
+
+Readout ablations at the selected epoch:
+
+| Split | Combined | Column-only | Bypass-only |
+| --- | --- | --- | --- |
+| Validation | 44.46% | 10.00% | 18.16% |
+| Test | 43.39% | 10.00% | 17.41% |
+
+Interpretation grounded in this run:
+
+- Removing the extra readout latent avoided the complete chance-level collapse seen in the two-node readout graph.
+- The run still underperformed the Phase 0 raw-pooling seed-42 baseline, which reached 48.50% validation accuracy and 47.10% test accuracy.
+- `column_only` is chance on validation and test. The normalized column feature is not an independently class-informative representation under this training setup.
+- `bypass_only` is far below the combined result. The output node is using a joint sum of the normalized-column edge logits and bypass edge logits, but neither edge is useful after the other edge is removed.
+- `combined` being higher than both ablated cases means the normalized column edge contributes to the trained logits. It does not show that the column branch has learned a reusable HiBaCaML-style column representation.
+
+Direction change:
+
+The next sub-goal should not be seed 99 or seed 7 for the single-node normalized-readout graph. Readout normalization has now been tested in two forms. The two-node form collapsed to chance, and the single-node form avoided the hardest collapse but still lost accuracy relative to raw pooling and left `column_only` at chance.
+
+The next sub-goal should implement a more faithful HiBaCaML column mechanism while keeping the stable raw-pooling readout for measurement. The concrete target is a shell-structured typed column:
+
+- Partition each depth-spanning column into typed feature slices for hard-kernel, inner-shell, middle-shell, and outer-shell pathways.
+- Keep the current predictive-coding training path.
+- Keep the upstream FabricPC CIFAR-10 loading path.
+- Keep the raw pooled readout and bypass path initially, so shell implementation is not confounded with the normalized-readout failure mode.
+- Add shell lesion diagnostics that zero one typed slice at a time and report combined accuracy, column-path accuracy, and bypass-path accuracy.
+- Add shell norm diagnostics that report the L2 norm of each typed slice, where the L2 norm is the square root of the sum of squared feature activations over that slice.
+
+This next step follows the HiBaCaML architecture direction more directly than further readout experiments. It tests whether structured column internals can produce useful class evidence before adding split-CIFAR-10 continual-learning machinery.
