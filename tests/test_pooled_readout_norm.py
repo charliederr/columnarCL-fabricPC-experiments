@@ -12,7 +12,10 @@ from fabricpc.graph_assembly import TaskMap, graph
 from fabricpc.graph_initialization import initialize_params
 from fabricpc.nodes import IdentityNode
 
-from columnar_cl_fabricpc.columns import GlobalAvgPoolNormNode
+from columnar_cl_fabricpc.columns import (
+    GlobalAvgPoolNormNode,
+    WeightedLabelSmoothedCrossEntropyEnergy,
+)
 from scripts.train_cifar10_depth_spanning import (
     COLUMN_TEACHER_NODE,
     COLUMN_TEACHER_TARGET,
@@ -100,6 +103,22 @@ def test_global_avg_pool_norm_forward_pools_and_normalizes() -> None:
     assert not jnp.allclose(state.z_mu, pooled)
 
 
+def test_weighted_cross_entropy_scales_energy_and_latent_gradient() -> None:
+    """The auxiliary teacher weight scales its class energy and gradient."""
+    target = jnp.asarray([[1.0, 0.0, 0.0]], dtype=jnp.float32)
+    prediction = jnp.asarray([[0.8, 0.1, 0.1]], dtype=jnp.float32)
+    base = WeightedLabelSmoothedCrossEntropyEnergy(weight=1.0, smoothing=0.0)
+    weighted = WeightedLabelSmoothedCrossEntropyEnergy(weight=0.25, smoothing=0.0)
+
+    base_energy = type(base).energy(target, prediction, base.config)
+    weighted_energy = type(weighted).energy(target, prediction, weighted.config)
+    base_grad = type(base).grad_latent(target, prediction, base.config)
+    weighted_grad = type(weighted).grad_latent(target, prediction, weighted.config)
+
+    assert jnp.allclose(weighted_energy, 0.25 * base_energy)
+    assert jnp.allclose(weighted_grad, 0.25 * base_grad)
+
+
 def _tiny_depth_spanning_args() -> SimpleNamespace:
     return SimpleNamespace(
         model="tiny",
@@ -117,6 +136,7 @@ def _tiny_depth_spanning_args() -> SimpleNamespace:
         layer_norm_tokens=True,
         fix_ln_gamma=True,
         label_smoothing=0.0,
+        column_teacher_weight=0.1,
         infer_steps=2,
         eta_infer=0.1,
         infer_max_norm=1.0,
@@ -139,6 +159,7 @@ def test_depth_spanning_graph_adds_column_teacher_head() -> None:
     structure, _ = build_depth_spanning_graph(_tiny_depth_spanning_args())
 
     assert structure.task_map[COLUMN_TEACHER_TARGET] == COLUMN_TEACHER_NODE
+    assert structure.nodes[COLUMN_TEACHER_NODE].node_info.energy.config["weight"] == 0.1
     teacher_sources = {
         edge.source
         for edge in structure.edges.values()

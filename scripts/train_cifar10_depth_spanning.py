@@ -59,7 +59,6 @@ from fabricpc.core.activations import (
     LeakyReLUActivation,
     SoftmaxActivation,
 )
-from fabricpc.core.energy import CrossEntropyEnergy
 from fabricpc.core.initializers import MuPCInitializer, XavierInitializer
 from fabricpc.core.mupc import MuPCConfig
 from fabricpc.training import train_pcn, evaluate_pcn
@@ -74,7 +73,7 @@ from columnar_cl_fabricpc.columns import (
     StageTapTokenizer,
     GlobalPoolNode,
     DepthSpanningColumnNode,
-    LabelSmoothedCrossEntropyEnergy,
+    WeightedLabelSmoothedCrossEntropyEnergy,
     SHELL_NAMES,
     create_stage_tap,
     create_global_pool,
@@ -502,14 +501,19 @@ def print_shell_norms(title: str, stats: Dict[str, Dict[str, float]]) -> None:
         )
 
 
-def make_classifier_energy(label_smoothing: float):
-    """Create the cross-entropy energy used by CIFAR-10 classifier heads."""
-    if label_smoothing > 0.0:
-        return LabelSmoothedCrossEntropyEnergy(
-            smoothing=label_smoothing,
-            num_classes=10,
-        )
-    return CrossEntropyEnergy()
+def make_classifier_energy(label_smoothing: float, weight: float = 1.0):
+    """
+    Create the weighted cross-entropy energy used by CIFAR-10 classifier heads.
+
+    `weight` multiplies the per-sample class energy. The main classifier uses
+    weight 1.0. The column teacher head uses a smaller weight because it is an
+    auxiliary target attached to the shared column pathway.
+    """
+    return WeightedLabelSmoothedCrossEntropyEnergy(
+        weight=weight,
+        smoothing=label_smoothing,
+        num_classes=10,
+    )
 
 
 def batch_to_task_dict(batch_data: Any) -> Dict[str, jnp.ndarray]:
@@ -887,7 +891,7 @@ def build_depth_spanning_graph(args):
         shape=(10,),
         name=COLUMN_TEACHER_NODE,
         activation=SoftmaxActivation(),
-        energy=make_classifier_energy(args.label_smoothing),
+        energy=make_classifier_energy(args.label_smoothing, args.column_teacher_weight),
         flatten_input=True,
         weight_init=XavierInitializer(),
     )
@@ -953,6 +957,7 @@ def train_cifar10_depth_spanning(args):
     print(f"Inference steps: {args.infer_steps}")
     print(f"Inference eta: {args.eta_infer}")
     print("Column teacher head: enabled")
+    print(f"Column teacher weight: {args.column_teacher_weight}")
     print()
 
     master_key = jax.random.PRNGKey(args.seed)
@@ -1322,6 +1327,17 @@ def parse_args():
             "(0.0 = plain CE; 0.1 is the CIFAR-10 standard). Prevents the loss "
             "from saturating, keeping the gradient signal alive against weight "
             "decay erosion. Implemented in columnar_cl_fabricpc, not FabricPC."
+        ),
+    )
+    parser.add_argument(
+        "--column_teacher_weight",
+        type=float,
+        default=0.1,
+        help=(
+            "Weight on the auxiliary cross-entropy energy at column_teacher_output. "
+            "The main output uses weight 1.0. The default keeps the column-only "
+            "teacher in the predictive-coding graph without letting it dominate "
+            "the shared column latents."
         ),
     )
     return parser.parse_args()

@@ -422,3 +422,89 @@ What to inspect after the run:
 - `column_teacher_output` validation and test accuracy.
 - Shell readout lesions.
 - Shell L2 norms before and after training, where L2 norm is the square root of the sum of squared activations over a shell feature slice.
+
+## 2026-06-25 Weighted Column Teacher Follow-Up
+
+Timestamp and machine: 2026-06-25 15:22:41 EDT on `rogdora43`.
+
+Starting commit before this follow-up: `e4cd180`.
+
+Completed result ingested:
+
+- Result file: `results/codex_resnet18_column_teacher_bypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260625_085006.log`
+- Main combined validation accuracy peaked at 36.70% at epoch 3.
+- Main combined test accuracy at the selected epoch was 38.08%.
+- The main validation metric collapsed to 9.84% from epoch 10 through epoch 20.
+- `column_only` test accuracy through the main `output` readout was 10.10%.
+- `bypass_only` test accuracy through the main `output` readout was 38.07%.
+- `column_teacher_output` test accuracy was 11.78%.
+- Training energy rose to roughly 14 by epoch 20, while the previous no-teacher shell run finished with very low reported training energy.
+
+Interpretation:
+
+`column_teacher_output` is the auxiliary classifier attached only to `column_pool`. `column_y` is the same CIFAR-10 one-hot class target as `y`, clamped to `column_teacher_output` during training. Giving `column_teacher_output` full weight made the auxiliary CE target as strong as the main class target. The column-only teacher did not become class-informative, and its error dominated the shared column latents enough to destabilize the main output after a few epochs. This is a scale mismatch in the auxiliary predictive-coding target, not a reason to remove the column teacher mechanism.
+
+Chosen next mechanism:
+
+Keep the same column-only teacher head, but make its CE energy explicitly weighted. `w_teacher` is the scalar multiplier on the `column_teacher_output` CE energy. The main output keeps weight 1.0. The next default is `w_teacher = 0.1`, so the teacher head remains in the predictive-coding graph but contributes a smaller class-error signal to the shared column pathway.
+
+Alternatives considered:
+
+- Remove the teacher head. This restores the previous baseline behavior but abandons the class-target pressure on the column pathway.
+- Increase `w_teacher`. The full-weight run already showed high-energy collapse, so increasing the same objective is not supported by the result.
+- Move immediately to shell-local targets. This is likely the next architectural step if a low-weight teacher still stays at chance, but it is a larger change. The weighted teacher first tests whether the previous failure was target scale rather than target placement.
+
+Implemented files:
+
+- `columnar_cl_fabricpc/columns/label_smoothed_ce.py`
+- `columnar_cl_fabricpc/columns/__init__.py`
+- `scripts/train_cifar10_depth_spanning.py`
+- `scripts/run_codex_cifar10_depth_spanning.sh`
+- `tests/test_pooled_readout_norm.py`
+
+Implemented mechanism:
+
+- Added `WeightedLabelSmoothedCrossEntropyEnergy`, where `z_latent` is the one-hot class target, `z_mu` is the softmax prediction, and `weight` multiplies the per-sample CE energy and latent gradient.
+- Changed `make_classifier_energy(label_smoothing, weight)` to use the weighted CE implementation for classifier heads.
+- Kept the main `output` classifier at weight 1.0.
+- Set `column_teacher_output` to `args.column_teacher_weight`, defaulting to 0.1.
+- Added `--column_teacher_weight` to the training script.
+- Added a fifth runner argument for the teacher weight and recorded it in the result filename and log metadata.
+
+Verification:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py columnar_cl_fabricpc/columns/label_smoothed_ce.py tests/test_pooled_readout_norm.py
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+```
+
+Result: `9 passed`.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py -q
+```
+
+Result: `24 passed`.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -q --ignore=tests/test_cifar_data.py
+```
+
+Result: `126 passed`.
+
+Next CUDA-backed experiment for `rogdora43`:
+
+```bash
+./scripts/run_codex_cifar10_depth_spanning.sh 42 0.005 shells 20 0.1
+```
+
+What to inspect after the run:
+
+- Main combined validation trajectory. If it still collapses to chance, the teacher target is still disrupting shared latents.
+- `column_teacher_output` validation and test accuracy. If it stays near chance while the main classifier recovers, the teacher target is too high-level for the current column representation.
+- `column_only` through the main `output` readout. If this rises above chance, the combined classifier has begun using column class evidence.
