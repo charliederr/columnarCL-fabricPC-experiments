@@ -14,10 +14,13 @@ import jax.numpy as jnp
 import numpy as np
 
 from columnar_cl_fabricpc.columns import (
+    SHELL_NAMES,
     DepthSpanningColumnNode,
+    compute_shell_sizes,
     create_depth_spanning_column,
     create_depth_spanning_column_pool,
     create_cifar10_stage_taps,
+    get_shell_slices,
     StageTapTokenizer,
     GlobalPoolNode,
 )
@@ -81,6 +84,22 @@ class TestDepthSpanningColumnNode:
         for slot_name, slot_spec in slots.items():
             assert slot_spec.is_multi_input is False, f"{slot_name} should be single-input"
 
+    def test_default_shell_sizes_scale_cifar_ratio(self):
+        """Default shells use the CIFAR hard/shell width ratio."""
+        assert compute_shell_sizes(64) == (22, 7, 14, 21)
+        assert get_shell_slices(64) == {
+            "hard_kernel": (0, 22),
+            "inner_shell": (22, 29),
+            "middle_shell": (29, 43),
+            "outer_shell": (43, 64),
+        }
+        assert SHELL_NAMES == (
+            "hard_kernel",
+            "inner_shell",
+            "middle_shell",
+            "outer_shell",
+        )
+
 
 class TestDepthSpanningColumnParams:
     """Test parameter initialization."""
@@ -122,8 +141,8 @@ class TestDepthSpanningColumnParams:
         assert params.weights["B_W_deep"].shape == (64, 32)  # input → μd
         assert params.weights["B_W_out"].shape == (32, 64)  # μd → output
 
-        # Path scale
-        assert params.weights["path_scale"].shape == (3,)
+        # Shell-specific K/L/B mixer
+        assert params.weights["shell_path_scale"].shape == (4, 3)
 
     def test_initialize_params_requires_input_dim(self, rng_key):
         """Should raise if input_dim not in config."""
@@ -136,8 +155,8 @@ class TestDepthSpanningColumnParams:
                 rng_key, node_shape, input_shapes, config=config
             )
 
-    def test_path_scale_initialization(self, rng_key):
-        """Path scale should be initialized for equal variance contribution."""
+    def test_shell_path_scale_initialization(self, rng_key):
+        """Shell path scale should be initialized with typed pathway support."""
         node_shape = (64, 64)
         input_shapes = {
             "stage2:stage2": (64, 64),
@@ -151,9 +170,16 @@ class TestDepthSpanningColumnParams:
             rng_key, node_shape, input_shapes, config=config
         )
 
-        # Should be 1/sqrt(3) for three pathways
-        expected_scale = 1.0 / jnp.sqrt(3.0)
-        assert jnp.allclose(params.weights["path_scale"], expected_scale)
+        expected_scale = jnp.asarray(
+            [
+                [1.0, 0.0, 0.0],
+                [1.0 / jnp.sqrt(2.0), 1.0 / jnp.sqrt(2.0), 0.0],
+                [1.0 / jnp.sqrt(3.0), 1.0 / jnp.sqrt(3.0), 1.0 / jnp.sqrt(3.0)],
+                [0.0, 1.0 / jnp.sqrt(2.0), 1.0 / jnp.sqrt(2.0)],
+            ],
+            dtype=jnp.float32,
+        )
+        assert jnp.allclose(params.weights["shell_path_scale"], expected_scale)
 
 
 class TestDepthSpanningColumnPool:
@@ -392,14 +418,14 @@ class TestMultipleColumns:
 
 
 class TestPathwayContributions:
-    """Test that K, L, B pathways contribute to output."""
+    """Test that shell-specific K, L, B pathways contribute to output."""
 
     @pytest.fixture
     def rng_key(self):
         return jax.random.PRNGKey(42)
 
-    def test_path_scale_affects_output(self, rng_key):
-        """Verify that path_scale affects the output."""
+    def test_shell_path_scale_affects_output(self, rng_key):
+        """Verify that shell_path_scale affects the output."""
         from fabricpc.nodes import IdentityNode
         from fabricpc.graph_assembly import graph, TaskMap
         from fabricpc.core.topology import Edge
@@ -457,14 +483,18 @@ class TestPathwayContributions:
         )
         output1 = state1.nodes["col0"].z_mu
 
-        # Modify path_scale to zero out K pathway
+        # Modify shell_path_scale to zero out the hard-kernel K contribution
         modified_params = params._replace(
             nodes={
                 **params.nodes,
                 "col0": params.nodes["col0"]._replace(
                     weights={
                         **params.nodes["col0"].weights,
-                        "path_scale": jnp.array([0.0, 1.0, 1.0]),  # Zero K
+                        "shell_path_scale": params.nodes["col0"].weights[
+                            "shell_path_scale"
+                        ]
+                        .at[0, 0]
+                        .set(0.0),
                     }
                 ),
             }
@@ -479,7 +509,7 @@ class TestPathwayContributions:
         )
         output2 = state2.nodes["col0"].z_mu
 
-        # Outputs should be different when path_scale changes
+        # Outputs should be different when shell_path_scale changes
         assert not jnp.allclose(output1, output2)
 
 

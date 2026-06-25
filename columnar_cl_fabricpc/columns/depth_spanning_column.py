@@ -3,8 +3,9 @@ Depth-spanning columnar node for predictive coding networks.
 
 This node implements a cortical column that spans multiple ResNet stages,
 receiving skip connections from stages 2, 3, and 4. Each column contains
-three microcolumn pathways (K, L, B) that process different aspects of the
-multi-scale input.
+three microcolumn pathways (K, L, B) and a typed output shell layout. The
+feature axis is partitioned into a hard kernel, inner shell, middle shell, and
+outer shell.
 
 Architecture::
 
@@ -73,6 +74,81 @@ from fabricpc.nodes.base import NodeBase, SlotSpec
 from fabricpc.utils.helpers import layernorm
 
 
+SHELL_NAMES = ("hard_kernel", "inner_shell", "middle_shell", "outer_shell")
+DEFAULT_SHELL_PROPORTIONS = (32, 10, 20, 30)
+DEFAULT_SHELL_PATH_MASK = np.asarray(
+    [
+        [1.0, 0.0, 0.0],
+        [1.0, 1.0, 0.0],
+        [1.0, 1.0, 1.0],
+        [0.0, 1.0, 1.0],
+    ],
+    dtype=np.float32,
+)
+
+
+def compute_shell_sizes(
+    output_dim: int,
+    shell_proportions: Tuple[int, int, int, int] = DEFAULT_SHELL_PROPORTIONS,
+) -> Tuple[int, int, int, int]:
+    """
+    Partition the output feature axis into hard-kernel and shell slices.
+
+    `output_dim` is the column output width. `shell_proportions` gives the
+    relative widths for hard kernel, inner shell, middle shell, and outer shell.
+    """
+    if output_dim < len(SHELL_NAMES):
+        raise ValueError(
+            f"output_dim={output_dim} must be at least {len(SHELL_NAMES)}"
+        )
+    if len(shell_proportions) != len(SHELL_NAMES):
+        raise ValueError("shell_proportions must have four entries")
+    if any(value <= 0 for value in shell_proportions):
+        raise ValueError("shell_proportions entries must be positive")
+
+    proportions = np.asarray(shell_proportions, dtype=np.float64)
+    raw_sizes = proportions * (float(output_dim) / float(proportions.sum()))
+    sizes = np.maximum(1, np.floor(raw_sizes).astype(np.int64))
+
+    while int(sizes.sum()) > output_dim:
+        removable = np.where(sizes > 1, sizes - raw_sizes, -np.inf)
+        idx = int(np.argmax(removable))
+        sizes[idx] -= 1
+
+    while int(sizes.sum()) < output_dim:
+        deficits = raw_sizes - sizes
+        idx = int(np.argmax(deficits))
+        sizes[idx] += 1
+
+    return tuple(int(value) for value in sizes)
+
+
+def get_shell_slices(
+    output_dim: int,
+    shell_proportions: Tuple[int, int, int, int] = DEFAULT_SHELL_PROPORTIONS,
+) -> Dict[str, Tuple[int, int]]:
+    """Return feature-axis slice bounds for the column shell layout."""
+    sizes = compute_shell_sizes(output_dim, shell_proportions)
+    start = 0
+    slices: Dict[str, Tuple[int, int]] = {}
+    for name, size in zip(SHELL_NAMES, sizes):
+        end = start + size
+        slices[name] = (start, end)
+        start = end
+    return slices
+
+
+def default_shell_path_scale() -> jnp.ndarray:
+    """
+    Initial shell-to-path mixing weights.
+
+    Rows correspond to hard kernel, inner shell, middle shell, and outer shell.
+    Columns correspond to K, L, and B pathways.
+    """
+    row_counts = np.maximum(DEFAULT_SHELL_PATH_MASK.sum(axis=1, keepdims=True), 1.0)
+    return jnp.asarray(DEFAULT_SHELL_PATH_MASK / np.sqrt(row_counts), dtype=jnp.float32)
+
+
 def _hidden_activation(x: jax.Array, activation_name: str, leaky_alpha: float) -> jax.Array:
     """Apply hidden layer activation function."""
     if activation_name == "relu":
@@ -107,7 +183,7 @@ class DepthSpanningColumnNode(NodeBase):
         - B_deep: stage4_pool → project to μd
         - B_bcast: broadcast to all tokens, project to output_dim
 
-    Output: Learned weighted sum of K + L + B pathways
+    Output: Shell-typed mixture of K, L, and B pathways
 
     Input slots:
         - stage2: (batch, tokens, embed_dim) from stage 2 tap
@@ -127,6 +203,7 @@ class DepthSpanningColumnNode(NodeBase):
         grid_size: Tuple[int, int] = (8, 8),
         hidden_activation: str = "leaky_relu",
         leaky_alpha: float = 0.1,
+        shell_proportions: Tuple[int, int, int, int] = DEFAULT_SHELL_PROPORTIONS,
         apply_layer_norm: bool = False,
         fix_ln_gamma: bool = False,
         activation: Optional[ActivationBase] = IdentityActivation(),
@@ -145,6 +222,8 @@ class DepthSpanningColumnNode(NodeBase):
             grid_size: Token grid size (h, w) for L pathway conv
             hidden_activation: Activation for hidden layers
             leaky_alpha: Alpha for leaky ReLU
+            shell_proportions: Relative output widths for hard kernel, inner shell,
+                middle shell, and outer shell
             activation: Output activation
             energy: Energy functional
             weight_init: Weight initializer
@@ -161,6 +240,7 @@ class DepthSpanningColumnNode(NodeBase):
             raise ValueError(
                 f"shape[0]={tokens} != grid_size product {expected_tokens}"
             )
+        compute_shell_sizes(output_dim, shell_proportions)
 
         super().__init__(
             shape=shape,
@@ -174,6 +254,7 @@ class DepthSpanningColumnNode(NodeBase):
             grid_size=grid_size,
             hidden_activation=hidden_activation,
             leaky_alpha=leaky_alpha,
+            shell_proportions=shell_proportions,
             apply_layer_norm=apply_layer_norm,
             fix_ln_gamma=fix_ln_gamma,
         )
@@ -209,7 +290,7 @@ class DepthSpanningColumnNode(NodeBase):
         config: Optional[Dict[str, Any]] = None,
     ) -> NodeParams:
         """
-        Initialize parameters for all three microcolumn pathways.
+        Initialize parameters for all three microcolumn pathways and the shell mixer.
 
         K pathway (skip connections from all stages):
             - K_W_deep: input_dim → μd (processes stage4)
@@ -225,7 +306,7 @@ class DepthSpanningColumnNode(NodeBase):
             - B_W_deep: input_dim → μd
             - B_W_out: μd → output_dim
 
-        path_scale: Learnable weights for combining K + L + B
+        shell_path_scale: Learnable shell-specific weights for combining K, L, and B
         """
         if config is None:
             config = {}
@@ -302,11 +383,12 @@ class DepthSpanningColumnNode(NodeBase):
         ki += 1
 
         # =====================================================================
-        # Pathway combination weights
+        # Shell-specific pathway combination weights
         # =====================================================================
-        # Learnable scaling for K + L + B combination
-        # Initialized to equal weighting with variance preservation
-        weights["path_scale"] = jnp.ones((3,), dtype=jnp.float32) / jnp.sqrt(3.0)
+        # Rows are hard kernel, inner shell, middle shell, and outer shell.
+        # Columns are K, L, and B. The fixed mask in forward preserves the
+        # intended typed connectivity even while the active weights can learn.
+        weights["shell_path_scale"] = default_shell_path_scale()
 
         # Optional LayerNorm on the combined output along the output_dim axis
         if config.get("apply_layer_norm", False) and not config.get("fix_ln_gamma", False):
@@ -328,12 +410,15 @@ class DepthSpanningColumnNode(NodeBase):
         1. K pathway: stage4 → K_deep → concat(stage3) → K_mid → concat(stage2) → K_out
         2. L pathway: stage4 → L_deep → 3×3 conv → L_out
         3. B pathway: stage4_pool → B_deep → broadcast → B_out
-        4. Combine: path_scale[0]*K + path_scale[1]*L + path_scale[2]*B
+        4. Combine: each output shell receives its masked K/L/B mixture
         """
         config = node_info.node_config
         grid_h, grid_w = config.get("grid_size", (8, 8))
         hidden_activation = config.get("hidden_activation", "leaky_relu")
         leaky_alpha = config.get("leaky_alpha", 0.1)
+        shell_proportions = tuple(
+            config.get("shell_proportions", DEFAULT_SHELL_PROPORTIONS)
+        )
 
         # Extract inputs by slot name
         stage2 = None
@@ -418,14 +503,20 @@ class DepthSpanningColumnNode(NodeBase):
         b_out = jnp.broadcast_to(b_out, (batch_size, tokens, b_out.shape[-1]))
 
         # =====================================================================
-        # Combine pathways with learned weights
+        # Combine pathways through shell-typed feature slices
         # =====================================================================
-        path_scale = params.weights["path_scale"]
-        pre_activation = (
-            path_scale[0] * k_out +
-            path_scale[1] * l_out +
-            path_scale[2] * b_out
-        )
+        shell_path_mask = jnp.asarray(DEFAULT_SHELL_PATH_MASK, dtype=k_out.dtype)
+        shell_path_scale = params.weights["shell_path_scale"] * shell_path_mask
+        shell_slices = get_shell_slices(k_out.shape[-1], shell_proportions)
+        shell_outputs = []
+        for shell_idx, shell_name in enumerate(SHELL_NAMES):
+            start, end = shell_slices[shell_name]
+            shell_outputs.append(
+                shell_path_scale[shell_idx, 0] * k_out[..., start:end]
+                + shell_path_scale[shell_idx, 1] * l_out[..., start:end]
+                + shell_path_scale[shell_idx, 2] * b_out[..., start:end]
+            )
+        pre_activation = jnp.concatenate(shell_outputs, axis=-1)
 
         # Optional LayerNorm along the output_dim axis — pins column output magnitude
         if config.get("apply_layer_norm", False):
@@ -467,6 +558,7 @@ def create_depth_spanning_column(
     microcolumn_dim: int = 32,
     grid_size: Tuple[int, int] = (8, 8),
     hidden_activation: str = "leaky_relu",
+    shell_proportions: Tuple[int, int, int, int] = DEFAULT_SHELL_PROPORTIONS,
     apply_layer_norm: bool = False,
     fix_ln_gamma: bool = False,
 ) -> DepthSpanningColumnNode:
@@ -480,6 +572,8 @@ def create_depth_spanning_column(
         microcolumn_dim: Internal processing dimension (μd)
         grid_size: Token grid size for L pathway conv
         hidden_activation: Activation for hidden layers
+        shell_proportions: Relative output widths for hard kernel, inner shell,
+            middle shell, and outer shell
         apply_layer_norm: If True, LayerNorm the column output along output_dim
         fix_ln_gamma: If True (and apply_layer_norm), gamma/beta are non-learnable
             scalar 1.0 / 0.0
@@ -495,6 +589,7 @@ def create_depth_spanning_column(
         microcolumn_dim=microcolumn_dim,
         grid_size=grid_size,
         hidden_activation=hidden_activation,
+        shell_proportions=shell_proportions,
         apply_layer_norm=apply_layer_norm,
         fix_ln_gamma=fix_ln_gamma,
     )
@@ -507,6 +602,7 @@ def create_depth_spanning_column_pool(
     microcolumn_dim: int = 32,
     grid_size: Tuple[int, int] = (8, 8),
     hidden_activation: str = "leaky_relu",
+    shell_proportions: Tuple[int, int, int, int] = DEFAULT_SHELL_PROPORTIONS,
     name_prefix: str = "col",
 ) -> Dict[str, DepthSpanningColumnNode]:
     """
@@ -519,6 +615,8 @@ def create_depth_spanning_column_pool(
         microcolumn_dim: Internal processing dimension (μd)
         grid_size: Token grid size for L pathway conv
         hidden_activation: Activation for hidden layers
+        shell_proportions: Relative output widths for hard kernel, inner shell,
+            middle shell, and outer shell
         name_prefix: Prefix for column names
 
     Returns:
@@ -534,5 +632,6 @@ def create_depth_spanning_column_pool(
             microcolumn_dim=microcolumn_dim,
             grid_size=grid_size,
             hidden_activation=hidden_activation,
+            shell_proportions=shell_proportions,
         )
     return columns

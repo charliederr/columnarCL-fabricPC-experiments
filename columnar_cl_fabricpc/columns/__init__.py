@@ -31,9 +31,13 @@ from columnar_cl_fabricpc.columns.stage_taps import (
     create_cifar10_stage_taps,
 )
 from columnar_cl_fabricpc.columns.depth_spanning_column import (
+    DEFAULT_SHELL_PROPORTIONS,
+    SHELL_NAMES,
     DepthSpanningColumnNode,
+    compute_shell_sizes,
     create_depth_spanning_column,
     create_depth_spanning_column_pool,
+    get_shell_slices,
 )
 from columnar_cl_fabricpc.columns.label_smoothed_ce import (
     LabelSmoothedCrossEntropyEnergy,
@@ -49,12 +53,15 @@ __all__ = [
     "ColumnarNode",
     "LabelSmoothedCrossEntropyEnergy",
     "ConvStemNode",
+    "DEFAULT_SHELL_PROPORTIONS",
     "DepthSpanningColumnNode",
     "ExampleColumnNode",
     "GlobalAvgPoolNormNode",
     "GlobalPoolNode",
     "PatchEmbedNode",
+    "SHELL_NAMES",
     "StageTapTokenizer",
+    "compute_shell_sizes",
     "create_cifar10_conv_stem",
     "create_cifar10_patch_embed",
     "create_cifar10_stage_taps",
@@ -67,4 +74,5 @@ __all__ = [
     "create_global_avg_pool_norm",
     "create_global_pool",
     "create_stage_tap",
+    "get_shell_slices",
 ]

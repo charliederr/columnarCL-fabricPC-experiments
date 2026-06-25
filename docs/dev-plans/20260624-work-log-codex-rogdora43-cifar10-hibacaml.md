@@ -261,3 +261,75 @@ The next sub-goal should implement a more faithful HiBaCaML column mechanism whi
 - Add shell norm diagnostics that report the L2 norm of each typed slice, where the L2 norm is the square root of the sum of squared feature activations over that slice.
 
 This next step follows the HiBaCaML architecture direction more directly than further readout experiments. It tests whether structured column internals can produce useful class evidence before adding split-CIFAR-10 continual-learning machinery.
+
+## Shell-Typed Column Implementation
+
+Implemented the shell-structured column step after the normalized-readout result showed that readout normalization was not the right next direction.
+
+Changed files:
+
+- `columnar_cl_fabricpc/columns/depth_spanning_column.py`
+- `columnar_cl_fabricpc/columns/__init__.py`
+- `scripts/train_cifar10_depth_spanning.py`
+- `scripts/run_codex_cifar10_depth_spanning.sh`
+- `tests/test_depth_spanning_column.py`
+- `tests/test_pooled_readout_norm.py`
+
+Mechanism:
+
+- Added `SHELL_NAMES`, the ordered shell names on the column feature axis: `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell`.
+- Added `compute_shell_sizes(output_dim)`, where `output_dim` is the width of the column output feature axis. The default proportions are 32:10:20:30, matching the paper's CIFAR hard-kernel and shell-width ratio. For `output_dim=64`, the shell widths are 22, 7, 14, and 21.
+- Replaced the old global `path_scale` with `shell_path_scale`, a 4 by 3 matrix. The rows are the four shells. The columns are the K pathway, L pathway, and B pathway.
+- Applied a fixed structural mask to `shell_path_scale`: `hard_kernel` can use K only, `inner_shell` can use K and L, `middle_shell` can use K, L, and B, and `outer_shell` can use L and B. The active entries are learnable, but the masked zero entries keep the pathway semantics fixed.
+- Restored the stable raw readout path: `combiner -> column_pool -> output`. This replaces the experimental normalized readout path in the active depth-spanning graph.
+- Added `--diagnose_shells`. This logs shell L2 norms before and after training and prints shell readout ablation tables.
+- Added shell readout lesions by masking rows of the `column_pool -> output` classifier matrix. This leaves the predictive-coding graph and trained parameters otherwise unchanged during evaluation.
+
+Interpretation of the shell lesion:
+
+- `combined_without_hard_kernel` means the model is evaluated with the hard-kernel feature rows of the `column_pool -> output` matrix set to zero, while the bypass edge remains present.
+- `column_without_hard_kernel` means the bypass edge is removed and the hard-kernel feature rows are set to zero.
+- `column_hard_kernel_only` means the bypass edge is removed and only hard-kernel feature rows remain on the column readout edge.
+- The same naming applies to `inner_shell`, `middle_shell`, and `outer_shell`.
+
+Verification:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py columnar_cl_fabricpc/columns/depth_spanning_column.py tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py -q
+```
+
+Result: `21 passed`.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -q --ignore=tests/test_cifar_data.py
+```
+
+Result: `123 passed`.
+
+Quick smoke command run in the sandbox:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --quick --bypass_columns --layer_norm_tokens --fix_ln_gamma --diagnose_shells
+```
+
+Result: passed. The sandbox reported `CUDA_ERROR_NO_DEVICE`, so this smoke run used CPU. The quick run trained only four batches and is not an accuracy result. It verified graph construction, shell norm logging, raw readout ablations, and shell readout ablation tables.
+
+Quick smoke details:
+
+- Tiny quick graph: 23 nodes, 33 edges.
+- Tiny quick shell widths: hard kernel 11, inner shell 4, middle shell 7, outer shell 10.
+- The shell tables printed for validation and test.
+
+Next full experiment for rogdora43:
+
+```bash
+./scripts/run_codex_cifar10_depth_spanning.sh 42 0.005 shells 20
+```
+
+This command writes its output to `results/`, records commit and backend, runs the shell-typed depth-spanning architecture with raw `column_pool` readout, and enables shell diagnostics without per-epoch energy diagnostics.

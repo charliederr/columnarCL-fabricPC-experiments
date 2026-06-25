@@ -17,6 +17,12 @@ extra_args=()
 if [[ "$diagnose_mode" == "diagnose" || "$diagnose_mode" == "--diagnose_energy" ]]; then
     diagnose_label="diag"
     extra_args+=(--diagnose_energy)
+elif [[ "$diagnose_mode" == "shells" || "$diagnose_mode" == "--diagnose_shells" ]]; then
+    diagnose_label="shells"
+    extra_args+=(--diagnose_shells)
+elif [[ "$diagnose_mode" == "diag_shells" ]]; then
+    diagnose_label="diag_shells"
+    extra_args+=(--diagnose_energy --diagnose_shells)
 fi
 
 log_path="${repo_root}/results/codex_resnet18_bypass_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"

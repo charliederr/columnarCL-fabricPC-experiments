@@ -1,4 +1,4 @@
-"""Tests for normalized column readout and classifier-edge ablations."""
+"""Tests for column readout nodes and classifier-edge ablations."""
 
 from types import SimpleNamespace
 
@@ -16,6 +16,7 @@ from columnar_cl_fabricpc.columns import GlobalAvgPoolNormNode
 from scripts.train_cifar10_depth_spanning import (
     build_depth_spanning_graph,
     mask_output_input_sources,
+    mask_output_source_feature_slice,
     output_input_edge_sources,
 )
 
@@ -119,15 +120,15 @@ def _tiny_depth_spanning_args() -> SimpleNamespace:
     )
 
 
-def test_depth_spanning_graph_routes_normalized_readout_to_output() -> None:
-    """The classifier receives `column_readout_norm`, not raw `column_pool`."""
+def test_depth_spanning_graph_routes_raw_column_pool_to_output() -> None:
+    """The classifier receives the raw pooled column readout."""
     structure, _ = build_depth_spanning_graph(_tiny_depth_spanning_args())
     output_sources = output_input_edge_sources(structure)
 
-    assert "column_readout_norm" in output_sources
+    assert "column_pool" in output_sources
     assert "bypass_pool" in output_sources
-    assert "column_pool" not in output_sources
-    assert "column_pool" not in structure.nodes
+    assert "column_readout_norm" not in output_sources
+    assert "column_readout_norm" not in structure.nodes
 
 
 def test_mask_output_input_sources_zeroes_only_dropped_edges() -> None:
@@ -139,10 +140,10 @@ def test_mask_output_input_sources_zeroes_only_dropped_edges() -> None:
     masked = mask_output_input_sources(
         params,
         structure,
-        kept_sources=("column_readout_norm",),
+        kept_sources=("column_pool",),
     )
 
-    column_edge = output_sources["column_readout_norm"]
+    column_edge = output_sources["column_pool"]
     bypass_edge = output_sources["bypass_pool"]
     assert jnp.allclose(
         masked.nodes["output"].weights[column_edge],
@@ -152,3 +153,25 @@ def test_mask_output_input_sources_zeroes_only_dropped_edges() -> None:
         masked.nodes["output"].weights[bypass_edge],
         jnp.zeros_like(params.nodes["output"].weights[bypass_edge]),
     )
+
+
+def test_mask_output_source_feature_slice_zeroes_selected_features() -> None:
+    """Shell lesions zero selected feature rows on the column readout edge."""
+    structure, _ = build_depth_spanning_graph(_tiny_depth_spanning_args())
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    output_sources = output_input_edge_sources(structure)
+    column_edge = output_sources["column_pool"]
+
+    masked = mask_output_source_feature_slice(
+        params,
+        structure,
+        source="column_pool",
+        feature_slice=(2, 5),
+        keep_slice=False,
+    )
+
+    before = params.nodes["output"].weights[column_edge]
+    after = masked.nodes["output"].weights[column_edge]
+    assert jnp.allclose(after[:2], before[:2])
+    assert jnp.allclose(after[2:5], jnp.zeros_like(before[2:5]))
+    assert jnp.allclose(after[5:], before[5:])

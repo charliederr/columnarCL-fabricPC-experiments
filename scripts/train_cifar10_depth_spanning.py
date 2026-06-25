@@ -75,10 +75,11 @@ from columnar_cl_fabricpc.columns import (
     GlobalPoolNode,
     DepthSpanningColumnNode,
     LabelSmoothedCrossEntropyEnergy,
+    SHELL_NAMES,
     create_stage_tap,
     create_global_pool,
     create_depth_spanning_column,
-    create_global_avg_pool_norm,
+    get_shell_slices,
 )
 from columnar_cl_fabricpc.columns.accuracy_nodes import MaskedColumnCombinerNode
 
@@ -98,7 +99,7 @@ def diagnose_energy_breakdown(
     - backbone: ResNet conv/skip nodes (s*b*, stem)
     - stage_taps: StageTapTokenizer nodes (stage*_tap, stage*_pool)
     - columns: DepthSpanningColumnNode (col_*)
-    - combiner: ColumnCombinerNode and normalized readout
+    - combiner: ColumnCombinerNode and raw pooled readout
     - classifier: CrossEntropy output node (output)
 
     Returns dict with per-category energy sums and E_gauss/E_ce ratio.
@@ -128,7 +129,7 @@ def diagnose_energy_breakdown(
             categories["columns"] += energy_sum
         elif node_name.startswith("stage") and ("tap" in node_name or "pool" in node_name):
             categories["stage_taps"] += energy_sum
-        elif node_name in ("combiner", "column_readout_norm"):
+        elif node_name in ("combiner", "column_pool"):
             categories["combiner"] += energy_sum
         elif node_name == "bypass_pool":
             categories["bypass"] += energy_sum
@@ -179,7 +180,7 @@ def diagnose_column_outputs(
         or name.startswith("stage")
         or name in (
             "combiner",
-            "column_readout_norm",
+            "column_pool",
             "output",
             "bypass_pool",
         )
@@ -228,11 +229,48 @@ def diagnose_column_correlation(
     return {"max_abs_offdiag": max_off, "mean_abs_offdiag": mean_off}
 
 
+def diagnose_shell_norms(
+    params,
+    structure,
+    batch: Dict[str, jnp.ndarray],
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Compute shell-resolved L2 norms from inferred column latents.
+
+    The L2 norm for a shell is the square root of the sum of squared feature
+    activations over that shell slice. The reported value averages over batch
+    items, token positions, and columns.
+    """
+    _, _, final_state = get_graph_param_gradient(params, batch, structure, rng_key)
+    col_names = sorted(name for name in final_state.nodes if name.startswith("col_"))
+    if not col_names:
+        return {}
+
+    output_dim = final_state.nodes[col_names[0]].z_latent.shape[-1]
+    shell_slices = get_shell_slices(output_dim)
+    stats: Dict[str, Dict[str, float]] = {}
+    for shell_name in SHELL_NAMES:
+        start, end = shell_slices[shell_name]
+        per_column = []
+        for col_name in col_names:
+            z = final_state.nodes[col_name].z_latent[..., start:end]
+            l2 = jnp.sqrt(jnp.sum(jnp.square(z), axis=-1) + 1e-8)
+            per_column.append(jnp.mean(l2))
+        values = jnp.stack(per_column)
+        stats[shell_name] = {
+            "mean_l2": float(jnp.mean(values)),
+            "std_l2": float(jnp.std(values)),
+            "width": float(end - start),
+        }
+    return stats
+
+
 def diagnose_classifier_edge_weights(params) -> Dict[str, float]:
     """
     Per-edge Frobenius norm of the classifier (Linear "output" node)'s weight
     matrices, one per incoming edge. With --bypass_columns, this surfaces whether
-    the classifier is using the bypass edge or the normalized column-readout edge.
+    the classifier is using the bypass edge or the pooled column-readout edge.
     """
     if "output" not in params.nodes:
         return {}
@@ -280,6 +318,52 @@ def mask_output_input_sources(
     return params._replace(nodes={**params.nodes, "output": masked_output})
 
 
+def mask_output_source_feature_slice(
+    params: GraphParams,
+    structure: GraphStructure,
+    source: str,
+    feature_slice: Tuple[int, int],
+    keep_slice: bool,
+) -> GraphParams:
+    """
+    Mask one feature slice of one classifier input edge.
+
+    If `keep_slice` is false, the selected slice is zeroed. If `keep_slice` is
+    true, all features outside the selected slice are zeroed.
+    """
+    edge_sources = output_input_edge_sources(structure)
+    if source not in edge_sources:
+        raise ValueError(f"Output node has no input edge from {source!r}")
+
+    edge_key = edge_sources[source]
+    output_params = params.nodes["output"]
+    masked_weights = dict(output_params.weights)
+    weight = output_params.weights[edge_key]
+    if weight.ndim < 2:
+        raise ValueError(
+            f"Expected classifier weight for {source!r} to have rank >= 2, got {weight.shape}"
+        )
+
+    start, end = feature_slice
+    if start < 0 or end > weight.shape[0] or start >= end:
+        raise ValueError(f"Invalid feature slice {feature_slice} for weight {weight.shape}")
+
+    mask_shape = (weight.shape[0],) + (1,) * (weight.ndim - 1)
+    if keep_slice:
+        mask = jnp.zeros(mask_shape, dtype=weight.dtype)
+        mask = mask.at[start:end].set(1.0)
+    else:
+        mask = jnp.ones(mask_shape, dtype=weight.dtype)
+        mask = mask.at[start:end].set(0.0)
+    masked_weights[edge_key] = weight * mask
+
+    masked_output = NodeParams(
+        weights=masked_weights,
+        biases=output_params.biases,
+    )
+    return params._replace(nodes={**params.nodes, "output": masked_output})
+
+
 def evaluate_readout_ablations(
     params: GraphParams,
     structure: GraphStructure,
@@ -291,13 +375,13 @@ def evaluate_readout_ablations(
     Evaluate classifier readout paths by masking output input edges.
 
     The `combined` case evaluates the trained parameters. `column_only` keeps
-    the normalized column readout edge. `bypass_only` keeps the direct backbone
+    the pooled column readout edge. `bypass_only` keeps the direct backbone
     bypass edge when that edge exists.
     """
     edge_sources = output_input_edge_sources(structure)
-    column_source = "column_readout_norm"
+    column_source = "column_pool"
     if column_source not in edge_sources:
-        raise ValueError("Readout ablations require the column_readout_norm edge")
+        raise ValueError("Readout ablations require the column_pool edge")
 
     cases: List[Tuple[str, Tuple[str, ...]]] = [
         ("combined", tuple(edge_sources.keys())),
@@ -320,6 +404,75 @@ def evaluate_readout_ablations(
     return results
 
 
+def evaluate_shell_readout_ablations(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Evaluate shell-slice readout dependence by masking `column_pool` features.
+
+    The lesion cases keep the graph fixed and only mask the classifier matrix
+    attached to the `column_pool` source.
+    """
+    column_source = "column_pool"
+    edge_sources = output_input_edge_sources(structure)
+    if column_source not in edge_sources:
+        raise ValueError("Shell ablations require the column_pool edge")
+
+    output_dim = structure.nodes[column_source].shape[-1]
+    shell_slices = get_shell_slices(output_dim)
+    column_only_params = mask_output_input_sources(
+        params, structure, kept_sources=(column_source,)
+    )
+
+    results = {}
+    for shell_name in SHELL_NAMES:
+        feature_slice = shell_slices[shell_name]
+        results[f"combined_without_{shell_name}"] = evaluate_pcn(
+            mask_output_source_feature_slice(
+                params,
+                structure,
+                source=column_source,
+                feature_slice=feature_slice,
+                keep_slice=False,
+            ),
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+        results[f"column_without_{shell_name}"] = evaluate_pcn(
+            mask_output_source_feature_slice(
+                column_only_params,
+                structure,
+                source=column_source,
+                feature_slice=feature_slice,
+                keep_slice=False,
+            ),
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+        results[f"column_{shell_name}_only"] = evaluate_pcn(
+            mask_output_source_feature_slice(
+                column_only_params,
+                structure,
+                source=column_source,
+                feature_slice=feature_slice,
+                keep_slice=True,
+            ),
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+    return results
+
+
 def print_ablation_results(title: str, results: Dict[str, Dict[str, float]]) -> None:
     """Print readout ablation metrics in a compact table."""
     print("\n" + title)
@@ -327,7 +480,22 @@ def print_ablation_results(title: str, results: Dict[str, Dict[str, float]]) -> 
     for case_name, metrics in results.items():
         accuracy = float(metrics.get("accuracy", 0.0))
         energy = float(metrics.get("energy", 0.0))
-        print(f"  {case_name:12s} acc={accuracy:.4f} energy={energy:.4f}")
+        print(f"  {case_name:32s} acc={accuracy:.4f} energy={energy:.4f}")
+
+
+def print_shell_norms(title: str, stats: Dict[str, Dict[str, float]]) -> None:
+    """Print shell L2 norm diagnostics."""
+    if not stats:
+        return
+    print("\n" + title)
+    print("-" * len(title))
+    for shell_name in SHELL_NAMES:
+        shell_stats = stats[shell_name]
+        print(
+            f"  {shell_name:12s} width={int(shell_stats['width']):2d} "
+            f"mean_l2={shell_stats['mean_l2']:.4f} "
+            f"std_l2={shell_stats['std_l2']:.4f}"
+        )
 
 
 # Model configurations with explicit stage channel counts for stage taps
@@ -622,11 +790,11 @@ def build_depth_spanning_graph(args):
     for col in columns:
         edges.append(Edge(source=col, target=combiner.slot("in")))
 
-    # Normalized readout and classifier
-    column_readout_norm = create_global_avg_pool_norm(
-        name="column_readout_norm",
-        feature_dim=args.embed_dim,
-        fix_ln_gamma=args.fix_ln_gamma,
+    # Raw pooled readout and classifier
+    column_pool = AvgPool(
+        shape=(args.embed_dim,),
+        name="column_pool",
+        global_pool=True,
     )
     if args.label_smoothing > 0.0:
         classifier_energy = LabelSmoothedCrossEntropyEnergy(
@@ -644,16 +812,16 @@ def build_depth_spanning_graph(args):
         weight_init=XavierInitializer(),
     )
 
-    nodes.extend([column_readout_norm, output])
+    nodes.extend([column_pool, output])
     edges.extend([
-        Edge(source=combiner, target=column_readout_norm.slot("in")),
-        Edge(source=column_readout_norm, target=output.slot("in")),
+        Edge(source=combiner, target=column_pool.slot("in")),
+        Edge(source=column_pool, target=output.slot("in")),
     ])
 
     # Optional bypass: stage4 backbone features go directly to the classifier in
     # parallel with the columnar pathway. Guarantees non-regression vs. PC ResNet:
     # if columns add no information, classifier learns to weight bypass heavily;
-    # if columns help, the column_readout_norm-to-output edge weights grow.
+    # if columns help, the column_pool-to-output edge weights grow.
     if args.bypass_columns:
         bypass_pool = AvgPool(
             shape=(stage4_channels,),
@@ -693,6 +861,11 @@ def train_cifar10_depth_spanning(args):
     print(f"Combiner: {args.combiner}")
     print(f"Embed dim: {args.embed_dim}")
     print(f"Microcolumn dim: {args.microcolumn_dim}")
+    shell_slices = get_shell_slices(args.embed_dim)
+    shell_widths = ", ".join(
+        f"{name}={end - start}" for name, (start, end) in shell_slices.items()
+    )
+    print(f"Shell widths: {shell_widths}")
     print(f"Epochs: {args.num_epochs}")
     print(f"Batch size: {args.batch_size}")
     print(f"Learning rate: {args.lr}")
@@ -739,10 +912,10 @@ def train_cifar10_depth_spanning(args):
     print(f"Val batches: {len(val_loader)}")
     print(f"Test batches: {len(test_loader)}")
 
-    # Energy + column-output diagnosis: sample batch for analysis
+    # Energy, column-output, and shell diagnosis: sample batch for analysis
     diag_batch = None
     diag_key = None
-    if args.diagnose_energy:
+    if args.diagnose_energy or args.diagnose_shells:
         diag_batch_raw = next(iter(train_loader))
         diag_batch = {
             "x": jnp.array(diag_batch_raw[0]),
@@ -750,6 +923,7 @@ def train_cifar10_depth_spanning(args):
         }
         diag_key = jax.random.PRNGKey(args.seed + 999)
 
+    if args.diagnose_energy:
         print("\n" + "-" * 70)
         print("Energy Diagnosis (before training)")
         print("-" * 70)
@@ -766,6 +940,12 @@ def train_cifar10_depth_spanning(args):
                 f"min={s['min']:+.4f} max={s['max']:+.4f}"
             )
         print("-" * 70)
+
+    if args.diagnose_shells and diag_batch is not None:
+        print_shell_norms(
+            "Shell Norms (before training)",
+            diagnose_shell_norms(params, structure, diag_batch, diag_key),
+        )
 
     steps_per_epoch = len(train_loader)
     total_steps = max(1, round(args.num_epochs * steps_per_epoch))
@@ -897,6 +1077,12 @@ def train_cifar10_depth_spanning(args):
             )
         print("-" * 70)
 
+    if args.diagnose_shells and diag_batch is not None:
+        print_shell_norms(
+            "Shell Norms (after training)",
+            diagnose_shell_norms(final_params, structure, diag_batch, diag_key),
+        )
+
     eval_params = best_params if best_params is not None else final_params
     if best_params is not None:
         print(
@@ -912,6 +1098,11 @@ def train_cifar10_depth_spanning(args):
         eval_params, structure, val_loader, train_config, ablation_key
     )
     print_ablation_results("Validation Readout Ablations", val_ablation_metrics)
+    if args.diagnose_shells:
+        val_shell_metrics = evaluate_shell_readout_ablations(
+            eval_params, structure, val_loader, train_config, ablation_key
+        )
+        print_ablation_results("Validation Shell Readout Ablations", val_shell_metrics)
 
     test_ablation_metrics = evaluate_readout_ablations(
         eval_params, structure, test_loader, train_config, ablation_key
@@ -927,6 +1118,11 @@ def train_cifar10_depth_spanning(args):
         print(f"Best Val Accuracy: {best_val_acc:.4f}")
         print(f"Best Val Epoch: {best_val_epoch}")
     print_ablation_results("Test Readout Ablations", test_ablation_metrics)
+    if args.diagnose_shells:
+        test_shell_metrics = evaluate_shell_readout_ablations(
+            eval_params, structure, test_loader, train_config, ablation_key
+        )
+        print_ablation_results("Test Shell Readout Ablations", test_shell_metrics)
     return test_acc
 
 
@@ -968,6 +1164,14 @@ def parse_args():
         "--diagnose_energy",
         action="store_true",
         help="Log per-node-type energy breakdown (E_gauss/E_ce ratio)",
+    )
+    parser.add_argument(
+        "--diagnose_shells",
+        action="store_true",
+        help=(
+            "Log shell-resolved column norms and evaluate shell-slice readout "
+            "ablations after training."
+        ),
     )
     parser.add_argument(
         "--bypass_columns",
