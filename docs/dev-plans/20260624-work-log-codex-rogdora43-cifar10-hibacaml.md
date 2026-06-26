@@ -581,3 +581,91 @@ What to inspect after the run:
 - Main combined test accuracy. Recovery toward the no-teacher 47.85% test result means the teacher is no longer disrupting the main path as strongly.
 - `column_only` test accuracy. Staying above chance means the lower teacher still trains class evidence into `column_pool`.
 - `column_teacher_output` test accuracy. If it remains near chance, global column-pool supervision is too coarse and the next target should be shell-local.
+
+## 2026-06-25 Weighted Teacher 0.05 Result And Sweep Plan
+
+Timestamp and machine: 2026-06-25 21:29:52 EDT on `rogdora43`.
+
+Current commit while recording this result: `d993ab2`.
+
+Completed result ingested:
+
+- Result file: `results/codex_resnet18_column_teacher0p05_bypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260625_190650.log`
+- `w_teacher = 0.05`, where `w_teacher` is the scalar multiplier on the `column_teacher_output` cross-entropy energy.
+- Main combined validation accuracy peaked at 45.74% at epoch 7.
+- Main combined test accuracy at the selected epoch was 46.16%.
+- `column_only` test accuracy through the main `output` readout was 11.72%.
+- `bypass_only` test accuracy through the main `output` readout was 46.17%.
+- `column_teacher_output` test accuracy was 10.00%.
+- Training energy ended around 0.028, so the full-weight teacher collapse remained avoided.
+
+Validation trajectory:
+
+| Epoch | Validation accuracy |
+| --- | --- |
+| 1 | 29.74% |
+| 2 | 35.94% |
+| 3 | 40.04% |
+| 4 | 42.94% |
+| 5 | 41.30% |
+| 6 | 44.18% |
+| 7 | 45.74% |
+| 8 | 44.94% |
+| 9 | 40.76% |
+| 10 | 36.60% |
+| 11 | 35.20% |
+| 12 | 34.90% |
+| 13 | 35.80% |
+| 14 | 33.04% |
+| 15 | 39.26% |
+| 16 | 39.42% |
+| 17 | 42.04% |
+| 18 | 42.82% |
+| 19 | 42.82% |
+| 20 | 44.10% |
+
+Shell norms at the selected run endpoint:
+
+| Shell | Width | Mean L2 norm | Standard deviation |
+| --- | ---: | ---: | ---: |
+| `hard_kernel` | 22 | 5.5465 | 2.0897 |
+| `inner_shell` | 7 | 2.6608 | 1.4975 |
+| `middle_shell` | 14 | 2.3047 | 0.9329 |
+| `outer_shell` | 21 | 2.9055 | 2.1983 |
+
+Interpretation:
+
+The `w_teacher = 0.05` run recovered much of the main classifier accuracy relative to `w_teacher = 0.1`, but the global teacher signal became too weak to train a useful teacher head. `column_teacher_output` was exactly chance on test. `column_only` was only slightly above chance at 11.72% test. The main classifier still routes through `bypass_pool`, because `bypass_only` matched the combined test accuracy.
+
+This gives a clearer target-scale picture:
+
+- `w_teacher = 0.0` has not yet been measured in the current code path, but the earlier no-teacher shell run reached 47.85% test and had chance-level `column_only`.
+- `w_teacher = 0.05` reached 46.16% test and had 11.72% `column_only`.
+- `w_teacher = 0.1` reached 43.05% test and had 15.85% `column_only`.
+- `w_teacher = 1.0` collapsed the main validation metric to chance after epoch 9.
+
+Next direction:
+
+Run a single-machine sequential sweep before changing the architecture. The sweep should measure `w_teacher = 0.0`, `0.025`, `0.075`, and `0.125` on seed 42. `w_teacher = 0.0` is the same-code baseline with the teacher head present but zero energy. `w_teacher = 0.025` tests whether a weaker teacher preserves main accuracy while creating any column signal. `w_teacher = 0.075` tests the middle of the useful range between `0.05` and `0.1`. `w_teacher = 0.125` tests whether column utility continues to rise above `0.1` or whether main-path disruption dominates.
+
+If this sweep does not produce a weight with both strong main accuracy and a clearly above-chance column pathway, the next architectural step should be shell-local or stage-local predictive targets instead of a stronger global `column_pool` teacher. That means attaching small-weight auxiliary predictive-coding heads to shell slices or stage-specific column outputs, so the hard-kernel, inner-shell, middle-shell, and outer-shell feature subspaces receive more localized class pressure.
+
+Implemented sweep script:
+
+- `scripts/run_codex_teacher_weight_sweep.sh`
+
+Default sweep command:
+
+```bash
+./scripts/run_codex_teacher_weight_sweep.sh
+```
+
+Default sweep parameters:
+
+- `SEED=42`
+- `LR=0.005`
+- `DIAGNOSE_MODE=shells`
+- `NUM_EPOCHS=20`
+- `WEIGHTS="0.0 0.025 0.075 0.125"`
+
+The script writes one master log under `results/` and calls `scripts/run_codex_cifar10_depth_spanning.sh` for each weight, so each run also gets its own per-experiment result log.

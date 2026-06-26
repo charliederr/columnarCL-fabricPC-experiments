@@ -1,0 +1,19 @@
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: d993ab2fe314559f269435006e59379ff9406c8b
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+?? results/codex_resnet18_column_teacher0p05_bypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260625_190650.log
+?? results/codex_teacher_weight_sweep_seed42_rogdora43_20260625_213144.log
+?? scripts/run_codex_teacher_weight_sweep.sh
+seed: 42
+lr: 0.005
+num_epochs: 20
+diagnose_mode: shells
+weights: 0.0 0.025 0.075 0.125
+started_at: 2026-06-25 21:31:44 EDT
+
+======================================================================
+Starting column_teacher_weight=0.0 at 2026-06-25 21:31:44 EDT
+======================================================================
+./scripts/run_codex_teacher_weight_sweep.sh: line 35: /home/ni/repos/fpc/columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh: Permission denied
