@@ -669,3 +669,76 @@ Default sweep parameters:
 - `WEIGHTS="0.0 0.025 0.075 0.125"`
 
 The script writes one master log under `results/` and calls `scripts/run_codex_cifar10_depth_spanning.sh` for each weight, so each run also gets its own per-experiment result log.
+
+## 2026-06-26 Teacher Weight Sweep Result
+
+Timestamp and machine: 2026-06-26 07:41:30 EDT on `rogdora43`.
+
+Current commit while recording this result: `fb64007`.
+
+Completed sweep ingested:
+
+- Master sweep log: `results/codex_teacher_weight_sweep_seed42_rogdora43_20260625_213438.log`
+- Sweep start: 2026-06-25 21:34:38 EDT.
+- Sweep finish: 2026-06-26 05:36:19 EDT.
+- Seed: 42.
+- Learning rate: 0.005.
+- Epochs per run: 20.
+- Diagnostics: shell diagnostics enabled.
+
+Sweep summary:
+
+| `w_teacher` | Best validation | Best epoch | Test accuracy | `column_only` test | `bypass_only` test | `column_teacher_output` test |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.0 | 48.46% | 11 | 48.16% | 10.00% | 48.02% | 10.00% |
+| 0.025 | 48.80% | 19 | 48.24% | 12.14% | 48.27% | 16.17% |
+| 0.05 | 45.74% | 7 | 46.16% | 11.72% | 46.17% | 10.00% |
+| 0.075 | 42.36% | 4 | 42.23% | 10.00% | 42.20% | 15.18% |
+| 0.1 | 43.86% | 6 | 43.05% | 15.85% | 43.23% | 12.81% |
+| 0.125 | 42.44% | 4 | 42.26% | 18.73% | 41.99% | 19.42% |
+| 1.0 | 36.70% | 3 | 38.08% | 10.10% | 38.07% | 11.78% |
+
+Interpretation:
+
+`w_teacher` is the scalar multiplier on the `column_teacher_output` cross-entropy energy. The sweep shows a tradeoff rather than a useful scalar optimum. `w_teacher = 0.0` and `w_teacher = 0.025` preserve the main classifier, but the main `output` still routes through `bypass_pool`, because `bypass_only` matches the combined test accuracy. `w_teacher = 0.025` is the best scalar-teacher setting so far: it reaches 48.24% test, keeps `bypass_only` at 48.27%, and raises `column_teacher_output` to 16.17%. The main classifier still does not use the column pathway in a useful way, because `column_only` is only 12.14%.
+
+Higher teacher weights create stronger column or teacher signals but damage the main classifier. `w_teacher = 0.125` raises `column_only` to 18.73% and `column_teacher_output` to 19.42%, but drops main test accuracy to 42.26%. `w_teacher = 1.0` collapses the training trajectory. This means a single global class target attached to `column_pool` is not enough. The global target can make the column pathway encode some class information, but that information is not compatible with the main combined readout at useful accuracy.
+
+Shell lesion details from the stronger-teacher runs support a shell-local next step. At `w_teacher = 0.125`, `column_middle_shell_only` reached 15.29% test and `column_outer_shell_only` reached 16.38% test, while hard-kernel-only stayed at chance. This suggests that the middle-shell and outer-shell feature slices carry the most visible class signal under teacher pressure, but the signal is not organized well enough for the combined classifier.
+
+Decision:
+
+Stop scalar global-teacher sweeps for now. Keep `w_teacher = 0.025` as the best same-code scalar-teacher baseline when a scalar teacher is needed. The next implementation should move the auxiliary predictive-coding target closer to the HiBaCaML shell structure.
+
+Chosen next mechanism:
+
+Implement shell-local auxiliary predictive heads. Each shell-local head receives only one shell slice of `column_pool`, where `column_pool` is the global average pooled output of the depth-spanning columns. A shell slice is the contiguous feature range for one of `hard_kernel`, `inner_shell`, `middle_shell`, or `outer_shell`. Each shell-local head is a softmax classifier with a small weighted cross-entropy energy clamped to the CIFAR-10 label during training. The main `output` classifier and `bypass_pool` remain unchanged for evaluation.
+
+The initial shell-local target should use small weights so the total auxiliary energy stays below the disruptive global-teacher regime. A conservative starting point is:
+
+- `w_hard_kernel = 0.005`, where `w_hard_kernel` is the weighted cross-entropy multiplier on the hard-kernel auxiliary head.
+- `w_inner_shell = 0.005`, where `w_inner_shell` is the weighted cross-entropy multiplier on the inner-shell auxiliary head.
+- `w_middle_shell = 0.01`, where `w_middle_shell` is the weighted cross-entropy multiplier on the middle-shell auxiliary head.
+- `w_outer_shell = 0.01`, where `w_outer_shell` is the weighted cross-entropy multiplier on the outer-shell auxiliary head.
+
+The middle-shell and outer-shell weights are slightly larger because the sweep showed above-chance shell-only readouts there. The hard-kernel and inner-shell weights remain nonzero because the architecture should not only optimize the slices that already showed a weak signal.
+
+Alternatives considered:
+
+- Continue scalar global-teacher tuning. This is low effort, but the sweep already maps the useful range and shows the tradeoff.
+- Use `w_teacher = 0.025` as the next main line without architecture changes. This is the best scalar result, but it still leaves `column_only` near chance and does not make the main classifier use the columns.
+- Remove the bypass path during training. This would force column use, but it would also remove the diagnostic path that tells us whether columns add useful evidence beyond the backbone.
+- Add a teacher schedule that starts high and decays. This may be useful later, but the current result points more directly at target placement than time schedule.
+
+Next implementation target:
+
+Add shell-slice nodes and shell-local classifier heads in `scripts/train_cifar10_depth_spanning.py`, with tests that verify:
+
+- Each shell-local head receives only its shell slice from `column_pool`.
+- Each shell-local target key is present in `TaskMap`.
+- The training batch wrapper duplicates the CIFAR-10 label into each shell target key.
+- The main `output` readout and the existing readout ablations remain unchanged.
+
+First experiment after implementation:
+
+Run seed 42, learning rate 0.005, 20 epochs, shell diagnostics, global `w_teacher = 0.0`, and shell-local weights `0.005, 0.005, 0.01, 0.01`. The evaluation criteria are main test accuracy, `column_only` test accuracy through the main `output`, each shell-local head accuracy, and shell lesion effects.
