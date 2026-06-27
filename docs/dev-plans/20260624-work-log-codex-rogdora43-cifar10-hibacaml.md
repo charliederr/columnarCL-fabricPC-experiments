@@ -1135,3 +1135,64 @@ Alternatives considered:
 Next action:
 
 Implement per-column shell-local teacher heads in the experiment repo only, keep all new weights disabled by default, add focused tests for parameter shape and loss contribution, then ask for a no-bypass GPU run with small shell-local teacher weights.
+
+## 2026-06-27 Per-Column Shell Teacher Implementation
+
+Timestamp and machine: 2026-06-27 16:22:15 EDT on `rogdora43`.
+
+Current commit while implementing: `c85ea10`.
+
+Implemented mechanism:
+
+The experiment graph now supports per-column shell-local teacher heads. A per-column shell-local teacher head is an auxiliary CIFAR-10 classifier attached to one shell slice from one depth-spanning column before the column combiner. The new path for column `j` and shell `s` is `col_j -> column{j}_{s}_slice -> column{j}_{s}_pool -> column{j}_{s}_teacher_output`. The slice node exposes only shell `s` from column `j`. The pool node averages over spatial tokens. The teacher output node receives the CIFAR-10 label through a weighted predictive-coding cross-entropy energy.
+
+Files changed:
+
+- `scripts/train_cifar10_depth_spanning.py`: added `--column_shell_teacher_weights`, node-name helpers, graph wiring for active-column shell teacher heads, auxiliary target wiring, diagnostics, and validation/test reporting for the new heads.
+- `scripts/run_codex_cifar10_depth_spanning.sh`: added an eighth positional argument for `column_shell_teacher_weights` and records those weights in the result log filename and header.
+- `tests/test_pooled_readout_norm.py`: added graph tests proving that per-column shell heads attach before the combiner and that inactive columns do not receive shell-local supervision.
+
+Default behavior:
+
+`--column_shell_teacher_weights` defaults to `0,0,0,0`. With that default, no per-column shell teacher nodes are added. This preserves the previous baseline unless an experiment explicitly enables the new mechanism.
+
+Verification run locally:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest tests/test_pooled_readout_norm.py -q
+```
+
+Result: 15 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py -q
+```
+
+Result: 33 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest -q --ignore=tests/test_cifar_data.py
+```
+
+Result: 135 passed.
+
+No CIFAR-10 training run was started locally. The next GPU experiment should be run on `rogdora43`.
+
+Next experiment:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && ./scripts/run_codex_cifar10_depth_spanning.sh 42 0.005 shells 20 0.0 0,0,0,0 nobypass 0.001,0.001,0.002,0.002
+```
+
+Readout criteria:
+
+- Primary: shell magnitudes should remain nonzero, especially `outer_shell`.
+- Primary: per-column shell teacher heads should rise above chance for `inner_shell` and `outer_shell` without causing validation accuracy to collapse.
+- Secondary: shell lesion readouts should stop improving when `inner_shell` or `outer_shell` is removed.
+- Secondary: final test accuracy should improve after the collapse and participation criteria are satisfied.

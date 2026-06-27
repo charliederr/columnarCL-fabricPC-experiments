@@ -88,6 +88,7 @@ jax.config.update("jax_default_prng_impl", "threefry2x32")
 COLUMN_TEACHER_TARGET = "column_y"
 COLUMN_TEACHER_NODE = "column_teacher_output"
 SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
+COLUMN_SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 
 
 def shell_slice_node_name(shell_name: str) -> str:
@@ -105,7 +106,45 @@ def shell_teacher_target_name(shell_name: str) -> str:
     return f"{shell_name}_y"
 
 
-def parse_shell_teacher_weights(value: str) -> Dict[str, float]:
+def column_shell_slice_node_name(column_idx: int, shell_name: str) -> str:
+    """Return the node name for a shell slice taken directly from one column."""
+    return f"column{column_idx:02d}_{shell_name}_slice"
+
+
+def column_shell_pool_node_name(column_idx: int, shell_name: str) -> str:
+    """Return the node name for the token-pooled shell slice from one column."""
+    return f"column{column_idx:02d}_{shell_name}_pool"
+
+
+def column_shell_teacher_node_name(column_idx: int, shell_name: str) -> str:
+    """Return the classifier node name for one column shell teacher head."""
+    return f"column{column_idx:02d}_{shell_name}_teacher_output"
+
+
+def column_shell_teacher_target_name(column_idx: int, shell_name: str) -> str:
+    """Return the training target key for one column shell teacher head."""
+    return f"column{column_idx:02d}_{shell_name}_y"
+
+
+def is_column_shell_auxiliary_node(node_name: str) -> bool:
+    """Return true for per-column shell slice, pool, or teacher nodes."""
+    return node_name.startswith("column") and any(
+        f"_{shell_name}_" in node_name for shell_name in SHELL_NAMES
+    )
+
+
+def is_column_shell_teacher_node(node_name: str) -> bool:
+    """Return true for per-column shell-local classifier nodes."""
+    return (
+        is_column_shell_auxiliary_node(node_name)
+        and node_name.endswith("_teacher_output")
+    )
+
+
+def parse_shell_teacher_weights(
+    value: str,
+    flag_name: str = "--shell_teacher_weights",
+) -> Dict[str, float]:
     """
     Parse shell-local teacher weights in `SHELL_NAMES` order.
 
@@ -115,7 +154,7 @@ def parse_shell_teacher_weights(value: str) -> Dict[str, float]:
     pieces = [piece.strip() for piece in value.split(",") if piece.strip()]
     if len(pieces) != len(SHELL_NAMES):
         raise ValueError(
-            f"--shell_teacher_weights must contain {len(SHELL_NAMES)} comma-separated "
+            f"{flag_name} must contain {len(SHELL_NAMES)} comma-separated "
             f"values in {SHELL_NAMES} order, got {value!r}"
         )
     weights = {}
@@ -170,9 +209,10 @@ def diagnose_energy_breakdown(
         if (
             node_name in ("output", COLUMN_TEACHER_NODE)
             or node_name in shell_teacher_nodes
+            or is_column_shell_teacher_node(node_name)
         ):
             categories["classifier"] += energy_sum
-        elif node_name.startswith("col_"):
+        elif node_name.startswith("col_") or is_column_shell_auxiliary_node(node_name):
             categories["columns"] += energy_sum
         elif node_name.startswith("stage") and ("tap" in node_name or "pool" in node_name):
             categories["stage_taps"] += energy_sum
@@ -233,6 +273,7 @@ def diagnose_column_outputs(
         or name.startswith("stage")
         or name in shell_slice_nodes
         or name in shell_teacher_nodes
+        or is_column_shell_auxiliary_node(name)
         or name in (
             "combiner",
             "column_pool",
@@ -671,6 +712,28 @@ def evaluate_shell_teacher_heads(
     return results
 
 
+def evaluate_column_shell_teacher_heads(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """Evaluate configured per-column shell classifiers against CIFAR-10 labels."""
+    results = {}
+    for node_name in sorted(structure.nodes):
+        if is_column_shell_teacher_node(node_name):
+            results[node_name] = evaluate_output_node(
+                params,
+                structure,
+                node_name,
+                loader,
+                config,
+                rng_key,
+            )
+    return results
+
+
 # Model configurations with explicit stage channel counts for stage taps
 MODEL_CONFIGS = {
     "tiny": {
@@ -804,6 +867,10 @@ def build_depth_spanning_graph(args):
     weight_init = MuPCInitializer()
     activation = get_activation(args.activation)
     shell_teacher_weights = parse_shell_teacher_weights(args.shell_teacher_weights)
+    column_shell_teacher_weights = parse_shell_teacher_weights(
+        args.column_shell_teacher_weights,
+        flag_name="--column_shell_teacher_weights",
+    )
 
     # Input
     image = IdentityNode(shape=(32, 32, 3), name="input")
@@ -950,6 +1017,9 @@ def build_depth_spanning_graph(args):
         args.active_nonshared,
         args.seed,
     )
+    active_column_indices = tuple(
+        idx for idx, value in enumerate(support_mask) if value > 0.0
+    )
 
     # Combiner
     combiner = MaskedColumnCombinerNode(
@@ -1023,6 +1093,44 @@ def build_depth_spanning_graph(args):
         ])
         shell_task_map[shell_teacher_target_name(shell_name)] = shell_teacher_output
 
+    column_shell_task_map = {}
+    for column_idx in active_column_indices:
+        column = columns[column_idx]
+        for shell_name in SHELL_NAMES:
+            shell_weight = column_shell_teacher_weights[shell_name]
+            if shell_weight <= 0.0:
+                continue
+
+            start, end = shell_slices[shell_name]
+            shell_slice = FeatureSliceNode(
+                shape=(num_tokens, end - start),
+                name=column_shell_slice_node_name(column_idx, shell_name),
+                start=start,
+                end=end,
+            )
+            shell_pool = AvgPool(
+                shape=(end - start,),
+                name=column_shell_pool_node_name(column_idx, shell_name),
+                global_pool=True,
+            )
+            shell_teacher_output = Linear(
+                shape=(10,),
+                name=column_shell_teacher_node_name(column_idx, shell_name),
+                activation=SoftmaxActivation(),
+                energy=make_classifier_energy(args.label_smoothing, shell_weight),
+                flatten_input=True,
+                weight_init=XavierInitializer(),
+            )
+            nodes.extend([shell_slice, shell_pool, shell_teacher_output])
+            edges.extend([
+                Edge(source=column, target=shell_slice.slot("in")),
+                Edge(source=shell_slice, target=shell_pool.slot("in")),
+                Edge(source=shell_pool, target=shell_teacher_output.slot("in")),
+            ])
+            column_shell_task_map[
+                column_shell_teacher_target_name(column_idx, shell_name)
+            ] = shell_teacher_output
+
     # Optional bypass: stage4 backbone features go directly to the classifier in
     # parallel with the columnar pathway, so readout ablations can separate
     # backbone-only evidence from column-mediated evidence.
@@ -1044,6 +1152,7 @@ def build_depth_spanning_graph(args):
             y=output,
             column_y=column_teacher_output,
             **shell_task_map,
+            **column_shell_task_map,
         ),
         inference=InferenceSGDNormClip(
             eta_infer=args.eta_infer,
@@ -1088,6 +1197,15 @@ def train_cifar10_depth_spanning(args):
         f"{name}={shell_teacher_weights[name]:.6g}" for name in SHELL_NAMES
     )
     print(f"Shell teacher weights: {shell_teacher_summary}")
+    column_shell_teacher_weights = parse_shell_teacher_weights(
+        args.column_shell_teacher_weights,
+        flag_name="--column_shell_teacher_weights",
+    )
+    column_shell_teacher_summary = ", ".join(
+        f"{name}={column_shell_teacher_weights[name]:.6g}"
+        for name in SHELL_NAMES
+    )
+    print(f"Column shell teacher weights: {column_shell_teacher_summary}")
     print()
 
     master_key = jax.random.PRNGKey(args.seed)
@@ -1095,10 +1213,10 @@ def train_cifar10_depth_spanning(args):
 
     structure, support_mask = build_depth_spanning_graph(args)
     params = initialize_params(structure, graph_key)
-    shell_target_keys = tuple(
-        shell_teacher_target_name(shell_name)
-        for shell_name in SHELL_NAMES
-        if shell_teacher_target_name(shell_name) in structure.task_map
+    auxiliary_target_keys = tuple(
+        key
+        for key in structure.task_map
+        if key not in ("x", "y", COLUMN_TEACHER_TARGET)
     )
 
     active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
@@ -1134,7 +1252,7 @@ def train_cifar10_depth_spanning(args):
     print(f"Test batches: {len(test_loader)}")
     train_loader_with_teacher = ColumnTeacherTargetLoader(
         train_loader,
-        shell_target_keys=shell_target_keys,
+        shell_target_keys=auxiliary_target_keys,
     )
 
     # Energy, column-output, and shell diagnosis: sample batch for analysis
@@ -1344,6 +1462,18 @@ def train_cifar10_depth_spanning(args):
             "Validation Shell Teacher Heads",
             val_shell_teacher_metrics,
         )
+    val_column_shell_teacher_metrics = evaluate_column_shell_teacher_heads(
+        eval_params,
+        structure,
+        val_loader,
+        train_config,
+        ablation_key,
+    )
+    if val_column_shell_teacher_metrics:
+        print_ablation_results(
+            "Validation Per-Column Shell Teacher Heads",
+            val_column_shell_teacher_metrics,
+        )
     if args.diagnose_shells:
         val_shell_metrics = evaluate_shell_readout_ablations(
             eval_params, structure, val_loader, train_config, ablation_key
@@ -1362,6 +1492,13 @@ def train_cifar10_depth_spanning(args):
         ablation_key,
     )
     test_shell_teacher_metrics = evaluate_shell_teacher_heads(
+        eval_params,
+        structure,
+        test_loader,
+        train_config,
+        ablation_key,
+    )
+    test_column_shell_teacher_metrics = evaluate_column_shell_teacher_heads(
         eval_params,
         structure,
         test_loader,
@@ -1387,6 +1524,11 @@ def train_cifar10_depth_spanning(args):
         print_ablation_results(
             "Test Shell Teacher Heads",
             test_shell_teacher_metrics,
+        )
+    if test_column_shell_teacher_metrics:
+        print_ablation_results(
+            "Test Per-Column Shell Teacher Heads",
+            test_column_shell_teacher_metrics,
         )
     if args.diagnose_shells:
         test_shell_metrics = evaluate_shell_readout_ablations(
@@ -1510,6 +1652,17 @@ def parse_args():
             "Comma-separated auxiliary cross-entropy weights for shell-local "
             "classifier heads in hard_kernel, inner_shell, middle_shell, "
             "outer_shell order. A zero weight omits that shell head."
+        ),
+    )
+    parser.add_argument(
+        "--column_shell_teacher_weights",
+        type=str,
+        default=COLUMN_SHELL_TEACHER_DEFAULT_WEIGHTS,
+        help=(
+            "Comma-separated auxiliary cross-entropy weights for per-column "
+            "shell-local classifier heads in hard_kernel, inner_shell, "
+            "middle_shell, outer_shell order. A zero weight omits those heads. "
+            "These heads attach before the column combiner."
         ),
     )
     return parser.parse_args()

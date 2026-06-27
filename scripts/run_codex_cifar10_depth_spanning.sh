@@ -10,6 +10,7 @@ num_epochs="${4:-10}"
 column_teacher_weight="${5:-0.1}"
 shell_teacher_weights="${6:-0,0,0,0}"
 readout_mode="${7:-bypass}"
+column_shell_teacher_weights="${8:-0,0,0,0}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
@@ -17,6 +18,8 @@ epochs_label="${num_epochs//./p}"
 teacher_weight_label="${column_teacher_weight//./p}"
 shell_weights_label="${shell_teacher_weights//./p}"
 shell_weights_label="${shell_weights_label//,/_}"
+column_shell_weights_label="${column_shell_teacher_weights//./p}"
+column_shell_weights_label="${column_shell_weights_label//,/_}"
 diagnose_label="nodiag"
 extra_args=()
 readout_label="bypass"
@@ -44,7 +47,7 @@ else
     exit 2
 fi
 
-log_path="${repo_root}/results/codex_resnet18_column_teacher${teacher_weight_label}_shell${shell_weights_label}_${readout_label}_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+log_path="${repo_root}/results/codex_resnet18_column_teacher${teacher_weight_label}_shell${shell_weights_label}_colshell${column_shell_weights_label}_${readout_label}_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -62,6 +65,7 @@ mkdir -p results
     echo "column_teacher_head: enabled"
     echo "column_teacher_weight: $column_teacher_weight"
     echo "shell_teacher_weights: $shell_teacher_weights"
+    echo "column_shell_teacher_weights: $column_shell_teacher_weights"
     echo "readout_mode: $readout_label"
     "$python_bin" -c "import jax; print(jax.devices()); print(jax.default_backend())"
     "$python_bin" scripts/train_cifar10_depth_spanning.py \
@@ -88,6 +92,7 @@ mkdir -p results
         --fix_ln_gamma \
         --column_teacher_weight "$column_teacher_weight" \
         --shell_teacher_weights "$shell_teacher_weights" \
+        --column_shell_teacher_weights "$column_shell_teacher_weights" \
         "${readout_args[@]}" \
         "${extra_args[@]}"
 } 2>&1 | tee "$log_path"

@@ -24,6 +24,10 @@ from scripts.train_cifar10_depth_spanning import (
     COLUMN_TEACHER_TARGET,
     ColumnTeacherTargetLoader,
     build_depth_spanning_graph,
+    column_shell_pool_node_name,
+    column_shell_slice_node_name,
+    column_shell_teacher_node_name,
+    column_shell_teacher_target_name,
     mask_output_input_sources,
     mask_output_source_feature_slice,
     output_input_edge_sources,
@@ -187,6 +191,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         label_smoothing=0.0,
         column_teacher_weight=0.1,
         shell_teacher_weights="0,0,0,0",
+        column_shell_teacher_weights="0,0,0,0",
         infer_steps=2,
         eta_infer=0.1,
         infer_max_norm=1.0,
@@ -270,6 +275,69 @@ def test_depth_spanning_graph_adds_shell_local_teacher_heads() -> None:
 
         assert slice_sources == {"column_pool"}
         assert teacher_sources == {slice_name}
+
+
+def test_depth_spanning_graph_adds_per_column_shell_teacher_heads() -> None:
+    """Per-column shell heads attach to active column shells before combining."""
+    shell_weight_values = [0.001, 0.001, 0.002, 0.002]
+    args = _tiny_depth_spanning_args(
+        column_teacher_weight=0.0,
+        column_shell_teacher_weights="0.001,0.001,0.002,0.002",
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+
+    assert active_columns == [0, 1]
+
+    for column_idx in active_columns:
+        for shell_name, expected_weight in zip(SHELL_NAMES, shell_weight_values):
+            slice_name = column_shell_slice_node_name(column_idx, shell_name)
+            pool_name = column_shell_pool_node_name(column_idx, shell_name)
+            teacher_name = column_shell_teacher_node_name(column_idx, shell_name)
+            target_name = column_shell_teacher_target_name(column_idx, shell_name)
+
+            assert structure.task_map[target_name] == teacher_name
+            assert (
+                structure.nodes[teacher_name].node_info.energy.config["weight"]
+                == expected_weight
+            )
+
+            slice_sources = {
+                edge.source
+                for edge in structure.edges.values()
+                if edge.target == slice_name and edge.slot == "in"
+            }
+            pool_sources = {
+                edge.source
+                for edge in structure.edges.values()
+                if edge.target == pool_name and edge.slot == "in"
+            }
+            teacher_sources = {
+                edge.source
+                for edge in structure.edges.values()
+                if edge.target == teacher_name and edge.slot == "in"
+            }
+
+            assert slice_sources == {f"col_{column_idx:02d}"}
+            assert pool_sources == {slice_name}
+            assert teacher_sources == {pool_name}
+
+
+def test_per_column_shell_teacher_heads_skip_inactive_columns() -> None:
+    """Per-column shell supervision follows the column support mask."""
+    args = _tiny_depth_spanning_args(
+        num_columns=3,
+        num_shared=1,
+        active_nonshared=1,
+        column_mode="first_sparse",
+        column_shell_teacher_weights="0.001,0,0,0",
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+
+    assert support_mask == (1.0, 1.0, 0.0)
+    assert column_shell_teacher_node_name(0, "hard_kernel") in structure.nodes
+    assert column_shell_teacher_node_name(1, "hard_kernel") in structure.nodes
+    assert column_shell_teacher_node_name(2, "hard_kernel") not in structure.nodes
 
 
 def test_column_teacher_target_loader_duplicates_labels() -> None:
