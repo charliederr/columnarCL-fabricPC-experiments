@@ -162,6 +162,33 @@ def _hidden_activation(x: jax.Array, activation_name: str, leaky_alpha: float) -
     raise ValueError(f"Unknown hidden activation: {activation_name}")
 
 
+def _shellwise_layernorm(
+    shell_outputs: Tuple[jax.Array, ...],
+    shell_slices: Dict[str, Tuple[int, int]],
+    params: NodeParams,
+    fix_ln_gamma: bool,
+) -> Tuple[jax.Array, ...]:
+    """Normalize each shell output independently along its feature axis."""
+    if fix_ln_gamma:
+        gamma = jnp.float32(1.0)
+        beta = jnp.float32(0.0)
+    else:
+        gamma = params.weights["ln_gamma"]
+        beta = params.biases["ln_beta"]
+
+    normalized = []
+    for shell_name, shell_output in zip(SHELL_NAMES, shell_outputs):
+        start, end = shell_slices[shell_name]
+        if fix_ln_gamma:
+            shell_gamma = gamma
+            shell_beta = beta
+        else:
+            shell_gamma = gamma[start:end]
+            shell_beta = beta[start:end]
+        normalized.append(layernorm(shell_output, shell_gamma, shell_beta))
+    return tuple(normalized)
+
+
 class DepthSpanningColumnNode(NodeBase):
     """
     A cortical column that spans multiple ResNet stages via skip connections.
@@ -516,17 +543,17 @@ class DepthSpanningColumnNode(NodeBase):
                 + shell_path_scale[shell_idx, 1] * l_out[..., start:end]
                 + shell_path_scale[shell_idx, 2] * b_out[..., start:end]
             )
-        pre_activation = jnp.concatenate(shell_outputs, axis=-1)
 
-        # Optional LayerNorm along the output_dim axis — pins column output magnitude
+        # Optional shell-wise LayerNorm pins each typed slice independently.
         if config.get("apply_layer_norm", False):
-            if config.get("fix_ln_gamma", False):
-                gamma = jnp.float32(1.0)
-                beta = jnp.float32(0.0)
-            else:
-                gamma = params.weights["ln_gamma"]
-                beta = params.biases["ln_beta"]
-            pre_activation = layernorm(pre_activation, gamma, beta)
+            shell_outputs = _shellwise_layernorm(
+                tuple(shell_outputs),
+                shell_slices,
+                params,
+                fix_ln_gamma=config.get("fix_ln_gamma", False),
+            )
+
+        pre_activation = jnp.concatenate(shell_outputs, axis=-1)
 
         # Apply output activation
         activation = node_info.activation

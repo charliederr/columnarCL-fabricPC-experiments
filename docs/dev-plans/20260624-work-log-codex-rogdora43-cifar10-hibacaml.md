@@ -1004,3 +1004,65 @@ Primary success criteria for that run:
 - All shell mean L2 norms should remain meaningfully nonzero after training, especially `outer_shell`.
 - Shell lesion results should show broader shell participation than the current hard-kernel-dominated pattern.
 - Accuracy should be considered only after those stability criteria are met.
+
+## 2026-06-27 Shell-Wise LayerNorm Implementation
+
+Timestamp and machine: 2026-06-27 13:02:35 EDT on `rogdora43`.
+
+Current commit while implementing: `359245d`.
+
+Implemented stability mechanism:
+
+`DepthSpanningColumnNode` now treats the shell layout as a normalization boundary. When `apply_layer_norm` is true, the node normalizes each shell slice independently after the shell-specific K/L/B mixture and before concatenating the four shell outputs. `K` is the kernel pathway, `L` is the lateral pathway, and `B` is the bridge pathway. Each shell is the contiguous feature range returned by `get_shell_slices(output_dim)`.
+
+The parameter interface remains compatible with the previous column LayerNorm. When `fix_ln_gamma` is false, `ln_gamma` and `ln_beta` remain full-width vectors of shape `(output_dim,)`. The forward pass slices those vectors to match each shell. When `fix_ln_gamma` is true, the non-learnable scalar gamma and beta are applied per shell.
+
+Files changed:
+
+- `columnar_cl_fabricpc/columns/depth_spanning_column.py`: added `_shellwise_layernorm` and replaced full-width column LayerNorm with shell-wise LayerNorm.
+- `tests/test_depth_spanning_column.py`: added tests for learnable parameter shape compatibility, direct shell-wise normalization, and graph-level column output normalization.
+
+Verification run locally:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile columnar_cl_fabricpc/columns/depth_spanning_column.py tests/test_depth_spanning_column.py
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest tests/test_depth_spanning_column.py -q
+```
+
+Result: 18 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py -q
+```
+
+Result: 31 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest -q --ignore=tests/test_cifar_data.py
+```
+
+Result: 133 passed.
+
+```bash
+git diff --check
+```
+
+Result: passed.
+
+Next experiment:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && ./scripts/run_codex_cifar10_depth_spanning.sh 42 0.005 shells 20 0.0 0,0,0,0 nobypass
+```
+
+Primary readout:
+
+- Treat validation stability as the first criterion.
+- Compare post-training shell mean L2 norms against the previous no-bypass run, especially `outer_shell = 0.9883`.
+- Compare shell lesion results against the previous hard-kernel-dominated pattern.
+- Treat test accuracy as secondary until shell participation remains stable.

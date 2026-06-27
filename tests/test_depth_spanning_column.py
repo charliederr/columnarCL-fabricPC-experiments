@@ -13,6 +13,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from fabricpc.core.types import NodeParams
+
 from columnar_cl_fabricpc.columns import (
     SHELL_NAMES,
     DepthSpanningColumnNode,
@@ -24,6 +26,7 @@ from columnar_cl_fabricpc.columns import (
     StageTapTokenizer,
     GlobalPoolNode,
 )
+from columnar_cl_fabricpc.columns.depth_spanning_column import _shellwise_layernorm
 
 
 class TestDepthSpanningColumnNode:
@@ -180,6 +183,51 @@ class TestDepthSpanningColumnParams:
             dtype=jnp.float32,
         )
         assert jnp.allclose(params.weights["shell_path_scale"], expected_scale)
+
+    def test_initialize_learnable_layer_norm_params_shapes(self, rng_key):
+        """Learnable shell-wise normalization keeps full-width scale vectors."""
+        node_shape = (64, 64)
+        input_shapes = {
+            "stage2:stage2": (64, 64),
+            "stage3:stage3": (64, 64),
+            "stage4:stage4": (64, 64),
+            "stage4_pool:stage4_pool": (1, 64),
+        }
+        config = {
+            "input_dim": 64,
+            "microcolumn_dim": 32,
+            "apply_layer_norm": True,
+            "fix_ln_gamma": False,
+        }
+
+        params = DepthSpanningColumnNode.initialize_params(
+            rng_key, node_shape, input_shapes, config=config
+        )
+
+        assert params.weights["ln_gamma"].shape == (64,)
+        assert params.biases["ln_beta"].shape == (64,)
+
+    def test_shellwise_layer_norm_normalizes_each_shell(self):
+        """Each shell slice is normalized independently on its feature axis."""
+        shell_widths = (4, 4, 4, 4)
+        shell_slices = get_shell_slices(16, shell_widths)
+        shell_outputs = tuple(
+            jnp.arange(2 * 3 * width, dtype=jnp.float32).reshape(2, 3, width)
+            * float(shell_idx + 1)
+            + float(10 * shell_idx)
+            for shell_idx, width in enumerate(shell_widths)
+        )
+
+        normalized = _shellwise_layernorm(
+            shell_outputs,
+            shell_slices,
+            NodeParams(weights={}, biases={}),
+            fix_ln_gamma=True,
+        )
+
+        for shell_output in normalized:
+            assert jnp.allclose(jnp.mean(shell_output, axis=-1), 0.0, atol=1e-6)
+            assert jnp.allclose(jnp.var(shell_output, axis=-1), 1.0, atol=1e-4)
 
 
 class TestDepthSpanningColumnPool:
@@ -341,6 +389,68 @@ class TestDepthSpanningColumnInGraph:
         assert "col0" in state.nodes
         col_state = state.nodes["col0"]
         assert col_state.z_latent.shape == (batch_size, 64, 64)
+
+    def test_forward_layer_norm_is_shellwise(self, rng_key):
+        """A normalized column emits each shell with zero mean and unit variance."""
+        from fabricpc.nodes import IdentityNode
+        from fabricpc.graph_assembly import graph, TaskMap
+        from fabricpc.core.topology import Edge
+        from fabricpc.core.inference import InferenceSGD
+        from fabricpc.graph_initialization import initialize_params
+        from fabricpc.graph_initialization.state_initializer import (
+            initialize_graph_state,
+        )
+
+        stage2 = IdentityNode(shape=(4, 16), name="stage2")
+        stage3 = IdentityNode(shape=(4, 16), name="stage3")
+        stage4 = IdentityNode(shape=(4, 16), name="stage4")
+        stage4_pool = IdentityNode(shape=(1, 16), name="stage4_pool")
+        column = create_depth_spanning_column(
+            name="col0",
+            input_dim=16,
+            output_dim=16,
+            microcolumn_dim=8,
+            grid_size=(2, 2),
+            shell_proportions=(1, 1, 1, 1),
+            apply_layer_norm=True,
+            fix_ln_gamma=True,
+        )
+        structure = graph(
+            nodes=[stage2, stage3, stage4, stage4_pool, column],
+            edges=[
+                Edge(source=stage2, target=column.slot("stage2")),
+                Edge(source=stage3, target=column.slot("stage3")),
+                Edge(source=stage4, target=column.slot("stage4")),
+                Edge(source=stage4_pool, target=column.slot("stage4_pool")),
+            ],
+            task_map=TaskMap(x=stage2),
+            inference=InferenceSGD(),
+        )
+        params = initialize_params(structure, rng_key)
+        keys = jax.random.split(rng_key, 5)
+        batch_size = 3
+        clamps = {
+            "stage2": jax.random.normal(keys[0], (batch_size, 4, 16)),
+            "stage3": jax.random.normal(keys[1], (batch_size, 4, 16)),
+            "stage4": jax.random.normal(keys[2], (batch_size, 4, 16)),
+            "stage4_pool": jax.random.normal(keys[3], (batch_size, 1, 16)),
+        }
+
+        state = initialize_graph_state(
+            structure=structure,
+            batch_size=batch_size,
+            rng_key=keys[4],
+            clamps=clamps,
+            params=params,
+        )
+        output = state.nodes["col0"].z_mu
+
+        shell_slices = get_shell_slices(16, (1, 1, 1, 1))
+        for shell_name in SHELL_NAMES:
+            start, end = shell_slices[shell_name]
+            shell = output[..., start:end]
+            assert jnp.allclose(jnp.mean(shell, axis=-1), 0.0, atol=1e-5)
+            assert jnp.allclose(jnp.var(shell, axis=-1), 1.0, atol=1e-3)
 
 
 class TestMultipleColumns:
