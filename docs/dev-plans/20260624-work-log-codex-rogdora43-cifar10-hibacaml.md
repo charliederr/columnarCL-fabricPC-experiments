@@ -742,3 +742,170 @@ Add shell-slice nodes and shell-local classifier heads in `scripts/train_cifar10
 First experiment after implementation:
 
 Run seed 42, learning rate 0.005, 20 epochs, shell diagnostics, global `w_teacher = 0.0`, and shell-local weights `0.005, 0.005, 0.01, 0.01`. The evaluation criteria are main test accuracy, `column_only` test accuracy through the main `output`, each shell-local head accuracy, and shell lesion effects.
+
+## 2026-06-27 Shell-Local Teacher Implementation
+
+Timestamp and machine: 2026-06-27 05:56:37 EDT on `rogdora43`.
+
+Current commit while implementing: `bcc3922`.
+
+Implemented mechanism:
+
+`column_pool` is the global average pooled output of the depth-spanning columns. The implementation now optionally exposes each shell slice of `column_pool` as a separate predictive-coding node through `FeatureSliceNode`. A shell slice is the contiguous final-axis feature range assigned by `get_shell_slices(embed_dim)` to one of `hard_kernel`, `inner_shell`, `middle_shell`, or `outer_shell`.
+
+Each enabled shell-local head receives only its own `FeatureSliceNode` output. Each head is a `Linear` softmax classifier with a weighted CIFAR-10 cross-entropy energy. The training loader duplicates the same one-hot CIFAR-10 label tensor from `y` into the enabled shell target keys, so FabricPC clamps those targets during predictive-coding training. The main `output`, the bypass path, the global `column_teacher_output`, and the existing readout ablations remain in place.
+
+Shell-local control:
+
+- `w_hard_kernel` is the cross-entropy multiplier on `hard_kernel_teacher_output`.
+- `w_inner_shell` is the cross-entropy multiplier on `inner_shell_teacher_output`.
+- `w_middle_shell` is the cross-entropy multiplier on `middle_shell_teacher_output`.
+- `w_outer_shell` is the cross-entropy multiplier on `outer_shell_teacher_output`.
+
+The command-line argument is `--shell_teacher_weights`, with values ordered as `hard_kernel,inner_shell,middle_shell,outer_shell`. The default is `0,0,0,0`, which omits the shell-local heads.
+
+Files changed:
+
+- `columnar_cl_fabricpc/columns/accuracy_nodes.py`: added `FeatureSliceNode`, a no-parameter predictive-coding node that predicts a configured final-axis feature slice.
+- `columnar_cl_fabricpc/columns/__init__.py`: exported `FeatureSliceNode`.
+- `scripts/train_cifar10_depth_spanning.py`: added shell-local teacher-head graph construction, shell target-key plumbing, shell teacher evaluation, diagnostic accounting, and `--shell_teacher_weights`.
+- `scripts/run_codex_cifar10_depth_spanning.sh`: added a sixth positional argument for shell teacher weights and records the value in the log path and log header.
+- `tests/test_pooled_readout_norm.py`: added tests for `FeatureSliceNode`, shell weight parsing, shell-local graph wiring, and shell target duplication.
+
+Verification run locally:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py columnar_cl_fabricpc/columns/accuracy_nodes.py tests/test_pooled_readout_norm.py
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest tests/test_pooled_readout_norm.py -q
+```
+
+Result: 13 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py -q
+```
+
+Result: 28 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest -q --ignore=tests/test_cifar_data.py
+```
+
+Result: 130 passed.
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_teacher_weight_sweep.sh
+```
+
+Result: passed.
+
+Next experiment for GPU run:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && ./scripts/run_codex_cifar10_depth_spanning.sh 42 0.005 shells 20 0.0 0.005,0.005,0.01,0.01
+```
+
+This run tests the first shell-local target setting with the global `column_teacher_output` energy disabled by `w_teacher = 0.0`. The main observations to extract from the result log are combined test accuracy, `column_only` test accuracy, `bypass_only` test accuracy, the four shell-local teacher-head accuracies, and the shell lesion table.
+
+## 2026-06-27 Shell-Local Teacher Result
+
+Timestamp and machine: 2026-06-27 08:08:46 EDT on `rogdora43`.
+
+Current commit while recording this result: `bcc3922`.
+
+Completed result ingested:
+
+- Result file: `results/codex_resnet18_column_teacher0p0_shell0p005_0p005_0p01_0p01_bypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260627_055814.log`
+- `w_teacher = 0.0`, where `w_teacher` is the scalar multiplier on the global `column_teacher_output` cross-entropy energy.
+- Shell-local teacher weights were `0.005,0.005,0.01,0.01` in `hard_kernel,inner_shell,middle_shell,outer_shell` order.
+- Main combined validation accuracy peaked at 44.78% at epoch 7.
+- Main combined test accuracy at the selected epoch was 44.72%.
+- `column_only` test accuracy through the main `output` readout was 10.00%.
+- `bypass_only` test accuracy through the main `output` readout was 44.69%.
+- `column_teacher_output` test accuracy was 10.00%.
+- All four shell-local teacher heads were exactly 10.00% on test.
+
+Validation trajectory:
+
+| Epoch | Validation accuracy |
+| --- | --- |
+| 1 | 30.98% |
+| 2 | 37.02% |
+| 3 | 40.06% |
+| 4 | 42.84% |
+| 5 | 42.60% |
+| 6 | 42.50% |
+| 7 | 44.78% |
+| 8 | 37.62% |
+| 9 | 30.92% |
+| 10 | 37.12% |
+| 11 | 35.24% |
+| 12 | 38.28% |
+| 13 | 35.12% |
+| 14 | 28.16% |
+| 15 | 39.20% |
+| 16 | 38.66% |
+| 17 | 42.36% |
+| 18 | 41.74% |
+| 19 | 43.20% |
+| 20 | 44.24% |
+
+Test readout and shell diagnostics:
+
+| Metric | Test accuracy |
+| --- | ---: |
+| `combined` | 44.72% |
+| `column_only` | 10.00% |
+| `bypass_only` | 44.69% |
+| `column_teacher_output` | 10.00% |
+| `hard_kernel_teacher_output` | 10.00% |
+| `inner_shell_teacher_output` | 10.00% |
+| `middle_shell_teacher_output` | 10.00% |
+| `outer_shell_teacher_output` | 10.00% |
+| `column_without_hard_kernel` | 14.12% |
+| `column_hard_kernel_only` | 10.00% |
+| `column_without_inner_shell` | 9.90% |
+| `column_inner_shell_only` | 10.00% |
+| `column_without_middle_shell` | 10.00% |
+| `column_middle_shell_only` | 10.00% |
+| `column_without_outer_shell` | 10.02% |
+| `column_outer_shell_only` | 10.00% |
+
+Shell norms after training:
+
+| Shell | Width | Mean L2 norm | Standard deviation |
+| --- | ---: | ---: | ---: |
+| `hard_kernel` | 22 | 5.9773 | 2.0310 |
+| `inner_shell` | 7 | 2.4327 | 0.7582 |
+| `middle_shell` | 14 | 2.8183 | 1.3970 |
+| `outer_shell` | 21 | 1.8849 | 2.0367 |
+
+Interpretation:
+
+The first shell-local teacher run did not create class-informative shell heads. The main `output` still routes through `bypass_pool`, because `bypass_only` matched `combined` on test. `column_only` stayed at chance, and every shell-local teacher head stayed at chance. The small shell-local energies therefore acted as extra predictive-coding constraints without creating usable class evidence in `column_pool`.
+
+This result means the current pooled-shell placement is not enough. The shell heads are attached after the four columns have already been combined and globally averaged into `column_pool`. That placement is closer to a shell-sliced readout of a global pooled representation than to shell-local class pressure inside each column. It tests one useful mechanism, but it is not yet a faithful local-column target.
+
+Recommended next diagnostic:
+
+Run one no-bypass experiment before adding another architectural mechanism. In this diagnostic, `output` receives only `column_pool`, so the main CIFAR-10 target must train through the depth-spanning columns. This distinguishes two mechanisms:
+
+- If no-bypass training reaches useful accuracy, the columns can classify CIFAR-10 and the problem is competition from the bypass edge.
+- If no-bypass training stays near chance, the current column pathway itself is not carrying class information, and the next implementation should move teacher heads upstream to per-column shell targets before the combiner.
+
+Runner update:
+
+`scripts/run_codex_cifar10_depth_spanning.sh` now accepts a seventh positional argument, `readout_mode`. `readout_mode = bypass` keeps the existing `bypass_pool -> output` edge. `readout_mode = nobypass` omits that edge so the main classifier reads only `column_pool`. Existing commands keep `bypass` as the default.
+
+Next command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && ./scripts/run_codex_cifar10_depth_spanning.sh 42 0.005 shells 20 0.0 0,0,0,0 nobypass
+```
+
+This next run disables both global and shell-local auxiliary teacher energies. The only class target is the main `output` node, and the only readout source is `column_pool`. The result should be interpreted as a direct test of whether the current depth-spanning HiBaCaML-style column pathway can classify plain CIFAR-10 when it cannot use the ResNet stage-4 bypass path.

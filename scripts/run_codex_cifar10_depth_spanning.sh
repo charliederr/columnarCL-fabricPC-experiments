@@ -8,13 +8,19 @@ lr="${2:-0.01}"
 diagnose_mode="${3:-nodiag}"
 num_epochs="${4:-10}"
 column_teacher_weight="${5:-0.1}"
+shell_teacher_weights="${6:-0,0,0,0}"
+readout_mode="${7:-bypass}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
 epochs_label="${num_epochs//./p}"
 teacher_weight_label="${column_teacher_weight//./p}"
+shell_weights_label="${shell_teacher_weights//./p}"
+shell_weights_label="${shell_weights_label//,/_}"
 diagnose_label="nodiag"
 extra_args=()
+readout_label="bypass"
+readout_args=()
 
 if [[ "$diagnose_mode" == "diagnose" || "$diagnose_mode" == "--diagnose_energy" ]]; then
     diagnose_label="diag"
@@ -27,7 +33,18 @@ elif [[ "$diagnose_mode" == "diag_shells" ]]; then
     extra_args+=(--diagnose_energy --diagnose_shells)
 fi
 
-log_path="${repo_root}/results/codex_resnet18_column_teacher${teacher_weight_label}_bypass_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+if [[ "$readout_mode" == "bypass" || "$readout_mode" == "--bypass_columns" ]]; then
+    readout_label="bypass"
+    readout_args+=(--bypass_columns)
+elif [[ "$readout_mode" == "nobypass" || "$readout_mode" == "columns_only" ]]; then
+    readout_label="nobypass"
+else
+    echo "Unknown readout mode: $readout_mode" >&2
+    echo "Use 'bypass' or 'nobypass'." >&2
+    exit 2
+fi
+
+log_path="${repo_root}/results/codex_resnet18_column_teacher${teacher_weight_label}_shell${shell_weights_label}_${readout_label}_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -44,6 +61,8 @@ mkdir -p results
     echo "diagnose: $diagnose_label"
     echo "column_teacher_head: enabled"
     echo "column_teacher_weight: $column_teacher_weight"
+    echo "shell_teacher_weights: $shell_teacher_weights"
+    echo "readout_mode: $readout_label"
     "$python_bin" -c "import jax; print(jax.devices()); print(jax.default_backend())"
     "$python_bin" scripts/train_cifar10_depth_spanning.py \
         --model resnet18 \
@@ -65,10 +84,11 @@ mkdir -p results
         --infer_max_norm 1.0 \
         --eval_every 1 \
         --seed "$seed" \
-        --bypass_columns \
         --layer_norm_tokens \
         --fix_ln_gamma \
         --column_teacher_weight "$column_teacher_weight" \
+        --shell_teacher_weights "$shell_teacher_weights" \
+        "${readout_args[@]}" \
         "${extra_args[@]}"
 } 2>&1 | tee "$log_path"
 

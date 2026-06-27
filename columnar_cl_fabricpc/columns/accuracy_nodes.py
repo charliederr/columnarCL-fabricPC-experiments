@@ -520,3 +520,88 @@ def create_global_avg_pool_norm(
         name=name,
         fix_ln_gamma=fix_ln_gamma,
     )
+
+
+class FeatureSliceNode(NodeBase):
+    """
+    Expose a contiguous feature-axis slice as its own predictive-coding node.
+
+    Input shape is `(feature_dim,)` or another tensor with a final feature axis.
+    Output shape is the same input shape with the final axis replaced by
+    `end - start`. The node has no learnable parameters.
+    """
+
+    def __init__(
+        self,
+        shape: Tuple[int, ...],
+        name: str,
+        start: int,
+        end: int,
+        activation=IdentityActivation(),
+        energy=GaussianEnergy(),
+        latent_init: Optional[InitializerBase] = NormalInitializer(std=0.02),
+    ):
+        if start < 0 or end <= start:
+            raise ValueError(f"Invalid feature slice start={start}, end={end}")
+        if shape[-1] != end - start:
+            raise ValueError(
+                f"FeatureSliceNode shape last axis must equal end-start, got "
+                f"shape={shape}, start={start}, end={end}"
+            )
+        super().__init__(
+            shape=shape,
+            name=name,
+            activation=activation,
+            energy=energy,
+            latent_init=latent_init,
+            weight_init=None,
+            start=start,
+            end=end,
+        )
+
+    @staticmethod
+    def get_slots() -> Dict[str, SlotSpec]:
+        return {"in": SlotSpec(name="in", is_multi_input=False)}
+
+    @staticmethod
+    def initialize_params(
+        key: jax.Array,
+        node_shape: Tuple[int, ...],
+        input_shapes: Dict[str, Tuple[int, ...]],
+        weight_init: Optional[InitializerBase] = None,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> NodeParams:
+        if len(input_shapes) != 1:
+            raise ValueError("FeatureSliceNode expects exactly one input edge")
+        config = config or {}
+        start = int(config["start"])
+        end = int(config["end"])
+        in_shape = next(iter(input_shapes.values()))
+        if end > in_shape[-1]:
+            raise ValueError(
+                f"Feature slice end={end} exceeds input feature width {in_shape[-1]}"
+            )
+        expected_shape = tuple(in_shape[:-1]) + (end - start,)
+        if tuple(node_shape) != expected_shape:
+            raise ValueError(
+                f"FeatureSliceNode node_shape={node_shape} does not match "
+                f"expected shape {expected_shape}"
+            )
+        return NodeParams(weights={}, biases={})
+
+    @staticmethod
+    def forward(
+        params: NodeParams,
+        inputs: Dict[str, jnp.ndarray],
+        state: NodeState,
+        node_info: NodeInfo,
+    ) -> Tuple[jax.Array, NodeState]:
+        x = next(iter(inputs.values()))
+        start = int(node_info.node_config["start"])
+        end = int(node_info.node_config["end"])
+        pre_activation = x[..., start:end]
+        z_mu = node_info.activation.forward(pre_activation, node_info.activation.config)
+        error = state.z_latent - z_mu
+        state = state._replace(pre_activation=pre_activation, z_mu=z_mu, error=error)
+        state = node_info.node_class.energy_functional(state, node_info)
+        return jnp.sum(state.energy), state

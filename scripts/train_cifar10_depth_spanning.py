@@ -73,6 +73,7 @@ from columnar_cl_fabricpc.columns import (
     StageTapTokenizer,
     GlobalPoolNode,
     DepthSpanningColumnNode,
+    FeatureSliceNode,
     WeightedLabelSmoothedCrossEntropyEnergy,
     SHELL_NAMES,
     create_stage_tap,
@@ -86,6 +87,44 @@ jax.config.update("jax_default_prng_impl", "threefry2x32")
 
 COLUMN_TEACHER_TARGET = "column_y"
 COLUMN_TEACHER_NODE = "column_teacher_output"
+SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
+
+
+def shell_slice_node_name(shell_name: str) -> str:
+    """Return the graph node name for a pooled shell feature slice."""
+    return f"{shell_name}_slice"
+
+
+def shell_teacher_node_name(shell_name: str) -> str:
+    """Return the graph node name for a shell-local classifier head."""
+    return f"{shell_name}_teacher_output"
+
+
+def shell_teacher_target_name(shell_name: str) -> str:
+    """Return the training batch target key for a shell-local classifier head."""
+    return f"{shell_name}_y"
+
+
+def parse_shell_teacher_weights(value: str) -> Dict[str, float]:
+    """
+    Parse shell-local teacher weights in `SHELL_NAMES` order.
+
+    The expected string is four comma-separated floats: hard-kernel,
+    inner-shell, middle-shell, and outer-shell.
+    """
+    pieces = [piece.strip() for piece in value.split(",") if piece.strip()]
+    if len(pieces) != len(SHELL_NAMES):
+        raise ValueError(
+            f"--shell_teacher_weights must contain {len(SHELL_NAMES)} comma-separated "
+            f"values in {SHELL_NAMES} order, got {value!r}"
+        )
+    weights = {}
+    for shell_name, piece in zip(SHELL_NAMES, pieces):
+        weight = float(piece)
+        if weight < 0.0:
+            raise ValueError(f"Shell teacher weight for {shell_name} must be >= 0")
+        weights[shell_name] = weight
+    return weights
 
 
 def diagnose_energy_breakdown(
@@ -121,11 +160,17 @@ def diagnose_energy_breakdown(
         "bypass": 0.0,
         "classifier": 0.0,
     }
+    shell_teacher_nodes = {
+        shell_teacher_node_name(shell_name) for shell_name in SHELL_NAMES
+    }
 
     for node_name, energy_arr in node_energies.items():
         energy_sum = float(energy_arr.sum())
 
-        if node_name in ("output", COLUMN_TEACHER_NODE):
+        if (
+            node_name in ("output", COLUMN_TEACHER_NODE)
+            or node_name in shell_teacher_nodes
+        ):
             categories["classifier"] += energy_sum
         elif node_name.startswith("col_"):
             categories["columns"] += energy_sum
@@ -175,11 +220,19 @@ def diagnose_column_outputs(
     max for every col_* node, plus the combiner and stage taps for context.
     """
     _, _, final_state = get_graph_param_gradient(params, batch, structure, rng_key)
+    shell_slice_nodes = {
+        shell_slice_node_name(shell_name) for shell_name in SHELL_NAMES
+    }
+    shell_teacher_nodes = {
+        shell_teacher_node_name(shell_name) for shell_name in SHELL_NAMES
+    }
     interesting = [
         name
         for name in final_state.nodes
         if name.startswith("col_")
         or name.startswith("stage")
+        or name in shell_slice_nodes
+        or name in shell_teacher_nodes
         or name in (
             "combiner",
             "column_pool",
@@ -525,19 +578,25 @@ def batch_to_task_dict(batch_data: Any) -> Dict[str, jnp.ndarray]:
     raise ValueError(f"Unsupported batch format: {type(batch_data)}")
 
 
-def add_column_teacher_target(batch: Dict[str, Any]) -> Dict[str, Any]:
+def add_column_teacher_targets(
+    batch: Dict[str, Any],
+    shell_target_keys: Tuple[str, ...] = (),
+) -> Dict[str, Any]:
     """
-    Add `column_y`, the class target clamped to the column-only teacher head.
+    Add auxiliary class targets clamped to column and shell teacher heads.
 
-    `column_y` uses the same one-hot CIFAR-10 label tensor as `y`. During
-    training, FabricPC clamps every batch key present in the graph task map,
-    so this target makes the column branch a supervised predictive-coding path.
+    Each auxiliary target uses the same one-hot CIFAR-10 label tensor as `y`.
+    During training, FabricPC clamps every batch key present in the graph task
+    map, so these targets make the column branch a supervised predictive-coding
+    path.
     """
     if "y" not in batch:
         raise ValueError("Column teacher batches require a 'y' label")
-    if COLUMN_TEACHER_TARGET in batch:
-        return batch
-    return {**batch, COLUMN_TEACHER_TARGET: batch["y"]}
+    updated = dict(batch)
+    updated.setdefault(COLUMN_TEACHER_TARGET, batch["y"])
+    for target_key in shell_target_keys:
+        updated.setdefault(target_key, batch["y"])
+    return updated
 
 
 class ColumnTeacherTargetLoader:
@@ -548,15 +607,23 @@ class ColumnTeacherTargetLoader:
     batch task keys passed into FabricPC training.
     """
 
-    def __init__(self, base_loader: Any):
+    def __init__(
+        self,
+        base_loader: Any,
+        shell_target_keys: Tuple[str, ...] = (),
+    ):
         self.base_loader = base_loader
+        self.shell_target_keys = shell_target_keys
 
     def __len__(self) -> int:
         return len(self.base_loader)
 
     def __iter__(self):
         for batch_data in self.base_loader:
-            yield add_column_teacher_target(batch_to_task_dict(batch_data))
+            yield add_column_teacher_targets(
+                batch_to_task_dict(batch_data),
+                shell_target_keys=self.shell_target_keys,
+            )
 
 
 def evaluate_output_node(
@@ -579,6 +646,29 @@ def evaluate_output_node(
         task_map={**structure.task_map, "y": output_node}
     )
     return evaluate_pcn(params, eval_structure, loader, config, rng_key)
+
+
+def evaluate_shell_teacher_heads(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """Evaluate each configured shell-local classifier against CIFAR-10 labels."""
+    results = {}
+    for shell_name in SHELL_NAMES:
+        node_name = shell_teacher_node_name(shell_name)
+        if node_name in structure.nodes:
+            results[node_name] = evaluate_output_node(
+                params,
+                structure,
+                node_name,
+                loader,
+                config,
+                rng_key,
+            )
+    return results
 
 
 # Model configurations with explicit stage channel counts for stage taps
@@ -713,6 +803,7 @@ def build_depth_spanning_graph(args):
     model_config = MODEL_CONFIGS[args.model]
     weight_init = MuPCInitializer()
     activation = get_activation(args.activation)
+    shell_teacher_weights = parse_shell_teacher_weights(args.shell_teacher_weights)
 
     # Input
     image = IdentityNode(shape=(32, 32, 3), name="input")
@@ -903,6 +994,35 @@ def build_depth_spanning_graph(args):
         Edge(source=column_pool, target=column_teacher_output.slot("in")),
     ])
 
+    shell_task_map = {}
+    shell_slices = get_shell_slices(args.embed_dim)
+    for shell_name in SHELL_NAMES:
+        shell_weight = shell_teacher_weights[shell_name]
+        if shell_weight <= 0.0:
+            continue
+
+        start, end = shell_slices[shell_name]
+        shell_slice = FeatureSliceNode(
+            shape=(end - start,),
+            name=shell_slice_node_name(shell_name),
+            start=start,
+            end=end,
+        )
+        shell_teacher_output = Linear(
+            shape=(10,),
+            name=shell_teacher_node_name(shell_name),
+            activation=SoftmaxActivation(),
+            energy=make_classifier_energy(args.label_smoothing, shell_weight),
+            flatten_input=True,
+            weight_init=XavierInitializer(),
+        )
+        nodes.extend([shell_slice, shell_teacher_output])
+        edges.extend([
+            Edge(source=column_pool, target=shell_slice.slot("in")),
+            Edge(source=shell_slice, target=shell_teacher_output.slot("in")),
+        ])
+        shell_task_map[shell_teacher_target_name(shell_name)] = shell_teacher_output
+
     # Optional bypass: stage4 backbone features go directly to the classifier in
     # parallel with the columnar pathway, so readout ablations can separate
     # backbone-only evidence from column-mediated evidence.
@@ -919,7 +1039,12 @@ def build_depth_spanning_graph(args):
     structure = graph(
         nodes=nodes,
         edges=edges,
-        task_map=TaskMap(x=image, y=output, column_y=column_teacher_output),
+        task_map=TaskMap(
+            x=image,
+            y=output,
+            column_y=column_teacher_output,
+            **shell_task_map,
+        ),
         inference=InferenceSGDNormClip(
             eta_infer=args.eta_infer,
             infer_steps=args.infer_steps,
@@ -958,6 +1083,11 @@ def train_cifar10_depth_spanning(args):
     print(f"Inference eta: {args.eta_infer}")
     print("Column teacher head: enabled")
     print(f"Column teacher weight: {args.column_teacher_weight}")
+    shell_teacher_weights = parse_shell_teacher_weights(args.shell_teacher_weights)
+    shell_teacher_summary = ", ".join(
+        f"{name}={shell_teacher_weights[name]:.6g}" for name in SHELL_NAMES
+    )
+    print(f"Shell teacher weights: {shell_teacher_summary}")
     print()
 
     master_key = jax.random.PRNGKey(args.seed)
@@ -965,6 +1095,11 @@ def train_cifar10_depth_spanning(args):
 
     structure, support_mask = build_depth_spanning_graph(args)
     params = initialize_params(structure, graph_key)
+    shell_target_keys = tuple(
+        shell_teacher_target_name(shell_name)
+        for shell_name in SHELL_NAMES
+        if shell_teacher_target_name(shell_name) in structure.task_map
+    )
 
     active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
     print(f"\nActive columns: {active_columns}")
@@ -997,7 +1132,10 @@ def train_cifar10_depth_spanning(args):
     print(f"Train batches: {len(train_loader)}")
     print(f"Val batches: {len(val_loader)}")
     print(f"Test batches: {len(test_loader)}")
-    train_loader_with_teacher = ColumnTeacherTargetLoader(train_loader)
+    train_loader_with_teacher = ColumnTeacherTargetLoader(
+        train_loader,
+        shell_target_keys=shell_target_keys,
+    )
 
     # Energy, column-output, and shell diagnosis: sample batch for analysis
     diag_batch = None
@@ -1194,6 +1332,18 @@ def train_cifar10_depth_spanning(args):
         "Validation Column Teacher Head",
         {COLUMN_TEACHER_NODE: val_teacher_metrics},
     )
+    val_shell_teacher_metrics = evaluate_shell_teacher_heads(
+        eval_params,
+        structure,
+        val_loader,
+        train_config,
+        ablation_key,
+    )
+    if val_shell_teacher_metrics:
+        print_ablation_results(
+            "Validation Shell Teacher Heads",
+            val_shell_teacher_metrics,
+        )
     if args.diagnose_shells:
         val_shell_metrics = evaluate_shell_readout_ablations(
             eval_params, structure, val_loader, train_config, ablation_key
@@ -1207,6 +1357,13 @@ def train_cifar10_depth_spanning(args):
         eval_params,
         structure,
         COLUMN_TEACHER_NODE,
+        test_loader,
+        train_config,
+        ablation_key,
+    )
+    test_shell_teacher_metrics = evaluate_shell_teacher_heads(
+        eval_params,
+        structure,
         test_loader,
         train_config,
         ablation_key,
@@ -1226,6 +1383,11 @@ def train_cifar10_depth_spanning(args):
         "Test Column Teacher Head",
         {COLUMN_TEACHER_NODE: test_teacher_metrics},
     )
+    if test_shell_teacher_metrics:
+        print_ablation_results(
+            "Test Shell Teacher Heads",
+            test_shell_teacher_metrics,
+        )
     if args.diagnose_shells:
         test_shell_metrics = evaluate_shell_readout_ablations(
             eval_params, structure, test_loader, train_config, ablation_key
@@ -1338,6 +1500,16 @@ def parse_args():
             "The main output uses weight 1.0. The default keeps the column-only "
             "teacher in the predictive-coding graph without letting it dominate "
             "the shared column latents."
+        ),
+    )
+    parser.add_argument(
+        "--shell_teacher_weights",
+        type=str,
+        default=SHELL_TEACHER_DEFAULT_WEIGHTS,
+        help=(
+            "Comma-separated auxiliary cross-entropy weights for shell-local "
+            "classifier heads in hard_kernel, inner_shell, middle_shell, "
+            "outer_shell order. A zero weight omits that shell head."
         ),
     )
     return parser.parse_args()
