@@ -1066,3 +1066,72 @@ Primary readout:
 - Compare post-training shell mean L2 norms against the previous no-bypass run, especially `outer_shell = 0.9883`.
 - Compare shell lesion results against the previous hard-kernel-dominated pattern.
 - Treat test accuracy as secondary until shell participation remains stable.
+
+## 2026-06-27 Shell-Wise LayerNorm No-Bypass Result
+
+Timestamp and machine: 2026-06-27 16:14:30 EDT on `rogdora43`.
+
+Current commit while analyzing: `11cae64`.
+
+Experiment log:
+
+`results/codex_resnet18_column_teacher0p0_shell0_0_0_0_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260627_131114.log`
+
+Experiment configuration:
+
+- `readout_mode = nobypass`, so the classifier used only the columnar predictive-coding path.
+- `column_teacher_weight = 0.0`, so the pooled column teacher head was diagnostic only.
+- `shell_teacher_weights = 0,0,0,0`, so shell-local teacher heads were diagnostic only.
+- Shell-wise LayerNorm was active inside each depth-spanning column.
+
+Result:
+
+- Best validation accuracy: 21.20% at epoch 7.
+- Test accuracy: 21.85%.
+- Previous no-bypass baseline before shell-wise LayerNorm: 20.16% best validation accuracy and 20.53% test accuracy.
+- The small accuracy gain is useful, but the more important result is the stability change.
+
+Stability readout:
+
+- Before shell-wise LayerNorm, the no-bypass run ended with shell mean L2 norms of `hard_kernel = 6.5873`, `inner_shell = 2.9472`, `middle_shell = 2.8263`, and `outer_shell = 0.9883`.
+- With shell-wise LayerNorm, the no-bypass run ended with shell mean L2 norms of `hard_kernel = 4.6898`, `inner_shell = 2.6448`, `middle_shell = 3.7410`, and `outer_shell = 4.5823`.
+- `outer_shell` is the widest nonlocal shell. Its norm no longer collapses relative to the other shells.
+- The training energy remained bounded and decayed from roughly `2.07` early in training to roughly `0.0434` at the end.
+
+Shell lesion readout:
+
+- Test accuracy with all shells: 21.85%.
+- Test accuracy without `inner_shell`: 23.06%, which is higher than the full column readout.
+- Test accuracy with `inner_shell` only: 10.00%, which is chance for CIFAR-10.
+- Test accuracy without `outer_shell`: 21.99%, which is slightly higher than the full column readout.
+- Test accuracy with `outer_shell` only: 10.00%, which is chance for CIFAR-10.
+- Test accuracy with `middle_shell` only: 17.16%.
+- Test accuracy with `hard_kernel` only: 11.81%.
+
+Interpretation:
+
+The collapse target has moved. Shell-wise LayerNorm appears to solve the magnitude collapse of the nonlocal shell activations. The remaining failure is semantic participation: `inner_shell` and `outer_shell` now have stable magnitude, but their slices are not independently predictive of CIFAR-10 class labels and can add noise to the final readout.
+
+This means shell-wise LayerNorm should stay in the baseline. Reverting it would restore the older failure where `outer_shell` lost magnitude. The next mechanism should add class pressure at the column shell boundary, not at the pooled readout alone.
+
+Recommended next implementation:
+
+Add optional per-column shell-local teacher heads before the column combiner. For each active column, slice the column output into `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell`, average each shell over spatial tokens, and attach a tiny CIFAR-10 teacher head to each shell slice. The teacher head should contribute a weighted predictive-coding energy term during training and should default to zero weight so the current baseline remains unchanged unless an experiment explicitly enables it.
+
+Mechanism:
+
+Let `h_{j,s}` mean the token tensor emitted by column `j` for shell `s`, where `j` indexes a depth-spanning column and `s` is one of `hard_kernel`, `inner_shell`, `middle_shell`, or `outer_shell`. The per-column shell-local teacher should pool `h_{j,s}` over the token axis, project the pooled shell vector to 10 CIFAR-10 logits, and add a small supervised energy term for that shell. This gives every shell inside every column a local class target before the column combiner can wash out or ignore that shell.
+
+Initial experiment after implementation:
+
+Use no bypass and very small teacher weights because there are four columns. The first candidate is `hard_kernel = 0.001`, `inner_shell = 0.001`, `middle_shell = 0.002`, and `outer_shell = 0.002`. The primary criterion is not peak accuracy. The primary criterion is whether `inner_shell` and `outer_shell` improve above chance in shell-only lesion readouts without forcing validation accuracy back to chance.
+
+Alternatives considered:
+
+- Increase pooled shell teacher weights using the current code. This is cheaper, but it applies class pressure after column outputs are already pooled together. It is less faithful to the columnar architecture because it does not force each column shell to carry its own class-relevant signal.
+- Restore the bypass and optimize accuracy from the combined path. This would likely raise headline accuracy, but it would hide the column-only failure that matters for the HibacaML-style architecture.
+- Add more shells or skip connections now. That is architecturally important, but the current shells are not yet class-participating. Adding more routing depth before local shell supervision would make the failure harder to diagnose.
+
+Next action:
+
+Implement per-column shell-local teacher heads in the experiment repo only, keep all new weights disabled by default, add focused tests for parameter shape and loss contribution, then ask for a no-bypass GPU run with small shell-local teacher weights.
