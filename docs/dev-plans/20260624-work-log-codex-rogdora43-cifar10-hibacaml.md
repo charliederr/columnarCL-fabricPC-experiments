@@ -909,3 +909,98 @@ cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && ./scripts/run_codex_cif
 ```
 
 This next run disables both global and shell-local auxiliary teacher energies. The only class target is the main `output` node, and the only readout source is `column_pool`. The result should be interpreted as a direct test of whether the current depth-spanning HiBaCaML-style column pathway can classify plain CIFAR-10 when it cannot use the ResNet stage-4 bypass path.
+
+## 2026-06-27 No-Bypass Column-Only Result
+
+Timestamp and machine: 2026-06-27 12:51:57 EDT on `rogdora43`.
+
+Current commit while recording this result: `2b00a3f`.
+
+Completed result ingested:
+
+- Result file: `results/codex_resnet18_column_teacher0p0_shell0_0_0_0_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260627_081028.log`
+- `readout_mode = nobypass`, where `readout_mode` selects whether the main `output` classifier receives the direct `bypass_pool` input. In this run, `output` received only `column_pool`.
+- `w_teacher = 0.0`, where `w_teacher` is the scalar multiplier on the global `column_teacher_output` cross-entropy energy.
+- Shell-local teacher weights were all zero.
+- Main validation accuracy peaked at 20.16% at epoch 18.
+- Main test accuracy at the selected epoch was 20.53%.
+- `column_only` test accuracy was also 20.53%, because no bypass edge existed.
+- `column_teacher_output` test accuracy was 8.98%.
+
+Validation trajectory:
+
+| Epoch | Validation accuracy |
+| --- | ---: |
+| 1 | 10.72% |
+| 2 | 10.22% |
+| 3 | 10.30% |
+| 4 | 11.90% |
+| 5 | 13.04% |
+| 6 | 15.60% |
+| 7 | 9.40% |
+| 8 | 16.48% |
+| 9 | 11.98% |
+| 10 | 14.60% |
+| 11 | 16.44% |
+| 12 | 10.50% |
+| 13 | 18.78% |
+| 14 | 16.12% |
+| 15 | 19.82% |
+| 16 | 18.44% |
+| 17 | 18.70% |
+| 18 | 20.16% |
+| 19 | 19.46% |
+| 20 | 19.60% |
+
+Stability-first interpretation:
+
+This was not a hard collapse. The validation accuracy began near chance, then climbed above 20% by epoch 18. The final training progress line reported energy near 0.0427, and the shell norms remained nonzero after training. The run is low-accuracy, but it shows that the current depth-spanning column pathway can learn a weak CIFAR-10 classifier when the bypass path is removed.
+
+The more important failure mode is shell imbalance. `hard_kernel` grew from mean L2 norm 5.5781 before training to 6.5873 after training. `outer_shell` shrank from 3.1733 to 0.9883. The shell lesion results match this magnitude pattern:
+
+| Metric | Test accuracy |
+| --- | ---: |
+| `combined` | 20.53% |
+| `combined_without_hard_kernel` | 14.62% |
+| `column_hard_kernel_only` | 17.44% |
+| `combined_without_inner_shell` | 20.56% |
+| `column_inner_shell_only` | 14.38% |
+| `combined_without_middle_shell` | 18.00% |
+| `column_middle_shell_only` | 10.00% |
+| `combined_without_outer_shell` | 20.19% |
+| `column_outer_shell_only` | 10.00% |
+
+`hard_kernel` is the only shell that carries a strong independent signal. `inner_shell` carries a weaker independent signal. `middle_shell` contributes in combination but is not sufficient by itself. `outer_shell` is effectively unused by the classifier. This is the next collapse-like issue to address: not a whole-network collapse to chance, but a shell participation collapse where one shell dominates and another shell loses magnitude.
+
+Mechanism-level diagnosis:
+
+`DepthSpanningColumnNode` combines shell-specific K/L/B pathway outputs, then applies LayerNorm across the full `output_dim` feature axis when `apply_layer_norm` is enabled. `output_dim` is the full column feature width, and the shell slices are contiguous subranges inside that width. Full-width normalization pins the whole column vector but does not pin each shell slice. The hard-kernel slice can therefore carry most of the class-useful norm while the outer-shell slice shrinks. This matches the no-bypass result.
+
+Recommended next code change:
+
+Treat the shell layout as a stability boundary inside the shared column node. This means changing column output normalization from full-width LayerNorm to shell-wise LayerNorm inside `DepthSpanningColumnNode`. Shell-wise LayerNorm normalizes each shell slice independently after its K/L/B mixture and before concatenating the four shell slices back into the column output. This keeps the predictive-coding node structure intact while preventing the full column feature axis from hiding shell-level magnitude collapse.
+
+This is a shared infrastructure change rather than a local workaround. The scope shift is: the shell layout is now part of the supported stability contract of `DepthSpanningColumnNode`, so normalization must respect shell boundaries. Existing callers that request column layer normalization through `apply_layer_norm` should use the shell-wise behavior. The stage taps and global pools can keep their existing feature-axis normalization because they are not shell-typed nodes.
+
+Alternatives considered:
+
+- Run more seeds of the current no-bypass graph. This would measure variance, but it would not address the observed shell participation collapse.
+- Add pooled shell-local teacher heads to the no-bypass graph. This is a no-code experiment, but the shell heads attach after column combining and global pooling. It is less faithful than fixing shell stability inside the column node.
+- Add per-column shell teacher heads immediately. This is architecturally relevant, but adding more class-error paths before stabilizing shell magnitudes risks another auxiliary-target collapse.
+- Restore the bypass path and tune teacher weights again. The bypass path hides column weakness, and the scalar-teacher sweep already showed the tradeoff.
+
+Next implementation target:
+
+Implement shell-wise LayerNorm in `DepthSpanningColumnNode` when `apply_layer_norm` is true. Keep the parameter interface compatible with the existing `ln_gamma` and `ln_beta` vectors when those parameters are learnable. Add tests that verify each shell slice is normalized independently. Then rerun the same no-bypass experiment:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && ./scripts/run_codex_cifar10_depth_spanning.sh 42 0.005 shells 20 0.0 0,0,0,0 nobypass
+```
+
+Primary success criteria for that run:
+
+- Validation should not collapse to chance after initially rising.
+- Training energy should remain bounded.
+- All shell mean L2 norms should remain meaningfully nonzero after training, especially `outer_shell`.
+- Shell lesion results should show broader shell participation than the current hard-kernel-dominated pattern.
+- Accuracy should be considered only after those stability criteria are met.
