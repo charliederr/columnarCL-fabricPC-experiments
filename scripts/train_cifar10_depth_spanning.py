@@ -116,6 +116,11 @@ def column_shell_pool_node_name(column_idx: int, shell_name: str) -> str:
     return f"column{column_idx:02d}_{shell_name}_pool"
 
 
+def column_shell_bridge_node_name(column_idx: int) -> str:
+    """Return the node name for one column's shell-to-shell bridge latent."""
+    return f"column{column_idx:02d}_shell_bridge"
+
+
 def column_shell_teacher_node_name(column_idx: int, shell_name: str) -> str:
     """Return the classifier node name for one column shell teacher head."""
     return f"column{column_idx:02d}_{shell_name}_teacher_output"
@@ -154,6 +159,11 @@ def is_column_shell_pool_for_shell(node_name: str, shell_name: str) -> bool:
     return is_column_shell_pool_node(node_name) and node_name.endswith(
         f"_{shell_name}_pool"
     )
+
+
+def is_column_shell_bridge_node(node_name: str) -> bool:
+    """Return true for a per-column shell bridge latent."""
+    return node_name.startswith("column") and node_name.endswith("_shell_bridge")
 
 
 def parse_shell_teacher_weights(
@@ -227,7 +237,11 @@ def diagnose_energy_breakdown(
             or is_column_shell_teacher_node(node_name)
         ):
             categories["classifier"] += energy_sum
-        elif node_name.startswith("col_") or is_column_shell_auxiliary_node(node_name):
+        elif (
+            node_name.startswith("col_")
+            or is_column_shell_auxiliary_node(node_name)
+            or is_column_shell_bridge_node(node_name)
+        ):
             categories["columns"] += energy_sum
         elif node_name.startswith("stage") and ("tap" in node_name or "pool" in node_name):
             categories["stage_taps"] += energy_sum
@@ -289,6 +303,7 @@ def diagnose_column_outputs(
         or name in shell_slice_nodes
         or name in shell_teacher_nodes
         or is_column_shell_auxiliary_node(name)
+        or is_column_shell_bridge_node(name)
         or name in (
             "combiner",
             "column_pool",
@@ -393,13 +408,50 @@ def diagnose_classifier_edge_weights(params) -> Dict[str, float]:
     }
 
 
-def output_input_edge_sources(structure: GraphStructure) -> Dict[str, str]:
-    """Return classifier input-edge keys by source node name."""
+def node_input_edge_sources(
+    structure: GraphStructure,
+    target_node: str,
+) -> Dict[str, str]:
+    """Return input-edge keys for a target node, indexed by source node name."""
     return {
         edge.source: edge_key
         for edge_key, edge in structure.edges.items()
-        if edge.target == "output" and edge.slot == "in"
+        if edge.target == target_node and edge.slot == "in"
     }
+
+
+def output_input_edge_sources(structure: GraphStructure) -> Dict[str, str]:
+    """Return classifier input-edge keys by source node name."""
+    return node_input_edge_sources(structure, "output")
+
+
+def mask_node_input_sources(
+    params: GraphParams,
+    structure: GraphStructure,
+    target_node: str,
+    kept_sources: Tuple[str, ...],
+) -> GraphParams:
+    """
+    Zero target-node input weights outside `kept_sources`.
+
+    The predictive-coding graph is unchanged. Only the selected node's per-edge
+    input matrices are masked in a copied parameter tree for evaluation.
+    """
+    kept = set(kept_sources)
+    target_params = params.nodes[target_node]
+    masked_weights = {}
+    for edge_key, weight in target_params.weights.items():
+        edge = structure.edges.get(edge_key)
+        if edge is not None and edge.target == target_node and edge.source not in kept:
+            masked_weights[edge_key] = jnp.zeros_like(weight)
+        else:
+            masked_weights[edge_key] = weight
+
+    masked_node = NodeParams(
+        weights=masked_weights,
+        biases=target_params.biases,
+    )
+    return params._replace(nodes={**params.nodes, target_node: masked_node})
 
 
 def mask_output_input_sources(
@@ -413,21 +465,7 @@ def mask_output_input_sources(
     The predictive-coding graph is unchanged. Only the output node's per-edge
     classifier matrices are masked in a copied parameter tree for evaluation.
     """
-    kept = set(kept_sources)
-    output_params = params.nodes["output"]
-    masked_weights = {}
-    for edge_key, weight in output_params.weights.items():
-        edge = structure.edges.get(edge_key)
-        if edge is not None and edge.target == "output" and edge.source not in kept:
-            masked_weights[edge_key] = jnp.zeros_like(weight)
-        else:
-            masked_weights[edge_key] = weight
-
-    masked_output = NodeParams(
-        weights=masked_weights,
-        biases=output_params.biases,
-    )
-    return params._replace(nodes={**params.nodes, "output": masked_output})
+    return mask_node_input_sources(params, structure, "output", kept_sources)
 
 
 def mask_output_source_feature_slice(
@@ -501,6 +539,9 @@ def evaluate_readout_ablations(
     column_shell_sources = tuple(
         sorted(source for source in edge_sources if is_column_shell_pool_node(source))
     )
+    column_shell_bridge_sources = tuple(
+        sorted(source for source in edge_sources if is_column_shell_bridge_node(source))
+    )
     if column_source in edge_sources:
         cases.append(("column_only", (column_source,)))
     if column_shell_sources:
@@ -508,6 +549,19 @@ def evaluate_readout_ablations(
     if column_source in edge_sources and column_shell_sources:
         cases.append(
             ("column_pool_plus_shell_readout", (column_source, *column_shell_sources))
+        )
+    if column_shell_bridge_sources:
+        cases.append(("column_shell_bridge_only", column_shell_bridge_sources))
+    if column_source in edge_sources and column_shell_bridge_sources:
+        cases.append(
+            ("column_pool_plus_shell_bridge", (column_source, *column_shell_bridge_sources))
+        )
+    if column_shell_sources and column_shell_bridge_sources:
+        cases.append(
+            (
+                "column_shell_readout_plus_bridge",
+                (*column_shell_sources, *column_shell_bridge_sources),
+            )
         )
     if "bypass_pool" in edge_sources:
         cases.append(("bypass_only", ("bypass_pool",)))
@@ -650,6 +704,108 @@ def evaluate_column_shell_readout_ablations(
                 config,
                 rng_key,
             )
+    return results
+
+
+def mask_column_shell_bridge_inputs(
+    params: GraphParams,
+    structure: GraphStructure,
+    bridge_sources: Tuple[str, ...],
+    shell_name: str,
+    keep_shell: bool,
+) -> GraphParams:
+    """
+    Mask bridge input edges by shell identity.
+
+    `bridge_sources` are the bridge nodes connected to `output`. Each bridge
+    receives pooled shell vectors from one column. The masked parameter copy
+    keeps either one shell's bridge inputs or all other shell inputs.
+    """
+    masked = params
+    for bridge_source in bridge_sources:
+        bridge_input_sources = node_input_edge_sources(structure, bridge_source)
+        kept_sources = tuple(
+            source
+            for source in bridge_input_sources
+            if is_column_shell_pool_for_shell(source, shell_name) == keep_shell
+        )
+        masked = mask_node_input_sources(
+            masked,
+            structure,
+            bridge_source,
+            kept_sources,
+        )
+    return masked
+
+
+def evaluate_column_shell_bridge_ablations(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Evaluate shell dependence inside the per-column shell bridge path.
+
+    The bridge path is a Gaussian predictive-coding latent that receives all
+    pooled shells from one column. These ablations keep only bridge outputs at
+    the classifier, then mask bridge inputs shell by shell.
+    """
+    output_sources = output_input_edge_sources(structure)
+    bridge_sources = tuple(
+        sorted(source for source in output_sources if is_column_shell_bridge_node(source))
+    )
+    if not bridge_sources:
+        return {}
+
+    bridge_only_params = mask_output_input_sources(params, structure, bridge_sources)
+    results = {
+        "column_shell_bridge_only": evaluate_pcn(
+            bridge_only_params,
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+    }
+    for shell_name in SHELL_NAMES:
+        without_shell_params = mask_output_input_sources(
+            mask_column_shell_bridge_inputs(
+                params,
+                structure,
+                bridge_sources,
+                shell_name,
+                keep_shell=False,
+            ),
+            structure,
+            bridge_sources,
+        )
+        shell_only_params = mask_output_input_sources(
+            mask_column_shell_bridge_inputs(
+                params,
+                structure,
+                bridge_sources,
+                shell_name,
+                keep_shell=True,
+            ),
+            structure,
+            bridge_sources,
+        )
+        results[f"column_shell_bridge_without_{shell_name}"] = evaluate_pcn(
+            without_shell_params,
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+        results[f"column_shell_bridge_{shell_name}_only"] = evaluate_pcn(
+            shell_only_params,
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
     return results
 
 
@@ -1179,9 +1335,14 @@ def build_depth_spanning_graph(args):
     column_shell_task_map = {}
     for column_idx in active_column_indices:
         column = columns[column_idx]
+        column_shell_pools = []
         for shell_name in SHELL_NAMES:
             shell_weight = column_shell_teacher_weights[shell_name]
-            needs_shell_pool = shell_weight > 0.0 or args.column_shell_readout
+            needs_shell_pool = (
+                shell_weight > 0.0
+                or args.column_shell_readout
+                or args.column_shell_bridge
+            )
             if not needs_shell_pool:
                 continue
 
@@ -1210,6 +1371,7 @@ def build_depth_spanning_graph(args):
                 Edge(source=column, target=shell_slice.slot("in")),
                 Edge(source=shell_slice, target=shell_pool.slot("in")),
             ])
+            column_shell_pools.append(shell_pool)
             if args.column_shell_readout:
                 edges.append(Edge(source=shell_pool, target=output.slot("in")))
             if shell_weight > 0.0:
@@ -1220,6 +1382,19 @@ def build_depth_spanning_graph(args):
                 column_shell_task_map[
                     column_shell_teacher_target_name(column_idx, shell_name)
                 ] = shell_teacher_output
+
+        if args.column_shell_bridge:
+            shell_bridge = Linear(
+                shape=(args.embed_dim,),
+                name=column_shell_bridge_node_name(column_idx),
+                activation=IdentityActivation(),
+                flatten_input=False,
+                weight_init=XavierInitializer(),
+            )
+            nodes.append(shell_bridge)
+            for shell_pool in column_shell_pools:
+                edges.append(Edge(source=shell_pool, target=shell_bridge.slot("in")))
+            edges.append(Edge(source=shell_bridge, target=output.slot("in")))
 
     # Optional bypass: stage4 backbone features go directly to the classifier in
     # parallel with the columnar pathway, so readout ablations can separate
@@ -1297,6 +1472,7 @@ def train_cifar10_depth_spanning(args):
     )
     print(f"Column shell teacher weights: {column_shell_teacher_summary}")
     print(f"Column shell readout: {'enabled' if args.column_shell_readout else 'disabled'}")
+    print(f"Column shell bridge: {'enabled' if args.column_shell_bridge else 'disabled'}")
     print()
 
     master_key = jax.random.PRNGKey(args.seed)
@@ -1582,6 +1758,18 @@ def train_cifar10_depth_spanning(args):
             "Validation Per-Column Shell Readout Ablations",
             val_column_shell_readout_metrics,
         )
+    val_column_shell_bridge_metrics = evaluate_column_shell_bridge_ablations(
+        eval_params,
+        structure,
+        val_loader,
+        train_config,
+        ablation_key,
+    )
+    if val_column_shell_bridge_metrics:
+        print_ablation_results(
+            "Validation Per-Column Shell Bridge Ablations",
+            val_column_shell_bridge_metrics,
+        )
 
     test_ablation_metrics = evaluate_readout_ablations(
         eval_params, structure, test_loader, train_config, ablation_key
@@ -1609,6 +1797,13 @@ def train_cifar10_depth_spanning(args):
         ablation_key,
     )
     test_column_shell_readout_metrics = evaluate_column_shell_readout_ablations(
+        eval_params,
+        structure,
+        test_loader,
+        train_config,
+        ablation_key,
+    )
+    test_column_shell_bridge_metrics = evaluate_column_shell_bridge_ablations(
         eval_params,
         structure,
         test_loader,
@@ -1644,6 +1839,11 @@ def train_cifar10_depth_spanning(args):
         print_ablation_results(
             "Test Per-Column Shell Readout Ablations",
             test_column_shell_readout_metrics,
+        )
+    if test_column_shell_bridge_metrics:
+        print_ablation_results(
+            "Test Per-Column Shell Bridge Ablations",
+            test_column_shell_bridge_metrics,
         )
     if args.diagnose_shells:
         test_shell_metrics = evaluate_shell_readout_ablations(
@@ -1787,6 +1987,14 @@ def parse_args():
             "Connect each active column's pooled shell vectors directly to the "
             "main output classifier. This preserves column and shell identity "
             "at readout while keeping the original column_pool edge for ablation."
+        ),
+    )
+    parser.add_argument(
+        "--column_shell_bridge",
+        action="store_true",
+        help=(
+            "Connect each active column's pooled shell vectors through one "
+            "Gaussian shell bridge latent before the main output classifier."
         ),
     )
     return parser.parse_args()

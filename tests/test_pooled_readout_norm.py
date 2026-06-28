@@ -24,12 +24,15 @@ from scripts.train_cifar10_depth_spanning import (
     COLUMN_TEACHER_TARGET,
     ColumnTeacherTargetLoader,
     build_depth_spanning_graph,
+    column_shell_bridge_node_name,
     column_shell_pool_node_name,
     column_shell_slice_node_name,
     column_shell_teacher_node_name,
     column_shell_teacher_target_name,
     mask_output_input_sources,
+    mask_node_input_sources,
     mask_output_source_feature_slice,
+    node_input_edge_sources,
     output_input_edge_sources,
     parse_shell_teacher_weights,
     shell_slice_node_name,
@@ -193,6 +196,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         shell_teacher_weights="0,0,0,0",
         column_shell_teacher_weights="0,0,0,0",
         column_shell_readout=False,
+        column_shell_bridge=False,
         infer_steps=2,
         eta_infer=0.1,
         infer_max_norm=1.0,
@@ -380,6 +384,38 @@ def test_depth_spanning_graph_adds_per_column_shell_readout_edges() -> None:
             assert pool_sources == {slice_name}
 
 
+def test_depth_spanning_graph_adds_per_column_shell_bridge_edges() -> None:
+    """Per-column shell bridge receives pooled shells and reaches output."""
+    args = _tiny_depth_spanning_args(
+        column_teacher_weight=0.0,
+        column_shell_teacher_weights="0,0,0,0",
+        column_shell_readout=False,
+        column_shell_bridge=True,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    output_sources = output_input_edge_sources(structure)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+
+    assert active_columns == [0, 1]
+
+    for column_idx in active_columns:
+        bridge_name = column_shell_bridge_node_name(column_idx)
+        expected_pool_names = {
+            column_shell_pool_node_name(column_idx, shell_name)
+            for shell_name in SHELL_NAMES
+        }
+        bridge_sources = {
+            edge.source
+            for edge in structure.edges.values()
+            if edge.target == bridge_name and edge.slot == "in"
+        }
+
+        assert bridge_name in output_sources
+        assert bridge_sources == expected_pool_names
+        for pool_name in expected_pool_names:
+            assert pool_name not in output_sources
+
+
 def test_column_teacher_target_loader_duplicates_labels() -> None:
     """The training wrapper adds column_y without changing x or y."""
     x = jnp.ones((2, 4, 4, 3), dtype=jnp.float32)
@@ -457,3 +493,30 @@ def test_mask_output_source_feature_slice_zeroes_selected_features() -> None:
     assert jnp.allclose(after[:2], before[:2])
     assert jnp.allclose(after[2:5], jnp.zeros_like(before[2:5]))
     assert jnp.allclose(after[5:], before[5:])
+
+
+def test_mask_node_input_sources_zeroes_only_dropped_bridge_inputs() -> None:
+    """Generic input masking works on the shell bridge, not only output."""
+    args = _tiny_depth_spanning_args(
+        column_shell_bridge=True,
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    bridge_name = column_shell_bridge_node_name(0)
+    bridge_sources = node_input_edge_sources(structure, bridge_name)
+    kept_pool = column_shell_pool_node_name(0, "hard_kernel")
+
+    masked = mask_node_input_sources(
+        params,
+        structure,
+        bridge_name,
+        kept_sources=(kept_pool,),
+    )
+
+    for source_name, edge_key in bridge_sources.items():
+        before = params.nodes[bridge_name].weights[edge_key]
+        after = masked.nodes[bridge_name].weights[edge_key]
+        if source_name == kept_pool:
+            assert jnp.allclose(after, before)
+        else:
+            assert jnp.allclose(after, jnp.zeros_like(before))

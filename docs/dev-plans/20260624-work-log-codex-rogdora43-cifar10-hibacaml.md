@@ -1054,6 +1054,117 @@ git diff --check
 
 Result: passed.
 
+## 2026-06-28 Overnight Shell Readout Sweep Result
+
+Timestamp and machine: 2026-06-28 12:21:40 EDT on `rogdora43`.
+
+Current commit while analyzing: `4222596`.
+
+Master log:
+
+`results/codex_shell_readout_overnight_sweep_rogdora43_20260627_220509.log`
+
+The sweep completed at 2026-06-28 08:56:33 EDT.
+
+Result table:
+
+| Case | `column_shell_teacher_weights` | Test accuracy | Best validation accuracy | Best validation epoch | `column_only` test | `column_shell_readout_only` test | `column_shell_readout_outer_shell_only` test | `column_shell_readout_without_outer_shell` test |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Seed 42, no per-column shell teachers | `0,0,0,0` | 27.52% | 27.76% | 18 | 10.00% | 25.87% | 10.00% | 22.75% |
+| Seed 42, heavier outer-shell teacher | `0.001,0.001,0.002,0.006` | 24.73% | 25.90% | 7 | 13.04% | 24.00% | 10.00% | 23.04% |
+| Seed 99, current direct shell readout | `0.001,0.001,0.002,0.002` | 26.58% | 27.50% | 16 | 10.17% | 26.10% | 10.00% | 24.16% |
+| Seed 7, current direct shell readout | `0.001,0.001,0.002,0.002` | 27.32% | 28.06% | 20 | 11.46% | 27.32% | 10.00% | 25.30% |
+
+Shell norm stability:
+
+- Seed 42 with no per-column shell teachers ended with `hard_kernel = 4.6902`, `inner_shell = 2.6445`, `middle_shell = 3.7396`, and `outer_shell = 4.5794`.
+- Seed 42 with heavier outer-shell teacher ended with `hard_kernel = 4.6900`, `inner_shell = 2.6451`, `middle_shell = 3.7400`, and `outer_shell = 4.5792`.
+- Seed 99 current direct shell readout ended with `hard_kernel = 4.6902`, `inner_shell = 2.6449`, `middle_shell = 3.7394`, and `outer_shell = 4.5806`.
+- Seed 7 current direct shell readout ended with `hard_kernel = 4.6903`, `inner_shell = 2.6453`, `middle_shell = 3.7407`, and `outer_shell = 4.5816`.
+
+Interpretation:
+
+The strongest result is that disabling per-column shell teacher heads improved seed 42 from the previous 24.11% test accuracy to 27.52% test accuracy. The direct `(column, shell)` readout is robust across seeds, and the old `column_pool` path remains near chance as an isolated readout.
+
+The heavier outer-shell teacher did not solve the `outer_shell` collapse. In the heavier-teacher run, all four outer-shell teacher heads were 10.00% on the test set, and `column_shell_readout_outer_shell_only` was also 10.00%. This means direct label pressure on `outer_shell` is not the right mechanism.
+
+The `outer_shell` feature norm is stable and nonzero in every run, and removing `outer_shell` from the direct shell readout consistently reduces accuracy. For example, seed 7 drops from 27.32% to 25.30% when `outer_shell` is removed. The failure is not absence of activation. The failure is that `outer_shell` is not linearly class-readable by itself.
+
+Next mechanism:
+
+Add a shell-to-shell bridge that routes all four pooled shells from one column through a shared Gaussian predictive-coding latent before the main classifier. This mechanism keeps the concentric shell structure, avoids local per-shell classifier heads, and gives `outer_shell` a way to contribute through a column-local inter-shell prediction path rather than requiring it to classify alone.
+
+Alternatives considered:
+
+- Increase the outer-shell teacher weight again. The 0.006 run did not move outer-shell teacher heads above chance, so another scalar increase is unlikely to address the mechanism.
+- Keep direct shell readout and run longer. This may improve accuracy, but it does not add the missing inter-shell predictive path.
+- Remove `outer_shell` from the architecture. This conflicts with the goal of faithful columnar-shell architecture because `outer_shell` has stable magnitude and contributes in combination.
+
+## 2026-06-28 Shell Bridge Implementation
+
+Timestamp and machine: 2026-06-28 12:21:40 EDT on `rogdora43`.
+
+Implemented mechanism:
+
+The graph now has an optional per-column shell bridge. A shell bridge is a Gaussian `Linear` latent named `columnXX_shell_bridge`. It receives all pooled shell vectors from one active column: `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell`. The bridge then connects to the main `output` classifier.
+
+The bridge is enabled with `--column_shell_bridge`. It is disabled by default. When bridge mode is enabled, shell slice and pool nodes are created even if per-column shell teacher heads and direct shell readout are both disabled.
+
+Files changed:
+
+- `scripts/train_cifar10_depth_spanning.py`: added `--column_shell_bridge`, per-column shell bridge nodes, bridge readout ablations, bridge shell-input ablations, and a generic input-edge masking helper.
+- `scripts/run_codex_cifar10_depth_spanning.sh`: added a tenth positional argument for shell bridge mode. Accepted values are `on`, `true`, or `shellbridge` to enable it, and `off`, `false`, or `noshellbridge` to disable it.
+- `scripts/run_codex_shell_bridge_sweep.sh`: added a four-run sequential sweep for the next mechanism test.
+- `tests/test_pooled_readout_norm.py`: added graph and masking tests for the shell bridge.
+
+Verification:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest tests/test_pooled_readout_norm.py -q
+```
+
+Result: 18 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py -q
+```
+
+Result: 36 passed.
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh
+```
+
+Result: passed.
+
+```bash
+bash -n scripts/run_codex_shell_bridge_sweep.sh
+```
+
+Result: passed.
+
+```bash
+git diff --check
+```
+
+Result: passed.
+
+Next sweep:
+
+The next sweep runs four 20-epoch experiments. The first case tests bridge-only readout on seed 42. The second case tests bridge plus direct `(column, shell)` readout on seed 42. The third and fourth cases test bridge-only readout on seeds 99 and 7.
+
+Pasteable command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_bridge_sweep.sh
+```
+
 Next experiment:
 
 ```bash
@@ -1454,3 +1565,19 @@ git diff --check
 ```
 
 Result: passed.
+
+## 2026-06-28 Current Next Action
+
+Timestamp and machine: 2026-06-28 12:21:40 EDT on `rogdora43`.
+
+The completed overnight sweep showed that direct `(column, shell)` readout is robust, that disabling per-column shell teacher heads was better than using them on seed 42, and that heavier outer-shell teacher pressure did not make `outer_shell` independently class-readable.
+
+The implemented next mechanism is `--column_shell_bridge`. A shell bridge is a Gaussian predictive-coding latent that receives all four pooled shells from one column and connects to the main CIFAR-10 output classifier. This tests whether `outer_shell` can participate through inter-shell predictive coupling rather than through a local classifier head.
+
+The next command to run is:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_bridge_sweep.sh
+```
+
+The expected runtime is roughly 6 to 8 hours. The master log will be written under `results/codex_shell_bridge_sweep_<host>_<timestamp>.log`.
