@@ -141,6 +141,21 @@ def is_column_shell_teacher_node(node_name: str) -> bool:
     )
 
 
+def is_column_shell_pool_node(node_name: str) -> bool:
+    """Return true for a token-pooled per-column shell readout node."""
+    return (
+        is_column_shell_auxiliary_node(node_name)
+        and node_name.endswith("_pool")
+    )
+
+
+def is_column_shell_pool_for_shell(node_name: str, shell_name: str) -> bool:
+    """Return true when a pooled per-column shell node belongs to `shell_name`."""
+    return is_column_shell_pool_node(node_name) and node_name.endswith(
+        f"_{shell_name}_pool"
+    )
+
+
 def parse_shell_teacher_weights(
     value: str,
     flag_name: str = "--shell_teacher_weights",
@@ -483,8 +498,17 @@ def evaluate_readout_ablations(
     cases: List[Tuple[str, Tuple[str, ...]]] = [
         ("combined", tuple(edge_sources.keys())),
     ]
+    column_shell_sources = tuple(
+        sorted(source for source in edge_sources if is_column_shell_pool_node(source))
+    )
     if column_source in edge_sources:
         cases.append(("column_only", (column_source,)))
+    if column_shell_sources:
+        cases.append(("column_shell_readout_only", column_shell_sources))
+    if column_source in edge_sources and column_shell_sources:
+        cases.append(
+            ("column_pool_plus_shell_readout", (column_source, *column_shell_sources))
+        )
     if "bypass_pool" in edge_sources:
         cases.append(("bypass_only", ("bypass_pool",)))
 
@@ -567,6 +591,65 @@ def evaluate_shell_readout_ablations(
             config,
             rng_key,
         )
+    return results
+
+
+def evaluate_column_shell_readout_ablations(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Evaluate direct per-column shell readout edges by masking output inputs.
+
+    These cases isolate the classifier evidence that reaches `output` through
+    pooled `(column, shell)` vectors before the column combiner can merge columns.
+    """
+    edge_sources = output_input_edge_sources(structure)
+    shell_sources = tuple(
+        sorted(source for source in edge_sources if is_column_shell_pool_node(source))
+    )
+    if not shell_sources:
+        return {}
+
+    results = {
+        "column_shell_readout_only": evaluate_pcn(
+            mask_output_input_sources(params, structure, shell_sources),
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+    }
+    for shell_name in SHELL_NAMES:
+        shell_only_sources = tuple(
+            source
+            for source in shell_sources
+            if is_column_shell_pool_for_shell(source, shell_name)
+        )
+        shell_without_sources = tuple(
+            source
+            for source in shell_sources
+            if not is_column_shell_pool_for_shell(source, shell_name)
+        )
+        if shell_without_sources:
+            results[f"column_shell_readout_without_{shell_name}"] = evaluate_pcn(
+                mask_output_input_sources(params, structure, shell_without_sources),
+                structure,
+                loader,
+                config,
+                rng_key,
+            )
+        if shell_only_sources:
+            results[f"column_shell_readout_{shell_name}_only"] = evaluate_pcn(
+                mask_output_input_sources(params, structure, shell_only_sources),
+                structure,
+                loader,
+                config,
+                rng_key,
+            )
     return results
 
 
@@ -1098,7 +1181,8 @@ def build_depth_spanning_graph(args):
         column = columns[column_idx]
         for shell_name in SHELL_NAMES:
             shell_weight = column_shell_teacher_weights[shell_name]
-            if shell_weight <= 0.0:
+            needs_shell_pool = shell_weight > 0.0 or args.column_shell_readout
+            if not needs_shell_pool:
                 continue
 
             start, end = shell_slices[shell_name]
@@ -1121,15 +1205,21 @@ def build_depth_spanning_graph(args):
                 flatten_input=True,
                 weight_init=XavierInitializer(),
             )
-            nodes.extend([shell_slice, shell_pool, shell_teacher_output])
+            nodes.extend([shell_slice, shell_pool])
             edges.extend([
                 Edge(source=column, target=shell_slice.slot("in")),
                 Edge(source=shell_slice, target=shell_pool.slot("in")),
-                Edge(source=shell_pool, target=shell_teacher_output.slot("in")),
             ])
-            column_shell_task_map[
-                column_shell_teacher_target_name(column_idx, shell_name)
-            ] = shell_teacher_output
+            if args.column_shell_readout:
+                edges.append(Edge(source=shell_pool, target=output.slot("in")))
+            if shell_weight > 0.0:
+                nodes.append(shell_teacher_output)
+                edges.append(
+                    Edge(source=shell_pool, target=shell_teacher_output.slot("in"))
+                )
+                column_shell_task_map[
+                    column_shell_teacher_target_name(column_idx, shell_name)
+                ] = shell_teacher_output
 
     # Optional bypass: stage4 backbone features go directly to the classifier in
     # parallel with the columnar pathway, so readout ablations can separate
@@ -1206,6 +1296,7 @@ def train_cifar10_depth_spanning(args):
         for name in SHELL_NAMES
     )
     print(f"Column shell teacher weights: {column_shell_teacher_summary}")
+    print(f"Column shell readout: {'enabled' if args.column_shell_readout else 'disabled'}")
     print()
 
     master_key = jax.random.PRNGKey(args.seed)
@@ -1479,6 +1570,18 @@ def train_cifar10_depth_spanning(args):
             eval_params, structure, val_loader, train_config, ablation_key
         )
         print_ablation_results("Validation Shell Readout Ablations", val_shell_metrics)
+    val_column_shell_readout_metrics = evaluate_column_shell_readout_ablations(
+        eval_params,
+        structure,
+        val_loader,
+        train_config,
+        ablation_key,
+    )
+    if val_column_shell_readout_metrics:
+        print_ablation_results(
+            "Validation Per-Column Shell Readout Ablations",
+            val_column_shell_readout_metrics,
+        )
 
     test_ablation_metrics = evaluate_readout_ablations(
         eval_params, structure, test_loader, train_config, ablation_key
@@ -1499,6 +1602,13 @@ def train_cifar10_depth_spanning(args):
         ablation_key,
     )
     test_column_shell_teacher_metrics = evaluate_column_shell_teacher_heads(
+        eval_params,
+        structure,
+        test_loader,
+        train_config,
+        ablation_key,
+    )
+    test_column_shell_readout_metrics = evaluate_column_shell_readout_ablations(
         eval_params,
         structure,
         test_loader,
@@ -1529,6 +1639,11 @@ def train_cifar10_depth_spanning(args):
         print_ablation_results(
             "Test Per-Column Shell Teacher Heads",
             test_column_shell_teacher_metrics,
+        )
+    if test_column_shell_readout_metrics:
+        print_ablation_results(
+            "Test Per-Column Shell Readout Ablations",
+            test_column_shell_readout_metrics,
         )
     if args.diagnose_shells:
         test_shell_metrics = evaluate_shell_readout_ablations(
@@ -1663,6 +1778,15 @@ def parse_args():
             "shell-local classifier heads in hard_kernel, inner_shell, "
             "middle_shell, outer_shell order. A zero weight omits those heads. "
             "These heads attach before the column combiner."
+        ),
+    )
+    parser.add_argument(
+        "--column_shell_readout",
+        action="store_true",
+        help=(
+            "Connect each active column's pooled shell vectors directly to the "
+            "main output classifier. This preserves column and shell identity "
+            "at readout while keeping the original column_pool edge for ablation."
         ),
     )
     return parser.parse_args()

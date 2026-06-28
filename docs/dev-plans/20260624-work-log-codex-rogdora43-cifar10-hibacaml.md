@@ -1196,3 +1196,261 @@ Readout criteria:
 - Primary: per-column shell teacher heads should rise above chance for `inner_shell` and `outer_shell` without causing validation accuracy to collapse.
 - Secondary: shell lesion readouts should stop improving when `inner_shell` or `outer_shell` is removed.
 - Secondary: final test accuracy should improve after the collapse and participation criteria are satisfied.
+
+## 2026-06-27 Per-Column Shell Teacher Result
+
+Timestamp and machine: 2026-06-27 18:58:27 EDT on `rogdora43`.
+
+Current commit while analyzing: `59260e1`.
+
+Experiment log:
+
+`results/codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0p001_0p001_0p002_0p002_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260627_162358.log`
+
+Experiment configuration:
+
+- `readout_mode = nobypass`, so the classifier used only the columnar predictive-coding path.
+- `column_teacher_weight = 0.0`, so the pooled column teacher head was diagnostic only.
+- `shell_teacher_weights = 0,0,0,0`, so pooled shell teacher heads were disabled.
+- `column_shell_teacher_weights = 0.001,0.001,0.002,0.002`, so each active column received shell-local class pressure before the combiner.
+
+Result:
+
+- Best validation accuracy: 20.50% at epoch 17.
+- Test accuracy: 20.94%.
+- Previous no-bypass shell-wise LayerNorm baseline without per-column shell teachers: 21.20% best validation accuracy and 21.85% test accuracy.
+- The main readout became slightly worse, but the shell participation diagnostics improved.
+
+Stability readout:
+
+- Final shell mean L2 norms were `hard_kernel = 4.6903`, `inner_shell = 2.6452`, `middle_shell = 3.7408`, and `outer_shell = 4.5818`.
+- These match the previous stable shell-wise LayerNorm run closely. The per-column shell teachers did not reintroduce magnitude collapse.
+- End-of-training energy was roughly `0.0681`, compared with roughly `0.0434` in the no-teacher shell-wise LayerNorm baseline. The extra supervised shell energy raised the total energy but did not destabilize training.
+
+Per-column shell teacher readout:
+
+- Mean test accuracy across the four `hard_kernel` teacher heads was roughly 22.24%.
+- Mean test accuracy across the four `inner_shell` teacher heads was roughly 21.53%.
+- Mean test accuracy across the four `middle_shell` teacher heads was roughly 21.64%.
+- Mean test accuracy across the four `outer_shell` teacher heads was roughly 19.46%.
+- This is the first run where `inner_shell` and `outer_shell` show clear above-chance local class information before the combiner.
+
+Final readout shell lesions:
+
+- Test accuracy with all shells: 20.94%.
+- `column_inner_shell_only` improved from 10.00% in the previous shell-wise LayerNorm baseline to 15.16%.
+- `column_hard_kernel_only` improved from 11.81% to 18.41%.
+- `column_middle_shell_only` remained similar, moving from 17.16% to 17.61%.
+- `column_outer_shell_only` stayed at 10.00%, even though the per-column `outer_shell` teacher heads were around 19.46% mean test accuracy.
+- Removing `inner_shell` still slightly improved the main readout to 21.17%.
+- Removing `outer_shell` was nearly neutral at 20.97%.
+
+Interpretation:
+
+The per-column shell teachers achieved the immediate stability-first goal. They put class information into `inner_shell`, `middle_shell`, and `outer_shell` without collapsing shell magnitudes. The remaining failure is not that `outer_shell` cannot learn class information. The failure is that the current sum combiner and pooled readout lose that information.
+
+Mechanism:
+
+Let `h_{j,s}` mean the token tensor emitted by column `j` for shell `s`, where `s` is one of `hard_kernel`, `inner_shell`, `middle_shell`, or `outer_shell`. The teacher head attached to `h_{j,s}` can read class information from that shell. The main classifier does not read `h_{j,s}` directly. It reads a pooled feature after the combiner sums columns featurewise. If different columns encode class evidence in different feature directions, then featurewise summation can cancel or dilute the shell evidence before the main classifier sees it.
+
+Recommended next implementation:
+
+Add an optional column-preserving shell readout path. For each active column and shell, reuse the already-created shell pool `pool_{j,s}` or create it when shell teachers are disabled. Connect those pooled shell vectors directly to the main `output` node through `Linear` input edges, while keeping the existing `column_pool` edge for ablation. This keeps the predictive-coding classifier energy on the main CIFAR-10 output, but it lets the readout see column identity and shell identity instead of forcing all evidence through a featurewise sum first.
+
+The initial experiment should keep the per-column shell teacher weights at `0.001,0.001,0.002,0.002`, keep `readout_mode = nobypass`, and enable the column-preserving shell readout. The key diagnostic should compare the existing `column_pool` edge against the new shell-readout edges. The success criterion is that `outer_shell` and `inner_shell` no longer disappear when information reaches the final classifier.
+
+Alternatives considered:
+
+- Increase `column_shell_teacher_weights`. This might strengthen the local teacher heads, but it does not address the observed mismatch where `outer_shell` is locally predictive before the combiner and chance after the combiner.
+- Use the bypass path. This would likely improve headline accuracy, but it would hide whether the columnar route can classify CIFAR-10.
+- Replace the combiner immediately. This may be necessary later, but a column-preserving shell readout is a narrower test of whether the loss happens at the sum combiner.
+
+## 2026-06-27 Column-Preserving Shell Readout Implementation
+
+Timestamp and machine: 2026-06-27 19:04:22 EDT on `rogdora43`.
+
+Current commit while implementing: `59260e1`.
+
+Implemented mechanism:
+
+The experiment graph now supports an optional column-preserving shell readout path. A column-preserving shell readout path connects the token-pooled shell vector from each active `(column, shell)` pair directly to the main `output` classifier. The existing `column_pool` edge remains in the graph, so readout ablations can separate the old featurewise-sum path from the new direct shell path.
+
+The flag is `--column_shell_readout`. It defaults to disabled. When disabled, the graph behaves as before. When enabled, each active column and shell creates or reuses `column{j}_{s}_slice` and `column{j}_{s}_pool`, then connects `column{j}_{s}_pool` to `output`.
+
+Files changed:
+
+- `scripts/train_cifar10_depth_spanning.py`: added `--column_shell_readout`, direct `(column, shell)` pool edges to `output`, readout-source ablations, and per-shell direct-readout lesion tables.
+- `scripts/run_codex_cifar10_depth_spanning.sh`: added a ninth positional argument for column shell readout mode. Accepted values are `on`, `true`, or `shellreadout` to enable it, and `off`, `false`, or `noshellreadout` to disable it.
+- `tests/test_pooled_readout_norm.py`: added a graph test that proves per-column shell readout edges reach `output` without creating teacher heads when teacher weights are zero.
+
+Verification run locally:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest tests/test_pooled_readout_norm.py -q
+```
+
+Result: 16 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py -q
+```
+
+Result: 34 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/pytest -q --ignore=tests/test_cifar_data.py
+```
+
+Result: 136 passed.
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh
+```
+
+Result: passed.
+
+No CIFAR-10 training run was started locally.
+
+Next experiment:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && ./scripts/run_codex_cifar10_depth_spanning.sh 42 0.005 shells 20 0.0 0,0,0,0 nobypass 0.001,0.001,0.002,0.002 on
+```
+
+Readout criteria:
+
+- Primary: shell norms should remain stable and nonzero.
+- Primary: `column_shell_readout_only` should outperform the previous chance-level `column_outer_shell_only` result.
+- Primary: `column_shell_readout_outer_shell_only` should rise above chance if the outer-shell information was being lost only at the sum combiner.
+- Secondary: combined test accuracy should improve over the previous 20.94% direct-teacher run.
+- Secondary: removing `inner_shell` or `outer_shell` from the direct shell readout should no longer improve accuracy.
+
+## 2026-06-27 Column-Preserving Shell Readout Result
+
+Timestamp and machine: 2026-06-27 21:57:39 EDT on `rogdora43`.
+
+Current commit while analyzing: `59260e1`.
+
+Experiment log:
+
+`results/codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0p001_0p001_0p002_0p002_colshellreadouton_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260627_190528.log`
+
+Experiment configuration:
+
+- `readout_mode = nobypass`, so the classifier used only the columnar predictive-coding route.
+- `column_shell_readout = on`, so each active `(column, shell)` pool connected directly to the main output classifier.
+- `column_shell_teacher_weights = 0.001,0.001,0.002,0.002`, so per-column shell teacher heads were still present.
+- Pooled shell teacher heads remained disabled with `shell_teacher_weights = 0,0,0,0`.
+
+Result:
+
+- Best validation accuracy: 24.92% at epoch 20.
+- Test accuracy: 24.11%.
+- Previous per-column shell teacher run without direct shell readout: 20.50% best validation accuracy and 20.94% test accuracy.
+- The validation trajectory was still rising at epoch 20, which suggests longer runs may be informative.
+
+Stability readout:
+
+- Final shell mean L2 norms were `hard_kernel = 4.6902`, `inner_shell = 2.6453`, `middle_shell = 3.7407`, and `outer_shell = 4.5810`.
+- Shell magnitudes remained stable and nonzero.
+- End-of-training energy was roughly `0.0339`, lower than the prior direct-teacher run's roughly `0.0681`.
+
+Readout path interpretation:
+
+- `combined` test accuracy was 24.11%.
+- `column_shell_readout_only` test accuracy was 23.35%.
+- `column_pool_plus_shell_readout` test accuracy was 24.11%.
+- `column_only` through the old `column_pool` edge was 10.00%.
+
+The accuracy gain comes from the direct `(column, shell)` readout path. The old summed `column_pool` path collapsed to chance as an independent readout.
+
+Per-shell direct readout:
+
+- `column_shell_readout_hard_kernel_only` test accuracy was 18.52%.
+- `column_shell_readout_inner_shell_only` test accuracy was 20.65%.
+- `column_shell_readout_middle_shell_only` test accuracy was 19.37%.
+- `column_shell_readout_outer_shell_only` test accuracy was 10.00%.
+- `column_shell_readout_without_outer_shell` test accuracy was 21.78%, lower than the full direct shell readout at 23.35%.
+
+`outer_shell` is not class-predictive by itself, but it appears to help in combination with other shells.
+
+Per-column shell teacher heads:
+
+- Mean test accuracy across the four `hard_kernel` teacher heads was roughly 22.71%.
+- Mean test accuracy across the four `inner_shell` teacher heads was roughly 19.05%.
+- Mean test accuracy across the four `middle_shell` teacher heads was roughly 20.35%.
+- All four `outer_shell` teacher heads were 10.00%.
+
+This is a regression from the previous no-readout teacher run, where `outer_shell` teacher heads averaged roughly 19.46%. Direct readout improved the main classifier but allowed the outer-shell local teacher heads to collapse back to chance.
+
+Interpretation:
+
+The direct shell readout confirmed that the column-preserving route is useful. It improved CIFAR-10 accuracy and recovered useful signal from hard, inner, and middle shells. The outer shell remains the central stability problem. Its magnitude is stable, and it helps the multi-shell direct readout in combination, but it is not independently class-predictive after this training configuration.
+
+Next experimental objective:
+
+Run an overnight sweep that consumes roughly 6 to 8 hours and answers three questions:
+
+- Robustness: does direct shell readout work across seeds?
+- Mechanism: does direct shell readout still work if per-column shell teacher heads are disabled?
+- Outer-shell pressure: does increasing the outer-shell teacher weight restore outer-shell class participation without collapsing the rest of the model?
+
+Planned overnight runs:
+
+- Seed 99, direct shell readout on, teacher weights `0.001,0.001,0.002,0.002`.
+- Seed 7, direct shell readout on, teacher weights `0.001,0.001,0.002,0.002`.
+- Seed 42, direct shell readout on, teacher weights `0,0,0,0`.
+- Seed 42, direct shell readout on, teacher weights `0.001,0.001,0.002,0.006`.
+
+Each 20-epoch run has recently taken about 100 to 102 minutes. Four runs should take about 6.7 hours plus overhead.
+
+## 2026-06-27 Overnight Shell Readout Sweep Script
+
+Timestamp and machine: 2026-06-27 22:00:15 EDT on `rogdora43`.
+
+Added script:
+
+`scripts/run_codex_shell_readout_overnight_sweep.sh`
+
+The script runs four 20-epoch CIFAR-10 experiments sequentially and writes a master log to `results/codex_shell_readout_overnight_sweep_<host>_<timestamp>.log`. Each individual run still writes its normal per-run log through `scripts/run_codex_cifar10_depth_spanning.sh`.
+
+Run order:
+
+1. `seed42_no_column_shell_teachers`: direct `(column, shell)` readout enabled with `column_shell_teacher_weights = 0,0,0,0`. This tests whether the main readout path can learn without local shell teacher heads.
+2. `seed42_outer_shell_teacher_heavier`: direct `(column, shell)` readout enabled with `column_shell_teacher_weights = 0.001,0.001,0.002,0.006`. This tests whether stronger outer-shell pressure restores class participation in `outer_shell`.
+3. `seed99_current_shell_readout_replicate`: current best direct shell readout setting on a second seed.
+4. `seed7_current_shell_readout_replicate`: current best direct shell readout setting on a third seed.
+
+The diagnostic priority is collapse first and accuracy second. For these runs, collapse means a shell-specific readout or teacher head stays at roughly chance accuracy while its feature norm remains nonzero. The most important checks are whether `outer_shell` rises above chance under heavier teacher pressure and whether the direct shell readout remains stable across seeds.
+
+Pasteable command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_readout_overnight_sweep.sh
+```
+
+Verification:
+
+```bash
+bash -n scripts/run_codex_shell_readout_overnight_sweep.sh
+```
+
+Result: passed.
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh
+```
+
+Result: passed.
+
+```bash
+git diff --check
+```
+
+Result: passed.

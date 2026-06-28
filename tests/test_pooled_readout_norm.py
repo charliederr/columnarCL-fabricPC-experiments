@@ -192,6 +192,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         column_teacher_weight=0.1,
         shell_teacher_weights="0,0,0,0",
         column_shell_teacher_weights="0,0,0,0",
+        column_shell_readout=False,
         infer_steps=2,
         eta_infer=0.1,
         infer_max_norm=1.0,
@@ -338,6 +339,45 @@ def test_per_column_shell_teacher_heads_skip_inactive_columns() -> None:
     assert column_shell_teacher_node_name(0, "hard_kernel") in structure.nodes
     assert column_shell_teacher_node_name(1, "hard_kernel") in structure.nodes
     assert column_shell_teacher_node_name(2, "hard_kernel") not in structure.nodes
+
+
+def test_depth_spanning_graph_adds_per_column_shell_readout_edges() -> None:
+    """Per-column shell readout reaches output without requiring teacher heads."""
+    args = _tiny_depth_spanning_args(
+        column_teacher_weight=0.0,
+        column_shell_teacher_weights="0,0,0,0",
+        column_shell_readout=True,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    output_sources = output_input_edge_sources(structure)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+
+    assert active_columns == [0, 1]
+
+    for column_idx in active_columns:
+        for shell_name in SHELL_NAMES:
+            slice_name = column_shell_slice_node_name(column_idx, shell_name)
+            pool_name = column_shell_pool_node_name(column_idx, shell_name)
+            teacher_name = column_shell_teacher_node_name(column_idx, shell_name)
+            target_name = column_shell_teacher_target_name(column_idx, shell_name)
+
+            assert pool_name in output_sources
+            assert teacher_name not in structure.nodes
+            assert target_name not in structure.task_map
+
+            slice_sources = {
+                edge.source
+                for edge in structure.edges.values()
+                if edge.target == slice_name and edge.slot == "in"
+            }
+            pool_sources = {
+                edge.source
+                for edge in structure.edges.values()
+                if edge.target == pool_name and edge.slot == "in"
+            }
+
+            assert slice_sources == {f"col_{column_idx:02d}"}
+            assert pool_sources == {slice_name}
 
 
 def test_column_teacher_target_loader_duplicates_labels() -> None:

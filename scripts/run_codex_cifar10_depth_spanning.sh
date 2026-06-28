@@ -11,6 +11,7 @@ column_teacher_weight="${5:-0.1}"
 shell_teacher_weights="${6:-0,0,0,0}"
 readout_mode="${7:-bypass}"
 column_shell_teacher_weights="${8:-0,0,0,0}"
+column_shell_readout_mode="${9:-off}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
@@ -24,6 +25,8 @@ diagnose_label="nodiag"
 extra_args=()
 readout_label="bypass"
 readout_args=()
+column_shell_readout_label="off"
+column_shell_readout_args=()
 
 if [[ "$diagnose_mode" == "diagnose" || "$diagnose_mode" == "--diagnose_energy" ]]; then
     diagnose_label="diag"
@@ -47,7 +50,18 @@ else
     exit 2
 fi
 
-log_path="${repo_root}/results/codex_resnet18_column_teacher${teacher_weight_label}_shell${shell_weights_label}_colshell${column_shell_weights_label}_${readout_label}_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+if [[ "$column_shell_readout_mode" == "on" || "$column_shell_readout_mode" == "true" || "$column_shell_readout_mode" == "shellreadout" ]]; then
+    column_shell_readout_label="on"
+    column_shell_readout_args+=(--column_shell_readout)
+elif [[ "$column_shell_readout_mode" == "off" || "$column_shell_readout_mode" == "false" || "$column_shell_readout_mode" == "noshellreadout" ]]; then
+    column_shell_readout_label="off"
+else
+    echo "Unknown column shell readout mode: $column_shell_readout_mode" >&2
+    echo "Use 'on' or 'off'." >&2
+    exit 2
+fi
+
+log_path="${repo_root}/results/codex_resnet18_column_teacher${teacher_weight_label}_shell${shell_weights_label}_colshell${column_shell_weights_label}_colshellreadout${column_shell_readout_label}_${readout_label}_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -66,6 +80,7 @@ mkdir -p results
     echo "column_teacher_weight: $column_teacher_weight"
     echo "shell_teacher_weights: $shell_teacher_weights"
     echo "column_shell_teacher_weights: $column_shell_teacher_weights"
+    echo "column_shell_readout: $column_shell_readout_label"
     echo "readout_mode: $readout_label"
     "$python_bin" -c "import jax; print(jax.devices()); print(jax.default_backend())"
     "$python_bin" scripts/train_cifar10_depth_spanning.py \
@@ -93,6 +108,7 @@ mkdir -p results
         --column_teacher_weight "$column_teacher_weight" \
         --shell_teacher_weights "$shell_teacher_weights" \
         --column_shell_teacher_weights "$column_shell_teacher_weights" \
+        "${column_shell_readout_args[@]}" \
         "${readout_args[@]}" \
         "${extra_args[@]}"
 } 2>&1 | tee "$log_path"
