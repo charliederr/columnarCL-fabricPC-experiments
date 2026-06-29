@@ -1581,3 +1581,96 @@ cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_
 ```
 
 The expected runtime is roughly 6 to 8 hours. The master log will be written under `results/codex_shell_bridge_sweep_<host>_<timestamp>.log`.
+
+## 2026-06-29 Shell Bridge Sweep Results
+
+Timestamp and machine: 2026-06-29 04:02:20 EDT on `rogdora43`.
+
+Completed command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_bridge_sweep.sh
+```
+
+Master log:
+
+`results/codex_shell_bridge_sweep_rogdora43_20260628_122628.log`
+
+The tested `column_shell_bridge` is one Gaussian predictive-coding latent per active column. It receives that column's pooled `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell` vectors and connects to the main CIFAR-10 output classifier. The direct `(column, shell)` readout is a separate classifier edge from each pooled shell vector to the main output classifier. CIFAR-10 chance accuracy is 10 percent.
+
+Results:
+
+| Case | Test accuracy | Best validation accuracy | Best validation epoch | Main diagnostic |
+| --- | ---: | ---: | ---: | --- |
+| Seed 42, bridge only, no shell teachers | 26.98% | 26.26% | 17 | Bridge path is above chance; `outer_shell` alone is chance-level, but removing it from the bridge drops test bridge accuracy from 26.87% to 21.72%. |
+| Seed 42, bridge plus direct shell readout, no shell teachers | 28.84% | 29.04% | 19 | Best run so far. Direct readout alone is 11.26%, bridge alone is 20.87%, and direct plus bridge is 28.91%. |
+| Seed 99, bridge only, no shell teachers | 26.94% | 27.94% | 20 | Bridge path is above chance; removing `outer_shell` from the bridge drops test bridge accuracy from 26.75% to 20.15%. |
+| Seed 7, bridge only, no shell teachers | 28.76% | 28.94% | 19 | Bridge path is above chance; removing `outer_shell` from the bridge drops test bridge accuracy from 28.76% to 17.23%. |
+
+Interpretation:
+
+The collapse criterion improved. `outer_shell` remains not independently class-readable: `column_shell_bridge_outer_shell_only` is roughly chance on all seeds. But `outer_shell` is no longer merely unused activation mass. In the bridge-only runs, removing `outer_shell` from the shell bridge consistently damages the classifier, with test drops of 5.15, 6.60, and 11.53 percentage points for seeds 42, 99, and 7. The mechanism is that `outer_shell` contributes through a coupled bridge latent even though the isolated `outer_shell` route cannot classify by itself.
+
+The seed-42 bridge plus direct shell readout run showed a stronger combined effect. The direct shell readout path and bridge path were weak when isolated, but their combined classifier edges recovered 28.91% test accuracy. This suggests that the main output classifier used complementary shell evidence from the two per-column routes. The current logs do not yet show which shell matters inside the full combined direct-plus-bridge route, because the prior ablations masked direct readout and bridge readout separately.
+
+Implemented diagnostic change:
+
+Added `evaluate_column_shell_path_ablations` in `scripts/train_cifar10_depth_spanning.py`. `column_shell_paths_only` keeps only direct per-column shell output edges and shell bridge output edges. `column_shell_paths_without_<shell>` drops one shell from both direct readout edges and bridge input edges. `column_shell_paths_<shell>_only` keeps one shell in both routes. This is an evaluation-only change and does not change training, loaders, the predictive-coding graph, or upstream FabricPC.
+
+Added test coverage in `tests/test_pooled_readout_norm.py` for `mask_column_shell_path_inputs`, verifying that the combined shell-path mask zeroes both direct output edges and shell bridge input edges for the selected shell.
+
+Verification:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+```
+
+Result: 19 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest --ignore=tests/test_cifar_data.py
+```
+
+Result: 139 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest
+```
+
+Result: 147 passed, 5 failed, 9 errors. The failures are confined to `tests/test_cifar_data.py`; the sandbox cannot create `/home/ni/.local/share/columnar_cl_fabricpc`, and the CIFAR data directory was not present under the workspace for a redirected run. No training or data-loader code was changed.
+
+Next experimental objective:
+
+Replicate the seed-42 bridge plus direct shell readout configuration across seeds and rerun seed 42 with the new combined shell-path ablations. This answers whether the best configuration is seed-stable and whether `outer_shell` contributes through the full direct-plus-bridge shell pathway. The column teacher head remains in the graph with weight `0.0`, so it contributes no class energy during training.
+
+Added script:
+
+`scripts/run_codex_shell_bridge_readout_replicate_sweep.sh`
+
+Planned runs:
+
+1. Seed 42, bridge plus direct shell readout, zero column and shell teacher energy.
+2. Seed 99, bridge plus direct shell readout, zero column and shell teacher energy.
+3. Seed 7, bridge plus direct shell readout, zero column and shell teacher energy.
+
+Expected runtime is roughly 7 to 8 hours based on the 100 to 102 minute runtime per 20-epoch run in the completed bridge sweep.
+
+Pasteable command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_bridge_readout_replicate_sweep.sh
+```
+
+Verification:
+
+```bash
+bash -n scripts/run_codex_shell_bridge_readout_replicate_sweep.sh
+```
+
+Result: passed.
+
+```bash
+git diff --check
+```
+
+Result: passed.

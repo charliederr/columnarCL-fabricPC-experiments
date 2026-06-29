@@ -1,0 +1,73 @@
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 1e377188cb60ccf7a0c6ca9302658dbdb7d40a78
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+ M results/codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeon_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260628_122628.log
+ M results/codex_shell_bridge_sweep_rogdora43_20260628_122628.log
+ M scripts/train_cifar10_depth_spanning.py
+ M tests/test_pooled_readout_norm.py
+?? results/codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeon_nobypass_norm_fixedln_seed7_lr0p005_ep20_shells_rogdora43_20260628_195829.log
+?? results/codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeon_nobypass_norm_fixedln_seed99_lr0p005_ep20_shells_rogdora43_20260628_173433.log
+?? results/codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260628_145019.log
+?? results/codex_shell_bridge_readout_replicate_sweep_rogdora43_20260629_040553.log
+?? scripts/run_codex_shell_bridge_readout_replicate_sweep.sh
+runner: /home/ni/repos/fpc/columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh
+started_at: 2026-06-29 04:05:53 EDT
+
+planned_cases:
+1. seed42_shell_bridge_plus_direct_readout_zero_teacher_energy
+2. seed99_shell_bridge_plus_direct_readout_zero_teacher_energy
+3. seed7_shell_bridge_plus_direct_readout_zero_teacher_energy
+
+======================================================================
+Starting case=seed42_shell_bridge_plus_direct_readout_zero_teacher_energy at 2026-06-29 04:05:53 EDT
+seed: 42
+lr: 0.005
+diagnose_mode: shells
+num_epochs: 20
+column_teacher_weight: 0.0
+shell_teacher_weights: 0,0,0,0
+readout_mode: nobypass
+column_shell_teacher_weights: 0,0,0,0
+column_shell_readout_mode: on
+column_shell_bridge_mode: on
+======================================================================
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 1e377188cb60ccf7a0c6ca9302658dbdb7d40a78
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+ M results/codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeon_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260628_122628.log
+ M results/codex_shell_bridge_sweep_rogdora43_20260628_122628.log
+ M scripts/train_cifar10_depth_spanning.py
+ M tests/test_pooled_readout_norm.py
+?? results/codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeon_nobypass_norm_fixedln_seed7_lr0p005_ep20_shells_rogdora43_20260628_195829.log
+?? results/codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeon_nobypass_norm_fixedln_seed99_lr0p005_ep20_shells_rogdora43_20260628_173433.log
+?? results/codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260628_145019.log
+?? results/codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260629_040553.log
+?? results/codex_shell_bridge_readout_replicate_sweep_rogdora43_20260629_040553.log
+?? scripts/run_codex_shell_bridge_readout_replicate_sweep.sh
+python: /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+seed: 42
+lr: 0.005
+num_epochs: 20
+diagnose: shells
+column_teacher_head: enabled
+column_teacher_weight: 0.0
+shell_teacher_weights: 0,0,0,0
+column_shell_teacher_weights: 0,0,0,0
+column_shell_readout: on
+column_shell_bridge: on
+readout_mode: nobypass
+[CudaDevice(id=0)]
+gpu
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1782720362.052725  980004 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1782720362.053219  980004 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1782720362.837674  980004 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1782720362.837964  980004 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1782720362.927161  980004 cuda_executor.cc:1737] INTERNAL: CUDA Runtime error: Failed call to cudaGetRuntimeVersion: Error loading CUDA libraries. GPU will not be used.: Error loading CUDA libraries. GPU will not be used.
+W0000 00:00:1782720362.938176  980004 gpu_device.cc:2365] Cannot dlopen some GPU libraries. Please make sure the missing libraries mentioned above are installed properly if you would like to use GPU. Follow the guide at https://www.tensorflow.org/install/gpu for how to download and setup the required libraries for your platform.
+Skipping registering GPU devices...

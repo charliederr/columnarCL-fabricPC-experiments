@@ -29,6 +29,7 @@ from scripts.train_cifar10_depth_spanning import (
     column_shell_slice_node_name,
     column_shell_teacher_node_name,
     column_shell_teacher_target_name,
+    mask_column_shell_path_inputs,
     mask_output_input_sources,
     mask_node_input_sources,
     mask_output_source_feature_slice,
@@ -520,3 +521,69 @@ def test_mask_node_input_sources_zeroes_only_dropped_bridge_inputs() -> None:
             assert jnp.allclose(after, before)
         else:
             assert jnp.allclose(after, jnp.zeros_like(before))
+
+
+def test_mask_column_shell_path_inputs_masks_direct_and_bridge_routes() -> None:
+    """Combined shell-path masking applies the same shell lesion to both routes."""
+    args = _tiny_depth_spanning_args(
+        column_shell_readout=True,
+        column_shell_bridge=True,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    output_sources = output_input_edge_sources(structure)
+
+    masked = mask_column_shell_path_inputs(
+        params,
+        structure,
+        "outer_shell",
+        keep_shell=False,
+    )
+
+    assert jnp.allclose(
+        masked.nodes["output"].weights[output_sources["column_pool"]],
+        jnp.zeros_like(params.nodes["output"].weights[output_sources["column_pool"]]),
+    )
+    assert jnp.allclose(
+        masked.nodes["output"].weights[output_sources["bypass_pool"]],
+        jnp.zeros_like(params.nodes["output"].weights[output_sources["bypass_pool"]]),
+    )
+
+    for column_idx in active_columns:
+        bridge_name = column_shell_bridge_node_name(column_idx)
+        bridge_input_sources = node_input_edge_sources(structure, bridge_name)
+        bridge_output_edge = output_sources[bridge_name]
+
+        assert jnp.allclose(
+            masked.nodes["output"].weights[bridge_output_edge],
+            params.nodes["output"].weights[bridge_output_edge],
+        )
+
+        for shell_name in SHELL_NAMES:
+            pool_name = column_shell_pool_node_name(column_idx, shell_name)
+            pool_output_edge = output_sources[pool_name]
+            bridge_input_edge = bridge_input_sources[pool_name]
+
+            if shell_name == "outer_shell":
+                assert jnp.allclose(
+                    masked.nodes["output"].weights[pool_output_edge],
+                    jnp.zeros_like(
+                        params.nodes["output"].weights[pool_output_edge]
+                    ),
+                )
+                assert jnp.allclose(
+                    masked.nodes[bridge_name].weights[bridge_input_edge],
+                    jnp.zeros_like(
+                        params.nodes[bridge_name].weights[bridge_input_edge]
+                    ),
+                )
+            else:
+                assert jnp.allclose(
+                    masked.nodes["output"].weights[pool_output_edge],
+                    params.nodes["output"].weights[pool_output_edge],
+                )
+                assert jnp.allclose(
+                    masked.nodes[bridge_name].weights[bridge_input_edge],
+                    params.nodes[bridge_name].weights[bridge_input_edge],
+                )

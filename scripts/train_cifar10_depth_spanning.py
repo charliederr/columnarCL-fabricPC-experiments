@@ -809,6 +809,110 @@ def evaluate_column_shell_bridge_ablations(
     return results
 
 
+def mask_column_shell_path_inputs(
+    params: GraphParams,
+    structure: GraphStructure,
+    shell_name: str,
+    keep_shell: bool,
+) -> GraphParams:
+    """
+    Mask direct and bridged per-column shell paths with one shell criterion.
+
+    Direct paths are output edges from pooled `(column, shell)` vectors. Bridged
+    paths are output edges from per-column shell bridge nodes, with bridge input
+    edges masked by shell identity before the classifier mask is applied.
+    """
+    output_sources = output_input_edge_sources(structure)
+    direct_sources = tuple(
+        sorted(source for source in output_sources if is_column_shell_pool_node(source))
+    )
+    bridge_sources = tuple(
+        sorted(source for source in output_sources if is_column_shell_bridge_node(source))
+    )
+    kept_direct_sources = tuple(
+        source
+        for source in direct_sources
+        if is_column_shell_pool_for_shell(source, shell_name) == keep_shell
+    )
+
+    masked = params
+    if bridge_sources:
+        masked = mask_column_shell_bridge_inputs(
+            masked,
+            structure,
+            bridge_sources,
+            shell_name,
+            keep_shell=keep_shell,
+        )
+    return mask_output_input_sources(
+        masked,
+        structure,
+        (*kept_direct_sources, *bridge_sources),
+    )
+
+
+def evaluate_column_shell_path_ablations(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Evaluate full per-column shell evidence by masking direct and bridged paths.
+
+    The baseline keeps only per-column shell evidence at `output`: direct pooled
+    shell edges and shell bridge edges. Each lesion then keeps or drops one shell
+    from both routes at the same time.
+    """
+    output_sources = output_input_edge_sources(structure)
+    direct_sources = tuple(
+        sorted(source for source in output_sources if is_column_shell_pool_node(source))
+    )
+    bridge_sources = tuple(
+        sorted(source for source in output_sources if is_column_shell_bridge_node(source))
+    )
+    shell_path_sources = (*direct_sources, *bridge_sources)
+    if not shell_path_sources:
+        return {}
+
+    results = {
+        "column_shell_paths_only": evaluate_pcn(
+            mask_output_input_sources(params, structure, shell_path_sources),
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+    }
+    for shell_name in SHELL_NAMES:
+        results[f"column_shell_paths_without_{shell_name}"] = evaluate_pcn(
+            mask_column_shell_path_inputs(
+                params,
+                structure,
+                shell_name,
+                keep_shell=False,
+            ),
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+        results[f"column_shell_paths_{shell_name}_only"] = evaluate_pcn(
+            mask_column_shell_path_inputs(
+                params,
+                structure,
+                shell_name,
+                keep_shell=True,
+            ),
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+    return results
+
+
 def print_ablation_results(title: str, results: Dict[str, Dict[str, float]]) -> None:
     """Print readout ablation metrics in a compact table."""
     print("\n" + title)
@@ -1770,6 +1874,18 @@ def train_cifar10_depth_spanning(args):
             "Validation Per-Column Shell Bridge Ablations",
             val_column_shell_bridge_metrics,
         )
+    val_column_shell_path_metrics = evaluate_column_shell_path_ablations(
+        eval_params,
+        structure,
+        val_loader,
+        train_config,
+        ablation_key,
+    )
+    if val_column_shell_path_metrics:
+        print_ablation_results(
+            "Validation Combined Column Shell Path Ablations",
+            val_column_shell_path_metrics,
+        )
 
     test_ablation_metrics = evaluate_readout_ablations(
         eval_params, structure, test_loader, train_config, ablation_key
@@ -1810,6 +1926,13 @@ def train_cifar10_depth_spanning(args):
         train_config,
         ablation_key,
     )
+    test_column_shell_path_metrics = evaluate_column_shell_path_ablations(
+        eval_params,
+        structure,
+        test_loader,
+        train_config,
+        ablation_key,
+    )
     test_metrics = test_ablation_metrics["combined"]
     test_acc = float(test_metrics.get("accuracy", 0.0))
 
@@ -1844,6 +1967,11 @@ def train_cifar10_depth_spanning(args):
         print_ablation_results(
             "Test Per-Column Shell Bridge Ablations",
             test_column_shell_bridge_metrics,
+        )
+    if test_column_shell_path_metrics:
+        print_ablation_results(
+            "Test Combined Column Shell Path Ablations",
+            test_column_shell_path_metrics,
         )
     if args.diagnose_shells:
         test_shell_metrics = evaluate_shell_readout_ablations(
