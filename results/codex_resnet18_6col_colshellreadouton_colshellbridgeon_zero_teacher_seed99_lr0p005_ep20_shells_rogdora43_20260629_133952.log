@@ -1,0 +1,16 @@
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: aaf931bcd5267a95fff4a4afd6291779d50b5c8f
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+?? results/codex_resnet18_6col_colshellreadouton_colshellbridgeon_zero_teacher_seed99_lr0p005_ep20_shells_rogdora43_20260629_133952.log
+?? results/codex_shell_bridge_readout_column_capacity_sweep_rogdora43_20260629_133952.log
+?? scripts/run_codex_shell_bridge_readout_column_capacity_sweep.sh
+python: /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+case: seed99_6column_shell_bridge_plus_direct_readout_zero_teacher_energy
+seed: 99
+num_columns: 6
+num_shared: 3
+active_nonshared: 3
+[CudaDevice(id=0)]
+gpu

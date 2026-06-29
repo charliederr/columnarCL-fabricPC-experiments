@@ -1674,3 +1674,76 @@ git diff --check
 ```
 
 Result: passed.
+
+## 2026-06-29 Bridge Plus Direct Shell Readout Replicate Results
+
+Timestamp and machine: 2026-06-29 13:28:06 EDT on `rogdora43`.
+
+Completed command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_bridge_readout_replicate_sweep.sh
+```
+
+Master log:
+
+`results/codex_shell_bridge_readout_replicate_sweep_rogdora43_20260629_040553.log`
+
+The tested configuration used four active columns, direct per-column shell readout, per-column shell bridge readout, no backbone bypass, and zero class-energy weight on column and shell teacher heads. `column_shell_paths_only` means the output classifier receives only direct pooled `(column, shell)` edges plus per-column shell bridge edges. `column_shell_paths_without_outer_shell` means the same shell-path readout with `outer_shell` removed from both the direct pooled shell edges and the shell bridge input edges.
+
+Results:
+
+| Seed | Test accuracy | Best validation accuracy | Best validation epoch | `column_shell_paths_only` test | `without_outer_shell` test | `outer_shell_only` test |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 42 | 29.89% | 30.34% | 17 | 30.01% | 16.29% | 10.00% |
+| 99 | 24.60% | 25.56% | 18 | 24.66% | 19.02% | 10.00% |
+| 7 | 33.62% | 33.72% | 18 | 33.67% | 24.93% | 10.00% |
+
+Additional readout diagnostics:
+
+| Seed | Direct shell readout only | Shell bridge only | Direct plus bridge |
+| --- | ---: | ---: | ---: |
+| 42 | 10.00% | 23.33% | 30.01% |
+| 99 | 15.09% | 19.13% | 24.66% |
+| 7 | 15.17% | 28.66% | 33.67% |
+
+Interpretation:
+
+The collapse criterion improved again. `outer_shell` is still not independently class-readable, because `column_shell_paths_outer_shell_only` is at CIFAR-10 chance accuracy. But `outer_shell` contributes contextually through the combined shell pathway. Removing `outer_shell` from both direct shell readout and shell bridge input drops test accuracy by 13.72 points on seed 42, 5.64 points on seed 99, and 8.74 points on seed 7.
+
+The mechanism is now consistent with the columnar target. Individual shells are weak as isolated classifiers, but the coupled direct-plus-bridge path is substantially stronger than either direct shell readout or bridge readout alone. The weak seed 99 is not a full collapse. It still reaches 24.66% through the shell paths, and removing `outer_shell` still damages the model. The current weakness is seed-to-seed reliability and total classification strength.
+
+Next experimental objective:
+
+Increase active column capacity while preserving the same predictive-coding shell mechanism. This tests whether the weak seed is a capacity and specialization problem. The next script uses six active columns instead of four, with the same `embed_dim = 64`, `microcolumn_dim = 32`, direct per-column shell readout, per-column shell bridge readout, zero teacher energy, and no backbone bypass.
+
+Added script:
+
+`scripts/run_codex_shell_bridge_readout_column_capacity_sweep.sh`
+
+Planned runs:
+
+1. Seed 99, six active columns, bridge plus direct shell readout, zero column and shell teacher energy.
+2. Seed 42, six active columns, bridge plus direct shell readout, zero column and shell teacher energy.
+
+Seed 99 is first because it was the weak case. Seed 42 is second because it gives a direct comparison against a stable middle case. If six columns improves seed 99 without damaging seed 42, the next follow-up should test seed 7 and then consider eight columns.
+
+Pasteable command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_bridge_readout_column_capacity_sweep.sh
+```
+
+Verification:
+
+```bash
+bash -n scripts/run_codex_shell_bridge_readout_column_capacity_sweep.sh
+```
+
+Result: passed.
+
+```bash
+git diff --check
+```
+
+Result: passed.

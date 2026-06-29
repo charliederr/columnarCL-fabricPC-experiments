@@ -1,0 +1,46 @@
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: aaf931bcd5267a95fff4a4afd6291779d50b5c8f
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+?? results/codex_shell_bridge_readout_column_capacity_sweep_rogdora43_20260629_133952.log
+?? scripts/run_codex_shell_bridge_readout_column_capacity_sweep.sh
+python: /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+started_at: 2026-06-29 13:39:52 EDT
+
+planned_cases:
+1. seed99_6column_shell_bridge_plus_direct_readout_zero_teacher_energy
+2. seed42_6column_shell_bridge_plus_direct_readout_zero_teacher_energy
+
+======================================================================
+Starting case=seed99_6column_shell_bridge_plus_direct_readout_zero_teacher_energy at 2026-06-29 13:39:52 EDT
+seed: 99
+num_columns: 6
+num_shared: 3
+active_nonshared: 3
+lr: 0.005
+num_epochs: 20
+column_teacher_weight: 0.0
+shell_teacher_weights: 0,0,0,0
+column_shell_teacher_weights: 0,0,0,0
+column_shell_readout: on
+column_shell_bridge: on
+readout_mode: nobypass
+log_path: /home/ni/repos/fpc/columnarCL-fabricPC-experiments/results/codex_resnet18_6col_colshellreadouton_colshellbridgeon_zero_teacher_seed99_lr0p005_ep20_shells_rogdora43_20260629_133952.log
+======================================================================
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: aaf931bcd5267a95fff4a4afd6291779d50b5c8f
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+?? results/codex_resnet18_6col_colshellreadouton_colshellbridgeon_zero_teacher_seed99_lr0p005_ep20_shells_rogdora43_20260629_133952.log
+?? results/codex_shell_bridge_readout_column_capacity_sweep_rogdora43_20260629_133952.log
+?? scripts/run_codex_shell_bridge_readout_column_capacity_sweep.sh
+python: /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+case: seed99_6column_shell_bridge_plus_direct_readout_zero_teacher_energy
+seed: 99
+num_columns: 6
+num_shared: 3
+active_nonshared: 3
+[CudaDevice(id=0)]
+gpu
