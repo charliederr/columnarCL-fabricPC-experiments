@@ -75,7 +75,7 @@ else
     exit 2
 fi
 
-log_path="${repo_root}/results/codex_resnet18_column_teacher${teacher_weight_label}_shell${shell_weights_label}_colshell${column_shell_weights_label}_colshellreadout${column_shell_readout_label}_colshellbridge${column_shell_bridge_label}_${readout_label}_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+log_path="${repo_root}/results/codex_resnet18_shellpromotionon_column_teacher${teacher_weight_label}_shell${shell_weights_label}_colshell${column_shell_weights_label}_colshellreadout${column_shell_readout_label}_colshellbridge${column_shell_bridge_label}_${readout_label}_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -96,6 +96,7 @@ mkdir -p results
     echo "column_shell_teacher_weights: $column_shell_teacher_weights"
     echo "column_shell_readout: $column_shell_readout_label"
     echo "column_shell_bridge: $column_shell_bridge_label"
+    echo "shell_promotion: on"
     echo "readout_mode: $readout_label"
     "$python_bin" -c "import jax; print(jax.devices()); print(jax.default_backend())"
     "$python_bin" scripts/train_cifar10_depth_spanning.py \

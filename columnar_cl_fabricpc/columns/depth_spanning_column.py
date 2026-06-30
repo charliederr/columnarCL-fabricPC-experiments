@@ -75,7 +75,9 @@ from fabricpc.utils.helpers import layernorm
 
 
 SHELL_NAMES = ("hard_kernel", "inner_shell", "middle_shell", "outer_shell")
+SHELL_PROMOTION_PAIRS = tuple(zip(SHELL_NAMES[:-1], SHELL_NAMES[1:]))
 DEFAULT_SHELL_PROPORTIONS = (32, 10, 20, 30)
+DEFAULT_SHELL_PROMOTION_SCALE = (0.05, 0.05, 0.05)
 DEFAULT_SHELL_PATH_MASK = np.asarray(
     [
         [1.0, 0.0, 0.0],
@@ -147,6 +149,26 @@ def default_shell_path_scale() -> jnp.ndarray:
     """
     row_counts = np.maximum(DEFAULT_SHELL_PATH_MASK.sum(axis=1, keepdims=True), 1.0)
     return jnp.asarray(DEFAULT_SHELL_PATH_MASK / np.sqrt(row_counts), dtype=jnp.float32)
+
+
+def default_shell_promotion_scale() -> jnp.ndarray:
+    """
+    Initial shell promotion gains.
+
+    Entries correspond to hard-kernel to inner-shell, inner-shell to middle-shell,
+    and middle-shell to outer-shell promotion.
+    """
+    return jnp.asarray(DEFAULT_SHELL_PROMOTION_SCALE, dtype=jnp.float32)
+
+
+def shell_promotion_weight_name(source_shell: str, target_shell: str) -> str:
+    """Return the parameter name for one shell-to-shell promotion matrix."""
+    return f"shell_promotion_{source_shell}_to_{target_shell}"
+
+
+def shell_promotion_bias_name(source_shell: str, target_shell: str) -> str:
+    """Return the parameter name for one shell-to-shell promotion bias."""
+    return f"shell_promotion_b_{source_shell}_to_{target_shell}"
 
 
 def _hidden_activation(x: jax.Array, activation_name: str, leaky_alpha: float) -> jax.Array:
@@ -334,6 +356,7 @@ class DepthSpanningColumnNode(NodeBase):
             - B_W_out: μd → output_dim
 
         shell_path_scale: Learnable shell-specific weights for combining K, L, and B
+        shell_promotion_*: Learned projections from each shell into the next shell
         """
         if config is None:
             config = {}
@@ -416,6 +439,26 @@ class DepthSpanningColumnNode(NodeBase):
         # Columns are K, L, and B. The fixed mask in forward preserves the
         # intended typed connectivity even while the active weights can learn.
         weights["shell_path_scale"] = default_shell_path_scale()
+
+        shell_sizes = compute_shell_sizes(
+            output_dim,
+            tuple(config.get("shell_proportions", DEFAULT_SHELL_PROPORTIONS)),
+        )
+        shell_size_map = dict(zip(SHELL_NAMES, shell_sizes))
+        promotion_init = NormalInitializer(std=0.02)
+        for source_shell, target_shell in SHELL_PROMOTION_PAIRS:
+            source_width = shell_size_map[source_shell]
+            target_width = shell_size_map[target_shell]
+            weights[shell_promotion_weight_name(source_shell, target_shell)] = initialize(
+                keys[ki],
+                (source_width, target_width),
+                promotion_init,
+            )
+            biases[shell_promotion_bias_name(source_shell, target_shell)] = jnp.zeros(
+                (target_width,)
+            )
+            ki += 1
+        weights["shell_promotion_scale"] = default_shell_promotion_scale()
 
         # Optional LayerNorm on the combined output along the output_dim axis
         if config.get("apply_layer_norm", False) and not config.get("fix_ln_gamma", False):
@@ -542,6 +585,27 @@ class DepthSpanningColumnNode(NodeBase):
                 shell_path_scale[shell_idx, 0] * k_out[..., start:end]
                 + shell_path_scale[shell_idx, 1] * l_out[..., start:end]
                 + shell_path_scale[shell_idx, 2] * b_out[..., start:end]
+            )
+
+        # Promotion is an intra-column shell cascade. Each shell sends signed
+        # evidence to the next shell before shell-wise normalization.
+        for promotion_idx, (source_shell, target_shell) in enumerate(
+            SHELL_PROMOTION_PAIRS
+        ):
+            source_idx = SHELL_NAMES.index(source_shell)
+            target_idx = SHELL_NAMES.index(target_shell)
+            promoted = (
+                jnp.matmul(
+                    shell_outputs[source_idx],
+                    params.weights[
+                        shell_promotion_weight_name(source_shell, target_shell)
+                    ],
+                )
+                + params.biases[shell_promotion_bias_name(source_shell, target_shell)]
+            )
+            shell_outputs[target_idx] = (
+                shell_outputs[target_idx]
+                + params.weights["shell_promotion_scale"][promotion_idx] * promoted
             )
 
         # Optional shell-wise LayerNorm pins each typed slice independently.

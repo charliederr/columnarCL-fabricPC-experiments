@@ -5,10 +5,16 @@ repo_root="/home/ni/repos/fpc/columnarCL-fabricPC-experiments"
 python_bin="${FPC_PYTHON:-/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
-master_log="${repo_root}/results/codex_shellpromotion_shell_bridge_readout_column_capacity_sweep_${hostname_value}_${timestamp}.log"
+master_log="${repo_root}/results/codex_shellpromotion_shell_bridge_readout_capacity_lr_followup_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
+
+label_value() {
+    local value="$1"
+    value="${value//./p}"
+    echo "$value"
+}
 
 run_case() {
     local case_name="$1"
@@ -16,8 +22,10 @@ run_case() {
     local num_columns="$3"
     local num_shared="$4"
     local active_nonshared="$5"
-    local columns_label="${num_columns}col"
-    local log_path="${repo_root}/results/codex_resnet18_shellpromotionon_${columns_label}_colshellreadouton_colshellbridgeon_zero_teacher_seed${seed}_lr0p005_ep20_shells_${hostname_value}_$(date +%Y%m%d_%H%M%S).log"
+    local lr="$6"
+    local lr_label
+    lr_label="$(label_value "$lr")"
+    local log_path="${repo_root}/results/codex_resnet18_shellpromotionon_${num_columns}col_colshellreadouton_colshellbridgeon_zero_teacher_seed${seed}_lr${lr_label}_ep20_shells_${hostname_value}_$(date +%Y%m%d_%H%M%S).log"
 
     echo "======================================================================"
     echo "Starting case=$case_name at $(date '+%Y-%m-%d %H:%M:%S %Z')"
@@ -25,7 +33,7 @@ run_case() {
     echo "num_columns: $num_columns"
     echo "num_shared: $num_shared"
     echo "active_nonshared: $active_nonshared"
-    echo "lr: 0.005"
+    echo "lr: $lr"
     echo "num_epochs: 20"
     echo "column_teacher_weight: 0.0"
     echo "shell_teacher_weights: 0,0,0,0"
@@ -48,6 +56,7 @@ run_case() {
         echo "num_columns: $num_columns"
         echo "num_shared: $num_shared"
         echo "active_nonshared: $active_nonshared"
+        echo "lr: $lr"
         echo "shell_promotion: on"
         "$python_bin" -c "import jax; print(jax.devices()); print(jax.default_backend())"
         "$python_bin" scripts/train_cifar10_depth_spanning.py \
@@ -63,7 +72,7 @@ run_case() {
             --microcolumn_dim 32 \
             --batch_size 128 \
             --num_epochs 20 \
-            --lr 0.005 \
+            --lr "$lr" \
             --weight_decay 0.01 \
             --infer_steps 40 \
             --eta_infer 0.1 \
@@ -95,12 +104,16 @@ run_case() {
     echo "started_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
     echo
     echo "planned_cases:"
-    echo "1. seed99_6column_shell_bridge_plus_direct_readout_zero_teacher_energy"
-    echo "2. seed42_6column_shell_bridge_plus_direct_readout_zero_teacher_energy"
+    echo "1. seed99_5column_lr0p005"
+    echo "2. seed42_5column_lr0p005"
+    echo "3. seed99_6column_lr0p0025"
+    echo "4. seed42_6column_lr0p0025"
     echo
 
-    run_case "seed99_6column_shell_bridge_plus_direct_readout_zero_teacher_energy" 99 6 3 3
-    run_case "seed42_6column_shell_bridge_plus_direct_readout_zero_teacher_energy" 42 6 3 3
+    run_case "seed99_5column_shell_bridge_plus_direct_readout_lr0p005" 99 5 3 2 0.005
+    run_case "seed42_5column_shell_bridge_plus_direct_readout_lr0p005" 42 5 3 2 0.005
+    run_case "seed99_6column_shell_bridge_plus_direct_readout_lr0p0025" 99 6 3 3 0.0025
+    run_case "seed42_6column_shell_bridge_plus_direct_readout_lr0p0025" 42 6 3 3 0.0025
 
     echo "completed_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
     echo "master_log: $master_log"

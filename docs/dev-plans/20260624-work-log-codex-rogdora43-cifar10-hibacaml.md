@@ -1054,6 +1054,90 @@ git diff --check
 
 Result: passed.
 
+## 2026-06-29 Six-Column Capacity Sweep Result
+
+Timestamp and machine: 2026-06-29 22:44:33 EDT on `rogdora43`.
+
+Completed command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_bridge_readout_column_capacity_sweep.sh
+```
+
+Master log:
+
+`results/codex_shell_bridge_readout_column_capacity_sweep_rogdora43_20260629_133952.log`
+
+The tested configuration used six active columns, direct per-column shell readout, per-column shell bridge readout, no backbone bypass, and zero class-energy weight on column and shell teacher heads. `column_shell_paths_only` is the readout path that keeps direct pooled `(column, shell)` edges plus per-column shell bridge edges and removes the legacy `column_pool` edge.
+
+Results:
+
+| Seed | Columns | Test accuracy | Best validation accuracy | Best validation epoch | `column_shell_paths_only` test | `without_outer_shell` test | `outer_shell_only` test |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 99 | 6 | 27.36% | 28.14% | 7 | 27.35% | 25.34% | 10.00% |
+| 42 | 6 | 22.86% | 21.26% | 3 | 22.86% | 25.21% | 10.00% |
+
+Comparison against four active columns:
+
+| Seed | Four-column test | Six-column test | Change |
+| --- | ---: | ---: | ---: |
+| 99 | 24.60% | 27.36% | +2.76 points |
+| 42 | 29.89% | 22.86% | -7.03 points |
+
+Additional readout diagnostics:
+
+| Seed | Direct shell readout only | Shell bridge only | Direct plus bridge |
+| --- | ---: | ---: | ---: |
+| 99 | 12.44% | 21.45% | 27.35% |
+| 42 | 18.31% | 22.12% | 22.86% |
+
+Interpretation:
+
+Six active columns are not a clean capacity improvement. Seed 99 improved, but seed 42 degraded sharply. Both runs selected early validation checkpoints, epoch 7 for seed 99 and epoch 3 for seed 42. The mechanism looks less stable than the four-column direct-plus-bridge runs, whose best validation epochs were 17, 18, and 18.
+
+The collapse criterion also worsened for seed 42. With four columns, removing `outer_shell` from the combined shell path dropped seed-42 test accuracy from 30.01% to 16.29%. With six columns, removing `outer_shell` increased seed-42 test accuracy from 22.86% to 25.21%. That means the larger graph made `outer_shell` harmful in the combined path for that seed, even though `outer_shell` still had stable nonzero norm. Seed 99 still used `outer_shell` constructively, but only weakly: removing it dropped the shell-path test from 27.35% to 25.34%.
+
+Next experimental objective:
+
+Separate active-column count from learning-rate instability. The next sweep tests five active columns at the previous learning rate and six active columns at a lower learning rate. This keeps the same predictive-coding shell bridge plus direct shell readout mechanism and avoids reverting to non-columnar shortcuts.
+
+Added script:
+
+`scripts/run_codex_shell_bridge_readout_capacity_lr_followup.sh`
+
+Planned runs:
+
+1. Seed 99, five active columns, learning rate `0.005`.
+2. Seed 42, five active columns, learning rate `0.005`.
+3. Seed 99, six active columns, learning rate `0.0025`.
+4. Seed 42, six active columns, learning rate `0.0025`.
+
+The decision rule is:
+
+- If five columns improves seed 99 without damaging seed 42, continue capacity search around five columns.
+- If lower learning rate rescues six columns on seed 42, keep six columns and retest seed 7.
+- If neither condition holds, return to four active columns and make the next architectural change inside the shell bridge rather than adding columns.
+
+Pasteable command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_bridge_readout_capacity_lr_followup.sh
+```
+
+Verification:
+
+```bash
+bash -n scripts/run_codex_shell_bridge_readout_capacity_lr_followup.sh
+```
+
+Result: passed.
+
+```bash
+git diff --check
+```
+
+Result: passed.
+
 ## 2026-06-28 Overnight Shell Readout Sweep Result
 
 Timestamp and machine: 2026-06-28 12:21:40 EDT on `rogdora43`.
@@ -1747,3 +1831,60 @@ git diff --check
 ```
 
 Result: passed.
+
+## 2026-06-29 Intra-Column Shell Promotion Implementation
+
+Timestamp and machine: 2026-06-29 22:51:49 EDT on `rogdora43`.
+
+Reason for changing direction:
+
+The six-column capacity run showed that simply adding columns is not a clean next mechanism. Seed 99 improved, but seed 42 degraded, and the six-column seed 42 ablation showed that `outer_shell` could become harmful in the combined shell path. The next architectural change should therefore improve within-column shell coupling before adding more columns.
+
+Implemented mechanism:
+
+Each depth-spanning column now promotes evidence through the ordered shells:
+
+1. `hard_kernel` projects into `inner_shell`.
+2. `inner_shell` projects into `middle_shell`.
+3. `middle_shell` projects into `outer_shell`.
+
+Each promotion is a learned signed matrix from the source shell feature slice to the target shell feature slice. The promotion output is added before shell-wise LayerNorm, so the target shell receives lower-shell evidence while its feature norm remains pinned by the existing normalization path. The promotion matrices are initialized with small normal weights. The three promotion gains are initialized to 0.05, one for each adjacent shell pair.
+
+This is now part of the `DepthSpanningColumnNode` architecture rather than a command-line option. The scope shift is that a depth-spanning column now means a shell-typed column with an intra-column shell cascade, not four independent shell slices mixed only from K, L, and B pathways.
+
+Files changed:
+
+- `columnar_cl_fabricpc/columns/depth_spanning_column.py`: added `SHELL_PROMOTION_PAIRS`, promotion matrix and bias parameters, promotion gains, and the forward-pass cascade.
+- `columnar_cl_fabricpc/columns/__init__.py`: exported `SHELL_PROMOTION_PAIRS`.
+- `scripts/train_cifar10_depth_spanning.py`: records `Shell promotion: enabled` in experiment output.
+- `scripts/run_codex_cifar10_depth_spanning.sh`: records `shell_promotion: on` and includes `shellpromotionon` in result log filenames.
+- `scripts/run_codex_shell_bridge_readout_column_capacity_sweep.sh`: records `shell_promotion: on` in case logs if the superseded capacity script is rerun.
+- `scripts/run_codex_shell_bridge_readout_capacity_lr_followup.sh`: records `shell_promotion: on` in case logs if the capacity learning-rate follow-up is used later.
+- `tests/test_depth_spanning_column.py`: added parameter-shape coverage and a forward test proving that shell promotion changes the column output.
+- `scripts/run_codex_shell_promotion_replicate_sweep.sh`: added the next sequential experiment script.
+
+Verification:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py
+```
+
+Result: 38 passed.
+
+```bash
+bash -n scripts/run_codex_shell_promotion_replicate_sweep.sh scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_bridge_readout_column_capacity_sweep.sh scripts/run_codex_shell_bridge_readout_capacity_lr_followup.sh
+```
+
+Result: passed.
+
+Next experiment:
+
+Run a three-seed replicate of the previous four-column shell bridge plus direct shell readout configuration with shell promotion active inside every column. Seed 99 runs first because it was the weak four-column replicate case. Seed 42 runs second because it was the stable middle case. Seed 7 runs third because it was the strongest replicate case.
+
+Pasteable command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_promotion_replicate_sweep.sh
+```
+
+The capacity learning-rate follow-up script is no longer the recommended next run. It remains useful later if shell promotion improves stability and we return to capacity scaling.

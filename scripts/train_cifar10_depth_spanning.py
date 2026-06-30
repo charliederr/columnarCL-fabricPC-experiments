@@ -1553,6 +1553,7 @@ def train_cifar10_depth_spanning(args):
         f"{name}={end - start}" for name, (start, end) in shell_slices.items()
     )
     print(f"Shell widths: {shell_widths}")
+    print("Shell promotion: enabled")
     print(f"Epochs: {args.num_epochs}")
     print(f"Batch size: {args.batch_size}")
     print(f"Learning rate: {args.lr}")
