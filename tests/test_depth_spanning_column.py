@@ -17,7 +17,7 @@ from fabricpc.core.types import NodeParams
 
 from columnar_cl_fabricpc.columns import (
     SHELL_NAMES,
-    SHELL_PROMOTION_PAIRS,
+    SHELL_EVIDENCE_CASCADE_PAIRS,
     DepthSpanningColumnNode,
     compute_shell_sizes,
     create_depth_spanning_column,
@@ -103,7 +103,7 @@ class TestDepthSpanningColumnNode:
             "middle_shell",
             "outer_shell",
         )
-        assert SHELL_PROMOTION_PAIRS == (
+        assert SHELL_EVIDENCE_CASCADE_PAIRS == (
             ("hard_kernel", "inner_shell"),
             ("inner_shell", "middle_shell"),
             ("middle_shell", "outer_shell"),
@@ -153,30 +153,27 @@ class TestDepthSpanningColumnParams:
         # Shell-specific K/L/B mixer
         assert params.weights["shell_path_scale"].shape == (4, 3)
 
-        # Shell promotion follows the feature widths in SHELL_NAMES order
-        assert params.weights["shell_promotion_hard_kernel_to_inner_shell"].shape == (
-            22,
-            7,
-        )
-        assert params.biases["shell_promotion_b_hard_kernel_to_inner_shell"].shape == (
-            7,
-        )
-        assert params.weights["shell_promotion_inner_shell_to_middle_shell"].shape == (
-            7,
-            14,
-        )
-        assert params.biases["shell_promotion_b_inner_shell_to_middle_shell"].shape == (
-            14,
-        )
-        assert params.weights["shell_promotion_middle_shell_to_outer_shell"].shape == (
-            14,
-            21,
-        )
-        assert params.biases["shell_promotion_b_middle_shell_to_outer_shell"].shape == (
-            21,
-        )
-        assert params.weights["shell_promotion_scale"].shape == (3,)
-        assert jnp.all(params.weights["shell_promotion_scale"] > 0.0)
+        # Shell evidence cascade follows the feature widths in SHELL_NAMES order
+        assert params.weights[
+            "shell_evidence_cascade_hard_kernel_to_inner_shell"
+        ].shape == (22, 7)
+        assert params.biases[
+            "shell_evidence_cascade_b_hard_kernel_to_inner_shell"
+        ].shape == (7,)
+        assert params.weights[
+            "shell_evidence_cascade_inner_shell_to_middle_shell"
+        ].shape == (7, 14)
+        assert params.biases[
+            "shell_evidence_cascade_b_inner_shell_to_middle_shell"
+        ].shape == (14,)
+        assert params.weights[
+            "shell_evidence_cascade_middle_shell_to_outer_shell"
+        ].shape == (14, 21)
+        assert params.biases[
+            "shell_evidence_cascade_b_middle_shell_to_outer_shell"
+        ].shape == (21,)
+        assert params.weights["shell_evidence_cascade_scale"].shape == (3,)
+        assert jnp.all(params.weights["shell_evidence_cascade_scale"] > 0.0)
 
     def test_initialize_params_requires_input_dim(self, rng_key):
         """Should raise if input_dim not in config."""
@@ -483,8 +480,8 @@ class TestDepthSpanningColumnInGraph:
             assert jnp.allclose(jnp.mean(shell, axis=-1), 0.0, atol=1e-5)
             assert jnp.allclose(jnp.var(shell, axis=-1), 1.0, atol=1e-3)
 
-    def test_shell_promotion_affects_forward_output(self, rng_key):
-        """Shell promotion changes later shell outputs inside the column."""
+    def test_shell_evidence_cascade_affects_forward_output(self, rng_key):
+        """Shell evidence cascade changes later shell outputs inside the column."""
         from fabricpc.nodes import IdentityNode
         from fabricpc.graph_assembly import graph, TaskMap
         from fabricpc.core.topology import Edge
@@ -527,49 +524,145 @@ class TestDepthSpanningColumnInGraph:
             "stage4_pool": jax.random.normal(keys[3], (batch_size, 1, 16)),
         }
         node_params = params.nodes["col0"]
-        zero_promotion_params = params._replace(
+        zero_cascade_params = params._replace(
             nodes={
                 **params.nodes,
                 "col0": node_params._replace(
                     weights={
                         **node_params.weights,
-                        "shell_promotion_scale": jnp.zeros((3,)),
+                        "shell_evidence_cascade_scale": jnp.zeros((3,)),
                     }
                 ),
             }
         )
-        strong_promotion_weights = {
+        strong_cascade_weights = {
             **node_params.weights,
-            "shell_promotion_scale": jnp.ones((3,)),
-            "shell_promotion_hard_kernel_to_inner_shell": jnp.full((4, 4), 0.25),
-            "shell_promotion_inner_shell_to_middle_shell": jnp.full((4, 4), 0.25),
-            "shell_promotion_middle_shell_to_outer_shell": jnp.full((4, 4), 0.25),
+            "shell_evidence_cascade_scale": jnp.ones((3,)),
+            "shell_evidence_cascade_hard_kernel_to_inner_shell": jnp.full(
+                (4, 4), 0.25
+            ),
+            "shell_evidence_cascade_inner_shell_to_middle_shell": jnp.full(
+                (4, 4), 0.25
+            ),
+            "shell_evidence_cascade_middle_shell_to_outer_shell": jnp.full(
+                (4, 4), 0.25
+            ),
         }
-        strong_promotion_params = params._replace(
+        strong_cascade_params = params._replace(
             nodes={
                 **params.nodes,
-                "col0": node_params._replace(weights=strong_promotion_weights),
+                "col0": node_params._replace(weights=strong_cascade_weights),
             }
         )
 
-        state_without_promotion = initialize_graph_state(
+        state_without_cascade = initialize_graph_state(
             structure=structure,
             batch_size=batch_size,
             rng_key=keys[4],
             clamps=clamps,
-            params=zero_promotion_params,
+            params=zero_cascade_params,
         )
-        state_with_promotion = initialize_graph_state(
+        state_with_cascade = initialize_graph_state(
             structure=structure,
             batch_size=batch_size,
             rng_key=keys[4],
             clamps=clamps,
-            params=strong_promotion_params,
+            params=strong_cascade_params,
         )
 
         assert not jnp.allclose(
-            state_without_promotion.nodes["col0"].z_mu,
-            state_with_promotion.nodes["col0"].z_mu,
+            state_without_cascade.nodes["col0"].z_mu,
+            state_with_cascade.nodes["col0"].z_mu,
+        )
+
+    def test_shell_inhibition_strengths_affect_forward_output(self, rng_key):
+        """Same-tier shell inhibition changes the column output."""
+        from fabricpc.nodes import IdentityNode
+        from fabricpc.graph_assembly import graph, TaskMap
+        from fabricpc.core.topology import Edge
+        from fabricpc.core.inference import InferenceSGD
+        from fabricpc.graph_initialization import initialize_params
+        from fabricpc.graph_initialization.state_initializer import (
+            initialize_graph_state,
+        )
+
+        stage2 = IdentityNode(shape=(4, 16), name="stage2")
+        stage3 = IdentityNode(shape=(4, 16), name="stage3")
+        stage4 = IdentityNode(shape=(4, 16), name="stage4")
+        stage4_pool = IdentityNode(shape=(1, 16), name="stage4_pool")
+        column_without_inhibition = create_depth_spanning_column(
+            name="col0",
+            input_dim=16,
+            output_dim=16,
+            microcolumn_dim=8,
+            grid_size=(2, 2),
+            shell_proportions=(1, 1, 1, 1),
+            shell_inhibition_strengths=(0.0, 0.0, 0.0, 0.0),
+        )
+        column_with_inhibition = create_depth_spanning_column(
+            name="col1",
+            input_dim=16,
+            output_dim=16,
+            microcolumn_dim=8,
+            grid_size=(2, 2),
+            shell_proportions=(1, 1, 1, 1),
+            shell_inhibition_strengths=(0.0, 0.35, 0.22, 0.10),
+        )
+        structure = graph(
+            nodes=[
+                stage2,
+                stage3,
+                stage4,
+                stage4_pool,
+                column_without_inhibition,
+                column_with_inhibition,
+            ],
+            edges=[
+                Edge(source=stage2, target=column_without_inhibition.slot("stage2")),
+                Edge(source=stage3, target=column_without_inhibition.slot("stage3")),
+                Edge(source=stage4, target=column_without_inhibition.slot("stage4")),
+                Edge(
+                    source=stage4_pool,
+                    target=column_without_inhibition.slot("stage4_pool"),
+                ),
+                Edge(source=stage2, target=column_with_inhibition.slot("stage2")),
+                Edge(source=stage3, target=column_with_inhibition.slot("stage3")),
+                Edge(source=stage4, target=column_with_inhibition.slot("stage4")),
+                Edge(
+                    source=stage4_pool,
+                    target=column_with_inhibition.slot("stage4_pool"),
+                ),
+            ],
+            task_map=TaskMap(x=stage2),
+            inference=InferenceSGD(),
+        )
+        params = initialize_params(structure, rng_key)
+        params = params._replace(
+            nodes={
+                **params.nodes,
+                "col1": params.nodes["col0"],
+            }
+        )
+        keys = jax.random.split(rng_key, 5)
+        batch_size = 2
+        clamps = {
+            "stage2": jax.random.normal(keys[0], (batch_size, 4, 16)),
+            "stage3": jax.random.normal(keys[1], (batch_size, 4, 16)),
+            "stage4": jax.random.normal(keys[2], (batch_size, 4, 16)),
+            "stage4_pool": jax.random.normal(keys[3], (batch_size, 1, 16)),
+        }
+
+        state = initialize_graph_state(
+            structure=structure,
+            batch_size=batch_size,
+            rng_key=keys[4],
+            clamps=clamps,
+            params=params,
+        )
+
+        assert not jnp.allclose(
+            state.nodes["col0"].z_mu,
+            state.nodes["col1"].z_mu,
         )
 
 

@@ -5,7 +5,7 @@ repo_root="/home/ni/repos/fpc/columnarCL-fabricPC-experiments"
 python_bin="${FPC_PYTHON:-/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
-master_log="${repo_root}/results/codex_shellpromotion_shell_bridge_readout_capacity_lr_followup_${hostname_value}_${timestamp}.log"
+master_log="${repo_root}/results/codex_shelldynamics_shell_bridge_readout_capacity_lr_followup_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -25,7 +25,7 @@ run_case() {
     local lr="$6"
     local lr_label
     lr_label="$(label_value "$lr")"
-    local log_path="${repo_root}/results/codex_resnet18_shellpromotionon_${num_columns}col_colshellreadouton_colshellbridgeon_zero_teacher_seed${seed}_lr${lr_label}_ep20_shells_${hostname_value}_$(date +%Y%m%d_%H%M%S).log"
+    local log_path="${repo_root}/results/codex_resnet18_shelldynamicson_${num_columns}col_colshellreadouton_colshellbridgeon_zero_teacher_seed${seed}_lr${lr_label}_ep20_shells_${hostname_value}_$(date +%Y%m%d_%H%M%S).log"
 
     echo "======================================================================"
     echo "Starting case=$case_name at $(date '+%Y-%m-%d %H:%M:%S %Z')"
@@ -40,7 +40,9 @@ run_case() {
     echo "column_shell_teacher_weights: 0,0,0,0"
     echo "column_shell_readout: on"
     echo "column_shell_bridge: on"
-    echo "shell_promotion: on"
+    echo "shell_evidence_cascade: on"
+    echo "shell_evidence_cascade_scale: 0.05,0.05,0.05"
+    echo "shell_inhibition_strengths: 0,0.35,0.22,0.10"
     echo "readout_mode: nobypass"
     echo "log_path: $log_path"
     echo "======================================================================"
@@ -57,7 +59,9 @@ run_case() {
         echo "num_shared: $num_shared"
         echo "active_nonshared: $active_nonshared"
         echo "lr: $lr"
-        echo "shell_promotion: on"
+        echo "shell_evidence_cascade: on"
+        echo "shell_evidence_cascade_scale: 0.05,0.05,0.05"
+        echo "shell_inhibition_strengths: 0,0.35,0.22,0.10"
         "$python_bin" -c "import jax; print(jax.devices()); print(jax.default_backend())"
         "$python_bin" scripts/train_cifar10_depth_spanning.py \
             --model resnet18 \
@@ -100,7 +104,9 @@ run_case() {
     echo "git_status:"
     git status --short --branch
     echo "python: $python_bin"
-    echo "shell_promotion: on"
+    echo "shell_evidence_cascade: on"
+    echo "shell_evidence_cascade_scale: 0.05,0.05,0.05"
+    echo "shell_inhibition_strengths: 0,0.35,0.22,0.10"
     echo "started_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
     echo
     echo "planned_cases:"

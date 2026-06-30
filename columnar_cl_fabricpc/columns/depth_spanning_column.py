@@ -75,9 +75,10 @@ from fabricpc.utils.helpers import layernorm
 
 
 SHELL_NAMES = ("hard_kernel", "inner_shell", "middle_shell", "outer_shell")
-SHELL_PROMOTION_PAIRS = tuple(zip(SHELL_NAMES[:-1], SHELL_NAMES[1:]))
+SHELL_EVIDENCE_CASCADE_PAIRS = tuple(zip(SHELL_NAMES[:-1], SHELL_NAMES[1:]))
 DEFAULT_SHELL_PROPORTIONS = (32, 10, 20, 30)
-DEFAULT_SHELL_PROMOTION_SCALE = (0.05, 0.05, 0.05)
+DEFAULT_SHELL_EVIDENCE_CASCADE_SCALE = (0.05, 0.05, 0.05)
+DEFAULT_SHELL_INHIBITION_STRENGTHS = (0.0, 0.35, 0.22, 0.10)
 DEFAULT_SHELL_PATH_MASK = np.asarray(
     [
         [1.0, 0.0, 0.0],
@@ -151,24 +152,33 @@ def default_shell_path_scale() -> jnp.ndarray:
     return jnp.asarray(DEFAULT_SHELL_PATH_MASK / np.sqrt(row_counts), dtype=jnp.float32)
 
 
-def default_shell_promotion_scale() -> jnp.ndarray:
+def default_shell_evidence_cascade_scale() -> jnp.ndarray:
     """
-    Initial shell promotion gains.
+    Initial outward shell evidence-cascade gains.
 
     Entries correspond to hard-kernel to inner-shell, inner-shell to middle-shell,
-    and middle-shell to outer-shell promotion.
+    and middle-shell to outer-shell evidence flow.
     """
-    return jnp.asarray(DEFAULT_SHELL_PROMOTION_SCALE, dtype=jnp.float32)
+    return jnp.asarray(DEFAULT_SHELL_EVIDENCE_CASCADE_SCALE, dtype=jnp.float32)
 
 
-def shell_promotion_weight_name(source_shell: str, target_shell: str) -> str:
-    """Return the parameter name for one shell-to-shell promotion matrix."""
-    return f"shell_promotion_{source_shell}_to_{target_shell}"
+def default_shell_inhibition_strengths() -> jnp.ndarray:
+    """
+    Initial same-tier inhibition strengths.
+
+    Entries correspond to hard kernel, inner shell, middle shell, and outer shell.
+    """
+    return jnp.asarray(DEFAULT_SHELL_INHIBITION_STRENGTHS, dtype=jnp.float32)
 
 
-def shell_promotion_bias_name(source_shell: str, target_shell: str) -> str:
-    """Return the parameter name for one shell-to-shell promotion bias."""
-    return f"shell_promotion_b_{source_shell}_to_{target_shell}"
+def shell_evidence_cascade_weight_name(source_shell: str, target_shell: str) -> str:
+    """Return the parameter name for one outward shell evidence matrix."""
+    return f"shell_evidence_cascade_{source_shell}_to_{target_shell}"
+
+
+def shell_evidence_cascade_bias_name(source_shell: str, target_shell: str) -> str:
+    """Return the parameter name for one outward shell evidence bias."""
+    return f"shell_evidence_cascade_b_{source_shell}_to_{target_shell}"
 
 
 def _hidden_activation(x: jax.Array, activation_name: str, leaky_alpha: float) -> jax.Array:
@@ -209,6 +219,46 @@ def _shellwise_layernorm(
             shell_beta = beta[start:end]
         normalized.append(layernorm(shell_output, shell_gamma, shell_beta))
     return tuple(normalized)
+
+
+def _same_tier_inhibition(
+    shell_output: jax.Array,
+    strength: jax.Array,
+) -> jax.Array:
+    """
+    Suppress crowded same-shell activations.
+
+    `strength` is the inhibition coefficient for one shell tier. Each feature's
+    magnitude is reduced by the mean magnitude of the other features in the
+    same tier, while the feature sign is preserved.
+    """
+    width = shell_output.shape[-1]
+    if width <= 1:
+        return shell_output
+    magnitude = jnp.abs(shell_output)
+    other_mean = (jnp.sum(magnitude, axis=-1, keepdims=True) - magnitude) / float(
+        width - 1
+    )
+    inhibited_magnitude = jax.nn.relu(magnitude - strength * other_mean)
+    return jnp.sign(shell_output) * inhibited_magnitude
+
+
+def _apply_pathway_shell_inhibition(
+    pathway_output: jax.Array,
+    shell_slices: Dict[str, Tuple[int, int]],
+    inhibition_strengths: Tuple[float, float, float, float],
+) -> jax.Array:
+    """Apply same-tier inhibition independently to each shell of one pathway."""
+    inhibited_shells = []
+    for shell_idx, shell_name in enumerate(SHELL_NAMES):
+        start, end = shell_slices[shell_name]
+        inhibited_shells.append(
+            _same_tier_inhibition(
+                pathway_output[..., start:end],
+                jnp.asarray(inhibition_strengths[shell_idx], dtype=pathway_output.dtype),
+            )
+        )
+    return jnp.concatenate(inhibited_shells, axis=-1)
 
 
 class DepthSpanningColumnNode(NodeBase):
@@ -253,6 +303,12 @@ class DepthSpanningColumnNode(NodeBase):
         hidden_activation: str = "leaky_relu",
         leaky_alpha: float = 0.1,
         shell_proportions: Tuple[int, int, int, int] = DEFAULT_SHELL_PROPORTIONS,
+        shell_evidence_cascade_scale: Tuple[
+            float, float, float
+        ] = DEFAULT_SHELL_EVIDENCE_CASCADE_SCALE,
+        shell_inhibition_strengths: Tuple[
+            float, float, float, float
+        ] = DEFAULT_SHELL_INHIBITION_STRENGTHS,
         apply_layer_norm: bool = False,
         fix_ln_gamma: bool = False,
         activation: Optional[ActivationBase] = IdentityActivation(),
@@ -273,6 +329,10 @@ class DepthSpanningColumnNode(NodeBase):
             leaky_alpha: Alpha for leaky ReLU
             shell_proportions: Relative output widths for hard kernel, inner shell,
                 middle shell, and outer shell
+            shell_evidence_cascade_scale: Initial outward evidence gains for
+                adjacent shell pairs
+            shell_inhibition_strengths: Same-tier inhibition coefficients in
+                hard kernel, inner shell, middle shell, and outer shell order
             activation: Output activation
             energy: Energy functional
             weight_init: Weight initializer
@@ -290,6 +350,16 @@ class DepthSpanningColumnNode(NodeBase):
                 f"shape[0]={tokens} != grid_size product {expected_tokens}"
             )
         compute_shell_sizes(output_dim, shell_proportions)
+        if len(shell_evidence_cascade_scale) != len(SHELL_EVIDENCE_CASCADE_PAIRS):
+            raise ValueError(
+                "shell_evidence_cascade_scale must have three entries"
+            )
+        if len(shell_inhibition_strengths) != len(SHELL_NAMES):
+            raise ValueError("shell_inhibition_strengths must have four entries")
+        if any(value < 0.0 for value in shell_evidence_cascade_scale):
+            raise ValueError("shell_evidence_cascade_scale entries must be non-negative")
+        if any(value < 0.0 for value in shell_inhibition_strengths):
+            raise ValueError("shell_inhibition_strengths entries must be non-negative")
 
         super().__init__(
             shape=shape,
@@ -304,6 +374,8 @@ class DepthSpanningColumnNode(NodeBase):
             hidden_activation=hidden_activation,
             leaky_alpha=leaky_alpha,
             shell_proportions=shell_proportions,
+            shell_evidence_cascade_scale=shell_evidence_cascade_scale,
+            shell_inhibition_strengths=shell_inhibition_strengths,
             apply_layer_norm=apply_layer_norm,
             fix_ln_gamma=fix_ln_gamma,
         )
@@ -356,7 +428,7 @@ class DepthSpanningColumnNode(NodeBase):
             - B_W_out: μd → output_dim
 
         shell_path_scale: Learnable shell-specific weights for combining K, L, and B
-        shell_promotion_*: Learned projections from each shell into the next shell
+        shell_evidence_cascade_*: Learned projections from each shell into the next shell
         """
         if config is None:
             config = {}
@@ -445,20 +517,28 @@ class DepthSpanningColumnNode(NodeBase):
             tuple(config.get("shell_proportions", DEFAULT_SHELL_PROPORTIONS)),
         )
         shell_size_map = dict(zip(SHELL_NAMES, shell_sizes))
-        promotion_init = NormalInitializer(std=0.02)
-        for source_shell, target_shell in SHELL_PROMOTION_PAIRS:
+        cascade_init = NormalInitializer(std=0.02)
+        for source_shell, target_shell in SHELL_EVIDENCE_CASCADE_PAIRS:
             source_width = shell_size_map[source_shell]
             target_width = shell_size_map[target_shell]
-            weights[shell_promotion_weight_name(source_shell, target_shell)] = initialize(
+            weights[
+                shell_evidence_cascade_weight_name(source_shell, target_shell)
+            ] = initialize(
                 keys[ki],
                 (source_width, target_width),
-                promotion_init,
+                cascade_init,
             )
-            biases[shell_promotion_bias_name(source_shell, target_shell)] = jnp.zeros(
-                (target_width,)
-            )
+            biases[
+                shell_evidence_cascade_bias_name(source_shell, target_shell)
+            ] = jnp.zeros((target_width,))
             ki += 1
-        weights["shell_promotion_scale"] = default_shell_promotion_scale()
+        weights["shell_evidence_cascade_scale"] = jnp.asarray(
+            config.get(
+                "shell_evidence_cascade_scale",
+                DEFAULT_SHELL_EVIDENCE_CASCADE_SCALE,
+            ),
+            dtype=jnp.float32,
+        )
 
         # Optional LayerNorm on the combined output along the output_dim axis
         if config.get("apply_layer_norm", False) and not config.get("fix_ln_gamma", False):
@@ -488,6 +568,12 @@ class DepthSpanningColumnNode(NodeBase):
         leaky_alpha = config.get("leaky_alpha", 0.1)
         shell_proportions = tuple(
             config.get("shell_proportions", DEFAULT_SHELL_PROPORTIONS)
+        )
+        shell_inhibition_strengths = tuple(
+            config.get(
+                "shell_inhibition_strengths",
+                DEFAULT_SHELL_INHIBITION_STRENGTHS,
+            )
         )
 
         # Extract inputs by slot name
@@ -578,6 +664,21 @@ class DepthSpanningColumnNode(NodeBase):
         shell_path_mask = jnp.asarray(DEFAULT_SHELL_PATH_MASK, dtype=k_out.dtype)
         shell_path_scale = params.weights["shell_path_scale"] * shell_path_mask
         shell_slices = get_shell_slices(k_out.shape[-1], shell_proportions)
+        k_out = _apply_pathway_shell_inhibition(
+            k_out,
+            shell_slices,
+            shell_inhibition_strengths,
+        )
+        l_out = _apply_pathway_shell_inhibition(
+            l_out,
+            shell_slices,
+            shell_inhibition_strengths,
+        )
+        b_out = _apply_pathway_shell_inhibition(
+            b_out,
+            shell_slices,
+            shell_inhibition_strengths,
+        )
         shell_outputs = []
         for shell_idx, shell_name in enumerate(SHELL_NAMES):
             start, end = shell_slices[shell_name]
@@ -587,25 +688,29 @@ class DepthSpanningColumnNode(NodeBase):
                 + shell_path_scale[shell_idx, 2] * b_out[..., start:end]
             )
 
-        # Promotion is an intra-column shell cascade. Each shell sends signed
-        # evidence to the next shell before shell-wise normalization.
-        for promotion_idx, (source_shell, target_shell) in enumerate(
-            SHELL_PROMOTION_PAIRS
+        # The evidence cascade is an outward shell-to-shell communication path.
+        # It is distinct from HiBaCaML consolidation, which moves reusable
+        # material inward under multi-task evidence.
+        for cascade_idx, (source_shell, target_shell) in enumerate(
+            SHELL_EVIDENCE_CASCADE_PAIRS
         ):
             source_idx = SHELL_NAMES.index(source_shell)
             target_idx = SHELL_NAMES.index(target_shell)
-            promoted = (
+            cascaded = (
                 jnp.matmul(
                     shell_outputs[source_idx],
                     params.weights[
-                        shell_promotion_weight_name(source_shell, target_shell)
+                        shell_evidence_cascade_weight_name(source_shell, target_shell)
                     ],
                 )
-                + params.biases[shell_promotion_bias_name(source_shell, target_shell)]
+                + params.biases[
+                    shell_evidence_cascade_bias_name(source_shell, target_shell)
+                ]
             )
             shell_outputs[target_idx] = (
                 shell_outputs[target_idx]
-                + params.weights["shell_promotion_scale"][promotion_idx] * promoted
+                + params.weights["shell_evidence_cascade_scale"][cascade_idx]
+                * cascaded
             )
 
         # Optional shell-wise LayerNorm pins each typed slice independently.
@@ -650,6 +755,12 @@ def create_depth_spanning_column(
     grid_size: Tuple[int, int] = (8, 8),
     hidden_activation: str = "leaky_relu",
     shell_proportions: Tuple[int, int, int, int] = DEFAULT_SHELL_PROPORTIONS,
+    shell_evidence_cascade_scale: Tuple[
+        float, float, float
+    ] = DEFAULT_SHELL_EVIDENCE_CASCADE_SCALE,
+    shell_inhibition_strengths: Tuple[
+        float, float, float, float
+    ] = DEFAULT_SHELL_INHIBITION_STRENGTHS,
     apply_layer_norm: bool = False,
     fix_ln_gamma: bool = False,
 ) -> DepthSpanningColumnNode:
@@ -665,6 +776,9 @@ def create_depth_spanning_column(
         hidden_activation: Activation for hidden layers
         shell_proportions: Relative output widths for hard kernel, inner shell,
             middle shell, and outer shell
+        shell_evidence_cascade_scale: Initial outward evidence gains for
+            adjacent shell pairs
+        shell_inhibition_strengths: Same-tier inhibition coefficients in shell order
         apply_layer_norm: If True, LayerNorm the column output along output_dim
         fix_ln_gamma: If True (and apply_layer_norm), gamma/beta are non-learnable
             scalar 1.0 / 0.0
@@ -681,6 +795,8 @@ def create_depth_spanning_column(
         grid_size=grid_size,
         hidden_activation=hidden_activation,
         shell_proportions=shell_proportions,
+        shell_evidence_cascade_scale=shell_evidence_cascade_scale,
+        shell_inhibition_strengths=shell_inhibition_strengths,
         apply_layer_norm=apply_layer_norm,
         fix_ln_gamma=fix_ln_gamma,
     )
@@ -694,6 +810,12 @@ def create_depth_spanning_column_pool(
     grid_size: Tuple[int, int] = (8, 8),
     hidden_activation: str = "leaky_relu",
     shell_proportions: Tuple[int, int, int, int] = DEFAULT_SHELL_PROPORTIONS,
+    shell_evidence_cascade_scale: Tuple[
+        float, float, float
+    ] = DEFAULT_SHELL_EVIDENCE_CASCADE_SCALE,
+    shell_inhibition_strengths: Tuple[
+        float, float, float, float
+    ] = DEFAULT_SHELL_INHIBITION_STRENGTHS,
     name_prefix: str = "col",
 ) -> Dict[str, DepthSpanningColumnNode]:
     """
@@ -708,6 +830,9 @@ def create_depth_spanning_column_pool(
         hidden_activation: Activation for hidden layers
         shell_proportions: Relative output widths for hard kernel, inner shell,
             middle shell, and outer shell
+        shell_evidence_cascade_scale: Initial outward evidence gains for
+            adjacent shell pairs
+        shell_inhibition_strengths: Same-tier inhibition coefficients in shell order
         name_prefix: Prefix for column names
 
     Returns:
@@ -724,5 +849,7 @@ def create_depth_spanning_column_pool(
             grid_size=grid_size,
             hidden_activation=hidden_activation,
             shell_proportions=shell_proportions,
+            shell_evidence_cascade_scale=shell_evidence_cascade_scale,
+            shell_inhibition_strengths=shell_inhibition_strengths,
         )
     return columns

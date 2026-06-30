@@ -32,7 +32,7 @@ from columnar_cl_fabricpc.columns.stage_taps import (
 )
 from columnar_cl_fabricpc.columns.depth_spanning_column import (
     DEFAULT_SHELL_PROPORTIONS,
-    SHELL_PROMOTION_PAIRS,
+    SHELL_EVIDENCE_CASCADE_PAIRS,
     SHELL_NAMES,
     DepthSpanningColumnNode,
     compute_shell_sizes,
@@ -64,7 +64,7 @@ __all__ = [
     "GlobalAvgPoolNormNode",
     "GlobalPoolNode",
     "PatchEmbedNode",
-    "SHELL_PROMOTION_PAIRS",
+    "SHELL_EVIDENCE_CASCADE_PAIRS",
     "SHELL_NAMES",
     "StageTapTokenizer",
     "compute_shell_sizes",

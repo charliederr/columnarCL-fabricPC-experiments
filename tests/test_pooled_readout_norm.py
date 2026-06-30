@@ -36,6 +36,8 @@ from scripts.train_cifar10_depth_spanning import (
     node_input_edge_sources,
     output_input_edge_sources,
     parse_shell_teacher_weights,
+    parse_shell_evidence_cascade_scale,
+    parse_shell_inhibition_strengths,
     shell_slice_node_name,
     shell_teacher_node_name,
     shell_teacher_target_name,
@@ -198,6 +200,8 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         column_shell_teacher_weights="0,0,0,0",
         column_shell_readout=False,
         column_shell_bridge=False,
+        shell_evidence_cascade_scale="0.05,0.05,0.05",
+        shell_inhibition_strengths="0,0.35,0.22,0.10",
         infer_steps=2,
         eta_infer=0.1,
         infer_max_norm=1.0,
@@ -220,6 +224,35 @@ def test_parse_shell_teacher_weights_maps_values_in_shell_order() -> None:
         parse_shell_teacher_weights("0.1,0.2")
     with pytest.raises(ValueError):
         parse_shell_teacher_weights("0.1,-0.2,0.3,0.4")
+
+
+def test_parse_shell_inhibition_strengths_maps_values_in_shell_order() -> None:
+    """Shell inhibition strengths are parsed in the architecture's shell order."""
+    strengths = parse_shell_inhibition_strengths("0,0.35,0.22,0.10")
+
+    assert [strengths[shell_name] for shell_name in SHELL_NAMES] == [
+        0.0,
+        0.35,
+        0.22,
+        0.10,
+    ]
+    with pytest.raises(ValueError):
+        parse_shell_inhibition_strengths("0.1,0.2")
+    with pytest.raises(ValueError):
+        parse_shell_inhibition_strengths("0.1,-0.2,0.3,0.4")
+
+
+def test_parse_shell_evidence_cascade_scale_maps_adjacent_pairs() -> None:
+    """Evidence-cascade scale has one value per adjacent shell pair."""
+    assert parse_shell_evidence_cascade_scale("0.05,0.025,0.01") == (
+        0.05,
+        0.025,
+        0.01,
+    )
+    with pytest.raises(ValueError):
+        parse_shell_evidence_cascade_scale("0.1,0.2")
+    with pytest.raises(ValueError):
+        parse_shell_evidence_cascade_scale("0.1,-0.2,0.3")
 
 
 def test_depth_spanning_graph_routes_raw_column_pool_to_output() -> None:

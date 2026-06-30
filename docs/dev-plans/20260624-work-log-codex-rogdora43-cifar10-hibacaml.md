@@ -1888,3 +1888,110 @@ cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_
 ```
 
 The capacity learning-rate follow-up script is no longer the recommended next run. It remains useful later if shell promotion improves stability and we return to capacity scaling.
+
+## 2026-06-30 Shell Promotion Sweep Result and HiBaCaML Paper Recheck
+
+Timestamp and machine: 2026-06-30 EDT on `rogdora43`.
+
+Completed command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_promotion_replicate_sweep.sh
+```
+
+Master log:
+
+`results/codex_shell_promotion_replicate_sweep_rogdora43_20260629_225631.log`
+
+The tested configuration used four active columns, direct per-column shell readout, per-column shell bridge readout, no backbone bypass, zero class-energy weight on column and shell teacher heads, and the newly implemented intra-column shell cascade. CIFAR-10 chance accuracy is 10 percent.
+
+Results:
+
+| Seed | Test accuracy | Best validation accuracy | Best validation epoch | `column_shell_paths_only` test | `without_outer_shell` test | `outer_shell_only` test |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 99 | 27.91% | 29.32% | 19 | 28.13% | 23.34% | 10.00% |
+| 42 | 29.31% | 28.86% | 17 | 29.03% | 16.27% | 10.00% |
+| 7 | 28.17% | 28.20% | 10 | 27.87% | 22.05% | 10.00% |
+
+Comparison against the previous four-column bridge plus direct shell readout replicate:
+
+| Setting | Mean test accuracy | Test accuracy range |
+| --- | ---: | ---: |
+| No shell cascade | 29.37% | 9.02 points |
+| Shell cascade | 28.46% | 1.40 points |
+
+Interpretation:
+
+The shell cascade reduced seed-to-seed spread substantially, but it also lowered mean accuracy by 0.91 points and removed the high seed-7 result. This is a stability gain and an accuracy tradeoff rather than a collapse. `outer_shell` remained contextually useful in the combined shell pathway: removing `outer_shell` dropped `column_shell_paths_only` by 4.79 points on seed 99, 12.76 points on seed 42, and 5.82 points on seed 7. `outer_shell` was still not independently class-readable because `column_shell_paths_outer_shell_only` stayed at CIFAR-10 chance accuracy on all three seeds.
+
+Paper recheck:
+
+Re-reading `hibacaml_agi26.pdf` changes the architectural interpretation. The paper defines shell semantics radially: inner shells hold reusable abstraction, middle shells hold stabilizing semi-general structure, and outer shells hold task-local exploratory residue. It also says that promotion moves outer material inward during consolidation, while demotion moves stale material outward during controlled forgetting. The implemented shell cascade ran in the opposite direction: `hard_kernel -> inner_shell -> middle_shell -> outer_shell`. That is an outward evidence cascade, not the paper's consolidation dynamic.
+
+The current code is still useful as an experiment because it showed that coupling shells can stabilize seed behavior and preserve contextual `outer_shell` use. But it should not be described as faithful HiBaCaML shell promotion. The next implementation should replace outward cascade thinking with ColBa-style shell dynamics:
+
+1. Make shell interaction semantics explicit in each typed microcolumn K, L, and B rather than only after the K/L/B outputs are mixed into one feature axis.
+2. Implement same-tier inhibition, where features within the same shell tier compete so overlapping causal footprints are not double-counted.
+3. Implement inward consolidation as rare outer-to-middle-to-inner movement, gated by evidence that a feature is reusable rather than merely useful for the current task.
+4. Implement outward demotion as the path for stale or over-specialized inner material to move toward the outer shell.
+5. Keep pruning conservative for CIFAR-10: outer shell only after warmup, middle shell only at boundaries, inner shell not at all in the initial regime.
+
+Recommendation:
+
+Do not tune the current outward cascade gain as the next main experiment. The next main step should be to correct the shell dynamics toward the paper: typed microcolumn shell tiers plus same-tier inhibition first, then rare inward consolidation. For plain CIFAR-10, where there is not yet multi-task evidence, the most faithful first mechanism is same-tier inhibition and shell precision, not active promotion. Promotion should become meaningful after there is either multi-task evidence or a carefully defined proxy for reusable evidence across augmentations and epochs.
+
+## 2026-06-30 Folded Shell Dynamics Implementation
+
+Timestamp and machine: 2026-06-30 08:07:43 EDT on `rogdora43`.
+
+Direction update:
+
+The useful part of the previous outward shell cascade is shell-to-shell communication and skip-like evidence flow. The paper-faithful correction is that this path should not be called consolidation or promotion. In ColBa terminology, promotion is outer-to-inner movement under evidence that material has become reusable. The outward path is now treated as an auxiliary evidence cascade, while the next paper-aligned mechanism is same-tier inhibition inside each typed K, L, and B pathway.
+
+Implemented mechanism:
+
+- Renamed the outward `hard_kernel -> inner_shell -> middle_shell -> outer_shell` mechanism to `shell_evidence_cascade`.
+- Added `shell_evidence_cascade_scale`, a three-value initial gain for adjacent outward shell pairs. The default remains `0.05,0.05,0.05` so the prior experiment's useful stabilizing path remains present.
+- Added `shell_inhibition_strengths`, a four-value same-tier inhibition vector in hard-kernel, inner-shell, middle-shell, and outer-shell order. The default is `0,0.35,0.22,0.10`, matching the CIFAR shell-dynamics values in the paper with no inhibition applied to the protected hard kernel.
+- Applied same-tier inhibition separately inside each K, L, and B pathway before shell-specific K/L/B mixing. This is closer to the paper than applying inhibition only after K, L, and B have already been merged.
+- Removed `scripts/run_codex_shell_promotion_replicate_sweep.sh` because the name is now misleading. The completed historical experiment remains documented above.
+- Added `scripts/run_codex_shell_dynamics_replicate_sweep.sh` for the next experiment.
+
+Mechanism details:
+
+For one shell tier, the inhibition step computes each feature's magnitude and subtracts `gamma` times the mean magnitude of the other features in the same shell tier, where `gamma` is the shell's inhibition strength. The feature sign is preserved and negative magnitudes are clipped to zero. This creates same-tier competition without ordinary backprop-specific machinery and keeps the implementation inside the predictive-coding graph.
+
+Verification:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile columnar_cl_fabricpc/columns/depth_spanning_column.py scripts/train_cifar10_depth_spanning.py tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py
+```
+
+Result: 41 passed.
+
+```bash
+bash -n scripts/run_codex_shell_dynamics_replicate_sweep.sh scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_bridge_readout_column_capacity_sweep.sh scripts/run_codex_shell_bridge_readout_capacity_lr_followup.sh
+```
+
+Result: passed.
+
+Next experiment:
+
+Run the same three-seed four-column bridge plus direct shell readout replicate, now with outward evidence cascade plus paper-aligned same-tier inhibition. The key comparison is against both the no-cascade replicate and the outward-cascade replicate:
+
+- Collapse check: `column_shell_paths_only` should remain above chance on every seed.
+- `outer_shell` check: removing `outer_shell` from `column_shell_paths_only` should still damage accuracy.
+- Stability check: the test accuracy range should stay closer to the shell-cascade run than to the no-cascade run.
+- Accuracy check: mean test accuracy should recover some of the 0.91-point drop from the shell-cascade run.
+
+Pasteable command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_dynamics_replicate_sweep.sh
+```

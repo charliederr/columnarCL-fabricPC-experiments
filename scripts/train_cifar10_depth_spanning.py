@@ -89,6 +89,8 @@ COLUMN_TEACHER_TARGET = "column_y"
 COLUMN_TEACHER_NODE = "column_teacher_output"
 SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 COLUMN_SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
+SHELL_EVIDENCE_CASCADE_DEFAULT_SCALE = "0.05,0.05,0.05"
+SHELL_INHIBITION_DEFAULT_STRENGTHS = "0,0.35,0.22,0.10"
 
 
 def shell_slice_node_name(shell_name: str) -> str:
@@ -166,12 +168,13 @@ def is_column_shell_bridge_node(node_name: str) -> bool:
     return node_name.startswith("column") and node_name.endswith("_shell_bridge")
 
 
-def parse_shell_teacher_weights(
+def parse_shell_ordered_values(
     value: str,
-    flag_name: str = "--shell_teacher_weights",
+    flag_name: str,
+    value_name: str,
 ) -> Dict[str, float]:
     """
-    Parse shell-local teacher weights in `SHELL_NAMES` order.
+    Parse non-negative values in `SHELL_NAMES` order.
 
     The expected string is four comma-separated floats: hard-kernel,
     inner-shell, middle-shell, and outer-shell.
@@ -186,9 +189,49 @@ def parse_shell_teacher_weights(
     for shell_name, piece in zip(SHELL_NAMES, pieces):
         weight = float(piece)
         if weight < 0.0:
-            raise ValueError(f"Shell teacher weight for {shell_name} must be >= 0")
+            raise ValueError(f"{value_name} for {shell_name} must be >= 0")
         weights[shell_name] = weight
     return weights
+
+
+def parse_shell_teacher_weights(
+    value: str,
+    flag_name: str = "--shell_teacher_weights",
+) -> Dict[str, float]:
+    """Parse shell-local teacher weights in `SHELL_NAMES` order."""
+    return parse_shell_ordered_values(
+        value,
+        flag_name=flag_name,
+        value_name="Shell teacher weight",
+    )
+
+
+def parse_shell_inhibition_strengths(value: str) -> Dict[str, float]:
+    """Parse same-tier inhibition strengths in `SHELL_NAMES` order."""
+    return parse_shell_ordered_values(
+        value,
+        flag_name="--shell_inhibition_strengths",
+        value_name="Shell inhibition strength",
+    )
+
+
+def parse_shell_evidence_cascade_scale(value: str) -> Tuple[float, float, float]:
+    """
+    Parse outward shell evidence-cascade gains.
+
+    The expected string is three comma-separated floats for hard-kernel to
+    inner-shell, inner-shell to middle-shell, and middle-shell to outer-shell.
+    """
+    pieces = [piece.strip() for piece in value.split(",") if piece.strip()]
+    if len(pieces) != 3:
+        raise ValueError(
+            "--shell_evidence_cascade_scale must contain three comma-separated "
+            f"values, got {value!r}"
+        )
+    scale = tuple(float(piece) for piece in pieces)
+    if any(value < 0.0 for value in scale):
+        raise ValueError("--shell_evidence_cascade_scale entries must be >= 0")
+    return scale
 
 
 def diagnose_energy_breakdown(
@@ -1214,6 +1257,15 @@ def build_depth_spanning_graph(args):
         args.column_shell_teacher_weights,
         flag_name="--column_shell_teacher_weights",
     )
+    shell_inhibition_strengths = parse_shell_inhibition_strengths(
+        args.shell_inhibition_strengths
+    )
+    shell_inhibition_tuple = tuple(
+        shell_inhibition_strengths[shell_name] for shell_name in SHELL_NAMES
+    )
+    shell_evidence_cascade_scale = parse_shell_evidence_cascade_scale(
+        args.shell_evidence_cascade_scale
+    )
 
     # Input
     image = IdentityNode(shape=(32, 32, 3), name="input")
@@ -1337,6 +1389,8 @@ def build_depth_spanning_graph(args):
             microcolumn_dim=args.microcolumn_dim,
             grid_size=target_grid,
             hidden_activation=args.column_activation,
+            shell_evidence_cascade_scale=shell_evidence_cascade_scale,
+            shell_inhibition_strengths=shell_inhibition_tuple,
             apply_layer_norm=args.layer_norm_tokens,
             fix_ln_gamma=args.fix_ln_gamma,
         )
@@ -1553,7 +1607,25 @@ def train_cifar10_depth_spanning(args):
         f"{name}={end - start}" for name, (start, end) in shell_slices.items()
     )
     print(f"Shell widths: {shell_widths}")
-    print("Shell promotion: enabled")
+    shell_inhibition_strengths = parse_shell_inhibition_strengths(
+        args.shell_inhibition_strengths
+    )
+    shell_inhibition_summary = ", ".join(
+        f"{name}={shell_inhibition_strengths[name]:.6g}" for name in SHELL_NAMES
+    )
+    shell_evidence_cascade_scale = parse_shell_evidence_cascade_scale(
+        args.shell_evidence_cascade_scale
+    )
+    shell_evidence_cascade_summary = ", ".join(
+        f"{source}->{target}={scale:.6g}"
+        for (source, target), scale in zip(
+            zip(SHELL_NAMES[:-1], SHELL_NAMES[1:]),
+            shell_evidence_cascade_scale,
+        )
+    )
+    print("Shell evidence cascade: enabled")
+    print(f"Shell evidence cascade scale: {shell_evidence_cascade_summary}")
+    print(f"Shell inhibition strengths: {shell_inhibition_summary}")
     print(f"Epochs: {args.num_epochs}")
     print(f"Batch size: {args.batch_size}")
     print(f"Learning rate: {args.lr}")
@@ -2124,6 +2196,28 @@ def parse_args():
         help=(
             "Connect each active column's pooled shell vectors through one "
             "Gaussian shell bridge latent before the main output classifier."
+        ),
+    )
+    parser.add_argument(
+        "--shell_evidence_cascade_scale",
+        type=str,
+        default=SHELL_EVIDENCE_CASCADE_DEFAULT_SCALE,
+        help=(
+            "Comma-separated gains for outward shell evidence flow in "
+            "hard_kernel->inner_shell, inner_shell->middle_shell, and "
+            "middle_shell->outer_shell order. This is not HiBaCaML "
+            "consolidation; consolidation moves reusable material inward."
+        ),
+    )
+    parser.add_argument(
+        "--shell_inhibition_strengths",
+        type=str,
+        default=SHELL_INHIBITION_DEFAULT_STRENGTHS,
+        help=(
+            "Comma-separated same-tier inhibition strengths in hard_kernel, "
+            "inner_shell, middle_shell, outer_shell order. The default uses "
+            "the CIFAR shell-dynamics values from the HiBaCaML paper with no "
+            "inhibition in the protected hard kernel."
         ),
     )
     return parser.parse_args()
