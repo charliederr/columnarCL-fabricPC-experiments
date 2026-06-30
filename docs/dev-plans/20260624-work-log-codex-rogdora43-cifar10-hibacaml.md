@@ -1995,3 +1995,89 @@ Pasteable command:
 ```bash
 cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_dynamics_replicate_sweep.sh
 ```
+
+## 2026-06-30 Shell Dynamics Replicate Result
+
+Timestamp and machine: 2026-06-30 18:32:13 EDT on `rogdora43`.
+
+Completed command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_dynamics_replicate_sweep.sh
+```
+
+Master log:
+
+`results/codex_shell_dynamics_replicate_sweep_rogdora43_20260630_081110.log`
+
+The tested configuration used four active columns, no backbone bypass, direct per-column shell readout, per-column shell bridge readout, zero class-energy weight on column and shell teacher heads, outward shell evidence cascade with `shell_evidence_cascade_scale = 0.05,0.05,0.05`, and same-tier inhibition with `shell_inhibition_strengths = 0,0.35,0.22,0.10`. CIFAR-10 chance accuracy is 10 percent.
+
+Results:
+
+| Seed | Test accuracy | Best validation accuracy | Best validation epoch | `column_shell_paths_only` test | `without_outer_shell` test | `outer_shell_only` test |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 99 | 26.90% | 27.48% | 18 | 26.96% | 17.67% | 10.00% |
+| 42 | 29.22% | 29.46% | 17 | 29.03% | 24.87% | 10.00% |
+| 7 | 30.14% | 30.62% | 18 | 30.30% | 14.61% | 10.00% |
+
+Additional readout diagnostics:
+
+| Seed | Direct shell readout only | Shell bridge only | Direct plus bridge |
+| --- | ---: | ---: | ---: |
+| 99 | 13.40% | 19.09% | 26.96% |
+| 42 | 14.24% | 24.83% | 29.03% |
+| 7 | 10.65% | 25.32% | 30.30% |
+
+Comparison:
+
+| Setting | Mean test accuracy | Test accuracy range |
+| --- | ---: | ---: |
+| No shell cascade | 29.37% | 9.02 points |
+| Outward shell cascade, no same-tier inhibition | 28.46% | 1.40 points |
+| Outward shell cascade plus same-tier inhibition | 28.75% | 3.24 points |
+
+Mechanistic interpretation:
+
+The latest run shows coupled shell evidence, not standalone shell classifiers. Direct shell readout stayed weak at 13.40 percent, 14.24 percent, and 10.65 percent. Shell bridge readout was stronger at 19.09 percent, 24.83 percent, and 25.32 percent. Keeping both direct shell-pool edges and bridge edges gave the full shell-path values of 26.96 percent, 29.03 percent, and 30.30 percent.
+
+`K`, `L`, and `B` are the three column pathways in `columnar_cl_fabricpc/columns/depth_spanning_column.py`: `K` combines multi-depth stage inputs, `L` applies local depthwise convolution to the deepest stage input, and `B` projects pooled deepest-stage context back over the token grid. Same-tier inhibition applies separately inside `K`, `L`, and `B` before the shell-specific pathway outputs are mixed. The inhibition operation computes each feature magnitude and subtracts the shell strength times the mean magnitude of other features in the same shell tier, then clips the result at zero while preserving sign.
+
+The direct shell readout values come from `column_shell_pool -> output` edges. The bridge-only values come from `column_shell_pool -> columnXX_shell_bridge -> output` paths. The combined values keep both sets of edges active at `output`. `column_shell_paths_without_outer_shell` masks `outer_shell` direct readout sources and masks `outer_shell` inputs into each shell bridge. `column_shell_paths_outer_shell_only` keeps only `outer_shell` direct sources and only `outer_shell` bridge inputs.
+
+Removing `outer_shell` from the combined shell paths dropped accuracy by 9.29 points on seed 99, 4.16 points on seed 42, and 15.69 points on seed 7. `outer_shell` alone stayed at chance on all three seeds. The current data therefore supports the mechanism that `outer_shell` contributes contextual evidence through the coupled direct-plus-bridge shell path, while `outer_shell` is not independently class-readable.
+
+What the data does not yet explain:
+
+Same-tier inhibition changed the outward-cascade-only result by -1.01 points on seed 99, -0.09 points on seed 42, and +1.97 points on seed 7. The reported accuracies also do not explain why removing `outer_shell` leaves seed 42 at 24.87 percent but leaves seed 7 at 14.61 percent. Answering that needs shell-resolved edge weights, bridge weights, or gradient diagnostics.
+
+Falsifier checked:
+
+The current interpretation would be falsified if `column_shell_paths_without_outer_shell` matched `column_shell_paths_only` while `column_shell_paths_outer_shell_only` stayed at chance. That observation is not present. Removing `outer_shell` damages the shell path on every seed.
+
+Next diagnostic:
+
+Halve same-tier inhibition to `0,0.175,0.11,0.05` while keeping the same graph, outward cascade scale, shell bridge path, readout paths, and zero teacher weights. This tests whether the full inhibition strengths suppress useful shell feature magnitudes too strongly before K/L/B shell mixing and outward shell evidence cascade.
+
+Added script:
+
+`scripts/run_codex_shell_inhibition_half_replicate_sweep.sh`
+
+Planned runs:
+
+1. Seed 99, half same-tier inhibition, outward shell evidence cascade, bridge plus direct shell readout.
+2. Seed 42, half same-tier inhibition, outward shell evidence cascade, bridge plus direct shell readout.
+3. Seed 7, half same-tier inhibition, outward shell evidence cascade, bridge plus direct shell readout.
+
+Pasteable command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_inhibition_half_replicate_sweep.sh
+```
+
+Verification:
+
+```bash
+bash -n scripts/run_codex_shell_inhibition_half_replicate_sweep.sh
+```
+
+Result: passed.
