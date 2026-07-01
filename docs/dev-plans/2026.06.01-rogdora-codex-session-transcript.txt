@@ -1,0 +1,1028 @@
+     85 +stem ConvNode
+     86 +    |
+     87 +    v
+     88 +ResNet-style predictive-coding backbone
+     89 +    |
+     90 +    +--> stage2_out ----> stage2_tap ----+
+     91 +    |                                     |
+     92 +    +--> stage3_out ----> stage3_tap ----+--> col_00 --+
+     93 +    |                                     |             |
+     94 +    +--> stage4_out ----> stage4_tap ----+--> col_01 --+
+     95 +    |                                     |             |
+     96 +    +--> stage4_out ----> stage4_pool ---+--> col_02 --+--> combiner --> column_pool --> output
+     97 +                                          |             |                         |          ^
+     98 +                                          +--> col_03 --+                         |          |
+     99 +                                                                                v          |
+    100 +                                                                    column_teacher_output   |
+    101 +                                                                                           |
+    102 +per-column shell readout and bridge paths ------------------------------------------------+
+    103 +```
+    104 +
+    105 +The main classifier is `output`. In recent runs without `--bypass_columns`, the main classifier receives:
+    106 +
+    107 +- `column_pool -> output`
+    108 +- each active per-column shell pool directly into `output`
+    109 +- each active per-column shell bridge into `output`
+    110 +
+    111 +The column teacher node exists in the graph as `column_teacher_output`, but recent shell dynamics runs set `--column_teacher_weight 0.0`. That means its weighted
+         cross-entropy energy is zero in those runs.
+    112 +
+    113 +## ResNet-Style Backbone
+    114 +
+    115 +The backbone is constructed by `make_residual_block()` and `build_depth_spanning_graph()` in `scripts/train_cifar10_depth_spanning.py`.
+    116 +
+    117 +For `resnet18`, the model configuration is:
+    118 +
+    119 +```text
+    120 +stem_channels = 32
+    121 +stage 1: channels=32,  blocks=2, first_stride=1
+    122 +stage 2: channels=64,  blocks=2, first_stride=2
+    123 +stage 3: channels=128, blocks=2, first_stride=2
+    124 +stage 4: channels=256, blocks=2, first_stride=2
+    125 +```
+    126 +
+    127 +The backbone node pattern is:
+    128 +
+    129 +```text
+    130 +prev
+    131 + |\
+    132 + | \ if shape changes or stride > 1
+    133 + |  \
+    134 + |   v
+    135 + |  skip projection ConvNode
+    136 + |
+    137 + v
+    138 +conv_a ConvNode
+    139 + |
+    140 + v
+    141 +conv_b ConvNode
+    142 + |
+    143 + v
+    144 +skip_sum SkipConnection
+    145 + ^
+    146 + |
+    147 +prev or skip projection
+    148 +```
+    149 +
+    150 +`ConvNode` comes from upstream FabricPC. It computes a convolutional `pre_activation`, applies the configured activation, computes `error = z_latent - z_mu`, and
+         stores Gaussian energy by default. Its fan-in for muPC scaling is `input_channels * product(kernel_size)`.
+    151 +
+    152 +`SkipConnection` comes from upstream FabricPC. It sums its inputs without learnable parameters and marks its input slot as not variance-scalable so muPC does not
+         attenuate identity residual paths.
+    153 +
+    154 +The current depth-spanning columns use the last three backbone stage outputs:
+    155 +
+    156 +```text
+    157 +stage2_out = stage_outputs[-3] = (16, 16, 64)
+    158 +stage3_out = stage_outputs[-2] = (8, 8, 128)
+    159 +stage4_out = stage_outputs[-1] = (4, 4, 256)
+    160 +target_grid = (4, 4)
+    161 +num_tokens = 16
+    162 +```
+    163 +
+    164 +These values are printed by `build_depth_spanning_graph()` when the graph is built.
+    165 +
+    166 +## Stage Taps
+    167 +
+    168 +`StageTapTokenizer` converts a spatial backbone tensor into a common token tensor. In code, the transformation is:
+    169 +
+    170 +```text
+    171 +(batch, height, width, channels)
+    172 +    -> adaptive average pool to target_grid
+    173 +    -> reshape to (batch, tokens, channels)
+    174 +    -> multiply by W_proj and add b_proj
+    175 +    -> add pos_embed if enabled
+    176 +    -> optionally apply LayerNorm
+    177 +    -> z_mu for the stage tap node
+    178 +```
+    179 +
+    180 +The implementation is in `columnar_cl_fabricpc/columns/stage_taps.py`.
+    181 +
+    182 +The current graph creates:
+    183 +
+    184 +```text
+    185 +stage2_out (16, 16, 64)  -> stage2_tap (16, 64)
+    186 +stage3_out (8, 8, 128)  -> stage3_tap (16, 64)
+    187 +stage4_out (4, 4, 256)  -> stage4_tap (16, 64)
+    188 +stage4_out (4, 4, 256)  -> stage4_pool (1, 64)
+    189 +```
+    190 +
+    191 +`GlobalPoolNode` computes `stage4_pool`. Its transformation is:
+    192 +
+    193 +```text
+    194 +(batch, height, width, channels)
+    195 +    -> mean over height and width
+    196 +    -> multiply by W_proj and add b_proj
+    197 +    -> expand to (batch, 1, embed_dim)
+    198 +    -> optionally apply LayerNorm
+    199 +    -> z_mu for stage4_pool
+    200 +```
+    201 +
+    202 +In recent runs, `--layer_norm_tokens --fix_ln_gamma` makes each stage tap and `stage4_pool` use scalar gamma `1.0` and beta `0.0`, not learned LayerNorm gain and
+         bias.
+    203 +
+    204 +## Depth-Spanning Column Inputs
+    205 +
+    206 +Each column has four single-input slots:
+    207 +
+    208 +```text
+    209 +stage2      receives stage2_tap
+    210 +stage3      receives stage3_tap
+    211 +stage4      receives stage4_tap
+    212 +stage4_pool receives stage4_pool
+    213 +```
+    214 +
+    215 +The graph repeats this edge pattern for every column:
+    216 +
+    217 +```text
+    218 +stage2_tap  -> col_XX:stage2
+    219 +stage3_tap  -> col_XX:stage3
+    220 +stage4_tap  -> col_XX:stage4
+    221 +stage4_pool -> col_XX:stage4_pool
+    222 +```
+    223 +
+    224 +The relevant code is `build_depth_spanning_graph()` in `scripts/train_cifar10_depth_spanning.py`, where `create_depth_spanning_column()` is called for each `idx`
+         and the four edges are added.
+    225 +
+    226 +## Inside One Depth-Spanning Column
+    227 +
+    228 +Each column maps the four inputs to `(batch, tokens, embed_dim)`. For recent runs, this is `(batch, 16, 64)`.
+    229 +
+    230 +The internal computation is:
+    231 +
+    232 +```text
+    233 +                 stage4_tap
+    234 +                    |
+    235 +                    +--------------------+
+    236 +                    |                    |
+    237 +                    v                    v
+    238 +             K_deep path             L_deep path
+    239 +                    |                    |
+    240 +stage3_tap -------->+                    v
+    241 +                    |              depthwise 3x3 conv
+    242 +                    v                    |
+    243 +              K_mid path                 v
+    244 +                    |                 L_out
+    245 +stage2_tap -------->+
+    246 +                    |
+    247 +                    v
+    248 +                 K_out
+    249 +
+    250 +stage4_pool
+    251 +    |
+    252 +    v
+    253 +B_deep -> B_out -> broadcast over all tokens
+    254 +
+    255 +K_out, L_out, and B_out each have shape (batch, tokens, embed_dim).
+    256 +They are sliced into hard_kernel, inner_shell, middle_shell, and outer_shell.
+    257 +```
+    258 +
+    259 +The K, L, and B paths are implemented in `DepthSpanningColumnNode.forward()`:
+    260 +
+    261 +- `K`: `stage4 -> K_W_deep -> concat(stage3) -> K_W_mid -> concat(stage2) -> K_W_out`.
+    262 +- `L`: `stage4 -> L_W_deep -> reshape to grid -> 3 by 3 depthwise convolution -> L_W_out`.
+    263 +- `B`: `stage4_pool -> B_W_deep -> B_W_out -> broadcast to every token`.
+    264 +
+    265 +The learnable parameters are initialized in `DepthSpanningColumnNode.initialize_params()`:
+    266 +
+    267 +```text
+    268 +K_W_deep: input_dim -> microcolumn_dim
+    269 +K_W_mid:  microcolumn_dim + input_dim -> microcolumn_dim
+    270 +K_W_out:  microcolumn_dim + input_dim -> output_dim
+    271 +
+    272 +L_W_deep:    input_dim -> microcolumn_dim
+    273 +L_W_conv_dw: 3 by 3 depthwise convolution over microcolumn_dim channels
+    274 +L_W_out:     microcolumn_dim -> output_dim
+    275 +
+    276 +B_W_deep: input_dim -> microcolumn_dim
+    277 +B_W_out:  microcolumn_dim -> output_dim
+    278 +```
+    279 +
+    280 +## Column Shell Layout
+    281 +
+    282 +The column output feature axis is partitioned into four named slices:
+    283 +
+    284 +```text
+    285 +feature axis, embed_dim = 64
+    286 +
+    287 +0                                                           64
+    288 +|----------------------|-------|--------------|-------------|
+    289 + hard_kernel            inner   middle_shell   outer_shell
+    290 + width 22               width 7 width 14       width 21
+    291 +```
+    292 +
+    293 +The default proportions are `32:10:20:30`. For `embed_dim = 64`, `compute_shell_sizes()` produces widths `22, 7, 14, 21`.
+    294 +
+    295 +The shell order is fixed in `SHELL_NAMES`:
+    296 +
+    297 +```text
+    298 +hard_kernel -> inner_shell -> middle_shell -> outer_shell
+    299 +```
+    300 +
+    301 +This ordering matters for feature slicing, same-tier inhibition, shell readout nodes, and outward shell evidence cascade.
+    302 +
+    303 +## Shell-To-Path Mask
+    304 +
+    305 +Each shell receives a fixed subset of K/L/B pathway evidence. The active subset is encoded in `DEFAULT_SHELL_PATH_MASK`.
+    306 +
+    307 +```text
+    308 +                 K        L        B
+    309 +hard_kernel      1        0        0
+    310 +inner_shell      1        1        0
+    311 +middle_shell     1        1        1
+    312 +outer_shell      0        1        1
+    313 +```
+    314 +
+    315 +The learnable `shell_path_scale` matrix has the same shape. The forward pass multiplies it by the fixed mask before combining K/L/B slices. A masked entry stays z
+         ero in the forward computation even though `shell_path_scale` itself is a parameter tensor.
+    316 +
+    317 +For one shell slice, the computation is:
+    318 +
+    319 +```text
+    320 +shell_output =
+    321 +    shell_path_scale[shell, K] * K_out_shell
+    322 +  + shell_path_scale[shell, L] * L_out_shell
+    323 +  + shell_path_scale[shell, B] * B_out_shell
+    324 +```
+    325 +
+    326 +The hard kernel receives only K pathway output. The outer shell receives only L and B pathway output.
+    327 +
+    328 +## Same-Tier Inhibition
+    329 +
+    330 +Same-tier inhibition is implemented in `_same_tier_inhibition()` and `_apply_pathway_shell_inhibition()` in `columnar_cl_fabricpc/columns/depth_spanning_column.py
+         `.
+    331 +
+    332 +It is applied separately to each shell slice inside each of K, L, and B before shell-path mixing:
+    333 +
+    334 +```text
+    335 +K_out -> split by shell -> inhibit each shell -> concatenate
+    336 +L_out -> split by shell -> inhibit each shell -> concatenate
+    337 +B_out -> split by shell -> inhibit each shell -> concatenate
+    338 +```
+    339 +
+    340 +For one shell tier, the operation is:
+    341 +
+    342 +```text
+    343 +magnitude = abs(shell_output)
+    344 +other_mean = (sum(magnitude over shell features) - magnitude) / (width - 1)
+    345 +inhibited_magnitude = relu(magnitude - strength * other_mean)
+    346 +inhibited_shell_output = sign(shell_output) * inhibited_magnitude
+    347 +```
+    348 +
+    349 +`strength` is the inhibition coefficient for that shell tier. The full-inhibition run used:
+    350 +
+    351 +```text
+    352 +hard_kernel  = 0.00
+    353 +inner_shell  = 0.35
+    354 +middle_shell = 0.22
+    355 +outer_shell  = 0.10
+    356 +```
+    357 +
+    358 +The half-inhibition diagnostic used:
+    359 +
+    360 +```text
+    361 +hard_kernel  = 0.000
+    362 +inner_shell  = 0.175
+    363 +middle_shell = 0.110
+    364 +outer_shell  = 0.050
+    365 +```
+    366 +
+    367 +The hard kernel is not inhibited in either setting.
+    368 +
+    369 +## Outward Shell Evidence Cascade
+    370 +
+    371 +The current code implements an outward shell-to-shell evidence path. It is not HiBaCaML consolidation.
+    372 +
+    373 +The current cascade direction is:
+    374 +
+    375 +```text
+    376 +hard_kernel -> inner_shell -> middle_shell -> outer_shell
+    377 +```
+    378 +
+    379 +For each adjacent pair, there is a learned matrix and bias:
+    380 +
+    381 +```text
+    382 +shell_evidence_cascade_hard_kernel_to_inner_shell
+    383 +shell_evidence_cascade_inner_shell_to_middle_shell
+    384 +shell_evidence_cascade_middle_shell_to_outer_shell
+    385 +```
+    386 +
+    387 +The forward pass adds:
+    388 +
+    389 +```text
+    390 +target_shell = target_shell + scale[pair] * (source_shell @ W_pair + b_pair)
+    391 +```
+    392 +
+    393 +Recent runs use `scale = 0.05,0.05,0.05`.
+    394 +
+    395 +This path is useful as shell communication, but it is opposite to the consolidation mechanism described in the paper. The paper's consolidation moves reusable mat
+         erial inward, while this implemented path sends evidence outward.
+    396 +
+    397 +## Column LayerNorm
+    398 +
+    399 +If `--layer_norm_tokens` is set, each shell output is normalized independently before the shell outputs are concatenated. This is implemented in `_shellwise_layer
+         norm()`.
+    400 +
+    401 +If `--fix_ln_gamma` is also set, gamma is scalar `1.0` and beta is scalar `0.0`. The recent runs use both flags. That removes the learned LayerNorm rescale path i
+         n the stage taps, `stage4_pool`, and depth-spanning columns.
+    402 +
+    403 +## Column Output As A Predictive-Coding Node
+    404 +
+    405 +After K/L/B mixing, same-tier inhibition, outward cascade, and optional shell-wise LayerNorm, the column concatenates shell outputs:
+    406 +
+    407 +```text
+    408 +pre_activation = concat(
+    409 +    hard_kernel_output,
+    410 +    inner_shell_output,
+    411 +    middle_shell_output,
+    412 +    outer_shell_output
+    413 +)
+    414 +z_mu = activation(pre_activation)
+    415 +error = z_latent - z_mu
+    416 +E = GaussianEnergy(z_latent, z_mu)
+    417 +```
+    418 +
+    419 +The column is still a FabricPC node. Its latent `z_latent` is inferred during predictive-coding inference. Its parameters are updated by local gradients after inf
+         erence.
+    420 +
+    421 +## Combiner
+    422 +
+    423 +`MaskedColumnCombinerNode` receives every column output, applies `support_mask`, and produces `(batch, tokens, embed_dim)`.
+    424 +
+    425 +For `--combiner sum`, the current recent setting, the computation is:
+    426 +
+    427 +```text
+    428 +pre_activation = sum_i support_mask[i] * col_i
+    429 +pre_activation = pre_activation / sqrt(active_count)
+    430 +```
+    431 +
+    432 +For the current active mask, `active_count = 4`. The combiner divides the summed columns by `2.0`.
+    433 +
+    434 +For `--combiner attention`, which is implemented but not used in recent runs, the node learns `col_attention`, masks inactive columns with a large negative logit,
+          applies softmax, and returns the weighted sum.
+    435 +
+    436 +## Main Readout And Auxiliary Readouts
+    437 +
+    438 +The main readout path is:
+    439 +
+    440 +```text
+    441 +col_00 \
+    442 +col_01  \
+    443 +col_02   +--> combiner -> column_pool -> output
+    444 +col_03  /
+    445 +```
+    446 +
+    447 +`column_pool` is upstream FabricPC `AvgPool(global_pool=True)`. It averages the combiner over the token axis and outputs `(batch, embed_dim)`.
+    448 +
+    449 +`output` is upstream FabricPC `Linear(shape=(10,), activation=SoftmaxActivation(), flatten_input=True)`. It uses `WeightedLabelSmoothedCrossEntropyEnergy` with we
+         ight `1.0` and the configured label smoothing value.
+    450 +
+    451 +The column teacher path is always created:
+    452 +
+    453 +```text
+    454 +combiner -> column_pool -> column_teacher_output
+    455 +```
+    456 +
+    457 +`column_teacher_output` is also a softmax `Linear(shape=(10,), flatten_input=True)`. Recent shell dynamics runs set `--column_teacher_weight 0.0`, so this node's
+         energy does not contribute class error in those runs.
+    458 +
+    459 +## Per-Column Shell Direct Readout
+    460 +
+    461 +When `--column_shell_readout` is set, each active column also exposes each shell slice directly to the classifier.
+    462 +
+    463 +For one column, the pattern is:
+    464 +
+    465 +```text
+    466 +col_c
+    467 +  |
+    468 +  +--> columnCC_hard_kernel_slice  -> columnCC_hard_kernel_pool  -> output
+    469 +  +--> columnCC_inner_shell_slice  -> columnCC_inner_shell_pool  -> output
+    470 +  +--> columnCC_middle_shell_slice -> columnCC_middle_shell_pool -> output
+    471 +  +--> columnCC_outer_shell_slice  -> columnCC_outer_shell_pool  -> output
+    472 +```
+    473 +
+    474 +`FeatureSliceNode` performs the contiguous feature-axis slice and has no learnable parameters. `AvgPool(global_pool=True)` pools the token axis. The direct shell
+         readout preserves column identity and shell identity until the final classifier node.
+    475 +
+    476 +For the current graph with four active columns, this creates 16 shell slice nodes and 16 shell pool nodes.
+    477 +
+    478 +## Per-Column Shell Bridge
+    479 +
+    480 +When `--column_shell_bridge` is set, each active column has one bridge node receiving all four pooled shell vectors.
+    481 +
+    482 +For one column, the pattern is:
+    483 +
+    484 +```text
+    485 +columnCC_hard_kernel_pool  \
+    486 +columnCC_inner_shell_pool   \
+    487 +columnCC_middle_shell_pool   +--> columnCC_shell_bridge -> output
+    488 +columnCC_outer_shell_pool   /
+    489 +```
+    490 +
+    491 +`columnCC_shell_bridge` is an upstream FabricPC `Linear(shape=(embed_dim,), activation=IdentityActivation(), flatten_input=False)`. Because `flatten_input=False`,
+          each input edge is transformed along its last feature axis into `embed_dim`, and the transformed shell inputs are summed.
+    492 +
+    493 +This bridge is a predictive-coding latent with Gaussian energy. It is not just a readout-time concatenation. During inference, its latent participates in the grap
+         h energy and can send gradient contributions back to its shell-pool inputs.
+    494 +
+    495 +## Optional Bypass Path
+    496 +
+    497 +The optional bypass path is controlled by `--bypass_columns`:
+    498 +
+    499 +```text
+    500 +stage4_out -> bypass_pool -> output
+    501 +```
+    502 +
+    503 +Recent shell dynamics runs did not use the bypass. Earlier experiments used it to separate direct backbone evidence from column-mediated evidence. The current gra
+         ph builder still supports it.
+    504 +
+    505 +## Optional Shell Teacher Heads
+    506 +
+    507 +The graph builder can create shell-local teacher heads from `column_pool` when `--shell_teacher_weights` contains positive weights:
+    508 +
+    509 +```text
+    510 +column_pool -> hard_kernel_slice  -> hard_kernel_teacher_output
+    511 +column_pool -> inner_shell_slice  -> inner_shell_teacher_output
+    512 +column_pool -> middle_shell_slice -> middle_shell_teacher_output
+    513 +column_pool -> outer_shell_slice  -> outer_shell_teacher_output
+    514 +```
+    515 +
+    516 +Recent shell dynamics runs set `--shell_teacher_weights 0,0,0,0`, so these nodes were omitted.
+    517 +
+    518 +The graph builder can also create per-column shell teacher heads when `--column_shell_teacher_weights` contains positive weights:
+    519 +
+    520 +```text
+    521 +columnCC_shell_pool -> columnCC_shell_teacher_output
+    522 +```
+    523 +
+    524 +Recent shell dynamics runs set `--column_shell_teacher_weights 0,0,0,0`, so these teacher classifier nodes were omitted. The per-column shell pools still existed
+         because direct shell readout and shell bridge needed them.
+    525 +
+    526 +## Current Tested Node Families
+    527 +
+    528 +For the current full-inhibition graph with four active columns, no bypass, direct shell readout on, and shell bridge on, the node families are:
+    529 +
+    530 +```text
+    531 +input source:
+    532 +  input
+    533 +
+    534 +backbone:
+    535 +  stem
+    536 +  s1b1_conv_a, s1b1_conv_b, s1b1_skip_sum
+    537 +  s1b2_conv_a, s1b2_conv_b, s1b2_skip_sum
+    538 +  s2b1_conv_a, s2b1_conv_b, s2b1_skip_sum, s2b1_skip_proj
+    539 +  s2b2_conv_a, s2b2_conv_b, s2b2_skip_sum
+    540 +  s3b1_conv_a, s3b1_conv_b, s3b1_skip_sum, s3b1_skip_proj
+    541 +  s3b2_conv_a, s3b2_conv_b, s3b2_skip_sum
+    542 +  s4b1_conv_a, s4b1_conv_b, s4b1_skip_sum, s4b1_skip_proj
+    543 +  s4b2_conv_a, s4b2_conv_b, s4b2_skip_sum
+    544 +
+    545 +stage taps:
+    546 +  stage2_tap
+    547 +  stage3_tap
+    548 +  stage4_tap
+    549 +  stage4_pool
+    550 +
+    551 +columns:
+    552 +  col_00
+    553 +  col_01
+    554 +  col_02
+    555 +  col_03
+    556 +
+    557 +combiner and pooled readout:
+    558 +  combiner
+    559 +  column_pool
+    560 +  output
+    561 +  column_teacher_output
+    562 +
+    563 +per-column shell nodes, repeated for each active column:
+    564 +  columnCC_hard_kernel_slice
+    565 +  columnCC_hard_kernel_pool
+    566 +  columnCC_inner_shell_slice
+    567 +  columnCC_inner_shell_pool
+    568 +  columnCC_middle_shell_slice
+    569 +  columnCC_middle_shell_pool
+    570 +  columnCC_outer_shell_slice
+    571 +  columnCC_outer_shell_pool
+    572 +  columnCC_shell_bridge
+    573 +```
+    574 +
+    575 +This totals 77 nodes.
+    576 +
+    577 +## Predictive-Coding Mechanics
+    578 +
+    579 +Every node follows the FabricPC `NodeBase.forward()` contract:
+    580 +
+    581 +```text
+    582 +inputs and params -> pre_activation -> z_mu
+    583 +error = z_latent - z_mu
+    584 +E = energy(z_latent, z_mu)
+    585 +```
+    586 +
+    587 +The universal node state fields are defined by FabricPC `NodeState`:
+    588 +
+    589 +```text
+    590 +z_latent
+    591 +z_mu
+    592 +error
+    593 +energy
+    594 +pre_activation
+    595 +latent_grad
+    596 +```
+    597 +
+    598 +The graph is static. `GraphStructure` stores nodes, edges, task map, topological order, and config. `GraphParams` stores node-local weights and biases.
+    599 +
+    600 +### Training Clamps
+    601 +
+    602 +During training, FabricPC maps batch dictionary keys to nodes through `TaskMap`.
+    603 +
+    604 +The current depth-spanning graph always maps:
+    605 +
+    606 +```text
+    607 +x        -> input
+    608 +y        -> output
+    609 +column_y -> column_teacher_output
+    610 +```
+    611 +
+    612 +`ColumnTeacherTargetLoader` duplicates the one-hot CIFAR-10 label from `y` into `column_y`. If shell teacher heads are active, it also duplicates `y` into the she
+         ll target keys.
+    613 +
+    614 +This means during training:
+    615 +
+    616 +```text
+    617 +input.z_latent                 is clamped to x
+    618 +output.z_latent                is clamped to y
+    619 +column_teacher_output.z_latent is clamped to column_y
+    620 +```
+    621 +
+    622 +If a teacher energy weight is zero, the node can still be clamped but its weighted cross-entropy energy contributes zero.
+    623 +
+    624 +### State Initialization
+    625 +
+    626 +FabricPC graph construction defaults to `FeedforwardStateInit()` when no custom initializer is supplied. The graph builder sets this default in `graph_constructio
+         n.py`.
+    627 +
+    628 +`FeedforwardStateInit` first initializes all `z_latent` tensors from their node latent initializers and overlays clamps. It then walks the graph in topological or
+         der. For non-clamped internal nodes, it computes `z_mu` and sets `z_latent = z_mu` before inference begins.
+    629 +
+    630 +### Inference Loop
+    631 +
+    632 +The current graph uses `InferenceSGDNormClip`:
+    633 +
+    634 +```text
+    635 +eta_infer = args.eta_infer
+    636 +infer_steps = args.infer_steps
+    637 +max_norm = args.infer_max_norm
+    638 +```
+    639 +
+    640 +Recent runs used:
+    641 +
+    642 +```text
+    643 +eta_infer = 0.1
+    644 +infer_steps = 40
+    645 +max_norm = 1.0
+    646 +```
+    647 +
+    648 +For each inference step, FabricPC does:
+    649 +
+    650 +```text
+    651 +1. zero every node's latent_grad
+    652 +2. run nodes in graph order
+    653 +3. for each node, compute z_mu, error, energy
+    654 +4. use autodiff to compute:
+    655 +     dE/d(node z_latent)
+    656 +     dE/d(each input edge latent)
+    657 +5. accumulate latent_grad into the node and its input source nodes
+    658 +6. update every unclamped z_latent:
+    659 +     grad_norm = L2 norm over non-batch axes
+    660 +     clipped_grad = grad * min(1, max_norm / (grad_norm + eps))
+    661 +     z_latent = z_latent - eta_infer * clipped_grad
+    662 +```
+    663 +
+    664 +Clamped nodes are not updated in the inference step.
+    665 +
+    666 +### Local Parameter Learning
+    667 +
+    668 +After inference, `get_graph_param_gradient()` computes local weight gradients with `compute_local_weight_gradients()`.
+    669 +
+    670 +For each node, FabricPC gathers the final inferred input latents, runs the node's own forward computation, and uses `jax.value_and_grad()` on that node's energy w
+         ith respect to that node's parameters. This is local in the sense that the parameter gradient for one node is computed from that node's final inputs, latent, pred
+         iction, and energy. The optimizer then applies those gradients through Optax AdamW.
+    671 +
+    672 +The current training script uses:
+    673 +
+    674 +```text
+    675 +optax.warmup_cosine_decay_schedule
+    676 +optax.adamw
+    677 +weight_decay = args.weight_decay
+    678 +```
+    679 +
+    680 +Recent runs used `lr = 0.005` and `weight_decay = 0.01`.
+    681 +
+    682 +### Evaluation
+    683 +
+    684 +During evaluation, FabricPC clamps only `x` to `input`. It does not clamp `y` to `output`. The output node is terminal and unclamped, so FabricPC sets `output.z_l
+         atent = output.z_mu` and zeroes its energy. Accuracy is computed from `argmax(output.z_mu)` against the batch labels.
+    685 +
+    686 +This is why evaluation energy is not the classifier loss. Evaluation accuracy is the relevant metric for CIFAR classification.
+    687 +
+    688 +## Ablation Mechanisms
+    689 +
+    690 +The ablation helpers do not change the graph topology. They copy trained parameters and zero selected classifier or bridge weights before evaluation.
+    691 +
+    692 +Readout source ablations:
+    693 +
+    694 +- `evaluate_readout_ablations()` masks input edges into `output`.
+    695 +- `column_only` keeps `column_pool -> output`.
+    696 +- `column_shell_readout_only` keeps direct shell pool edges into `output`.
+    697 +- `column_shell_bridge_only` keeps shell bridge edges into `output`.
+    698 +- `column_shell_readout_plus_bridge` keeps both direct shell pools and shell bridges.
+    699 +
+    700 +Shell path ablations:
+    701 +
+    702 +- `evaluate_column_shell_readout_ablations()` isolates direct pooled shell evidence.
+    703 +- `evaluate_column_shell_bridge_ablations()` isolates the shell bridge path and masks bridge inputs by shell.
+    704 +- `evaluate_column_shell_path_ablations()` combines direct shell readout and shell bridge paths, then keeps or drops one shell in both routes.
+    705 +
+    706 +These ablations explain the recent conclusion that `outer_shell` is not independently class-readable but can contribute contextually through the combined shell pa
+         th.
+    707 +
+    708 +## What Has Been Implemented From HiBaCaML And ColBa
+    709 +
+    710 +The current code implements these structural pieces:
+    711 +
+    712 +1. Structurally restricted component learners.
+    713 +
+    714 +   The depth-spanning columns are restricted components. Each column has a fixed K/L/B internal pathway structure, a fixed shell order, and fixed shell-to-path ma
+         sks.
+    715 +
+    716 +2. Typed microcolumn pathways.
+    717 +
+    718 +   K, L, and B exist as distinct computations inside `DepthSpanningColumnNode`. K integrates multiple backbone stages. L mixes local token neighborhoods. B broadc
+         asts global context.
+    719 +
+    720 +3. Hard kernel plus shells.
+    721 +
+    722 +   Each column output is partitioned into `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell` slices. The hard kernel is a normal learned feature slic
+         e, but it is protected from same-tier inhibition by the default inhibition coefficient of zero.
+    723 +
+    724 +4. Same-tier inhibition.
+    725 +
+    726 +   Same-tier feature competition is implemented separately inside K, L, and B shell slices before shell mixing.
+    727 +
+    728 +5. Sparse support representation at graph construction time.
+    729 +
+    730 +   `support_mask` allows all-active, first-sparse, or random-sparse column support. The topology keeps all columns wired, and `MaskedColumnCombinerNode` masks ina
+         ctive columns.
+    731 +
+    732 +6. Combiner.
+    733 +
+    734 +   `MaskedColumnCombinerNode` implements sum and attention modes over the active columns.
+    735 +
+    736 +7. Per-column shell readout.
+    737 +
+    738 +   The current graph can preserve column and shell identity until `output` through direct per-column shell pools.
+    739 +
+    740 +8. Per-column shell bridge.
+    741 +
+    742 +   The current graph can route all shell pools for one column through a predictive-coding latent before `output`.
+    743 +
+    744 +9. Auxiliary teacher heads as graph nodes.
+    745 +
+    746 +   The code can attach a column teacher head, shell teacher heads, and per-column shell teacher heads. Recent runs set their weights to zero, but the machinery ex
+         ists.
+    747 +
+    748 +10. Shell diagnostics.
+    749 +
+    750 +   The code reports shell norms and evaluates shell lesions without changing the trained graph.
+    751 +
+    752 +## What Has Not Been Implemented From HiBaCaML And ColBa
+    753 +
+    754 +The following paper mechanisms are not implemented in the current plain CIFAR-10 script.
+    755 +
+    756 +1. A top-level probabilistic controller named `Psi`.
+    757 +
+    758 +   The paper describes a controller that selects sparse supports under uncertainty. The current code has `support_mask`, but it is fixed before training by comman
+         d-line options. There is no learned or audited support posterior.
+    759 +
+    760 +2. Teacher-first exact support search.
+    761 +
+    762 +   The paper's ColBa regime evaluates candidate supports and applies exact or one-swap teacher corrections. The current code does not evaluate alternate support s
+         ets during training. It does not apply one-swap support changes.
+    763 +
+    764 +3. Adaptive shared, non-shared, and reserve column pools.
+    765 +
+    766 +   The paper describes always-on shared columns, adaptive columns, and reserve columns. The current code can create a fixed number of columns and choose a fixed s
+         upport mask, but it does not reserve columns for later tasks or dynamically assign roles.
+    767 +
+    768 +4. Internal probabilistic state per column.
+    769 +
+    770 +   The paper uses internal probabilistic states that distinguish shared abstraction, semi-general structure, task-local residue, and stale material. The current c
+         ode has deterministic feature slices and predictive-coding latents, but no explicit per-column probabilistic state variable representing those roles.
+    771 +
+    772 +5. Upward internal certificates.
+    773 +
+    774 +   The paper lists certificates such as shared-abstraction mass, specificity load, saturation pressure, demotion pressure, and similarity signatures. The current
+         code logs diagnostics, but it does not produce certificate vectors that feed a controller.
+    775 +
+    776 +6. Certificate-based support scoring.
+    777 +
+    778 +   The paper's Rao-Blackwell argument applies when internal certificates improve reuse-utility estimates beyond external fit scores. The current code does not use
+          certificates to select columns.
+    779 +
+    780 +7. Outside-in pruning.
+    781 +
+    782 +   The paper describes conservative pruning that starts in outer shells, then middle shells, with inner shells protected initially. The current code does not prun
+         e shell weights or feature units.
+    783 +
+    784 +8. Inward promotion as consolidation.
+    785 +
+    786 +   The paper describes promotion from outer shells toward inner shells when material becomes reusable. The current code implements the opposite direction as an ou
+         tward evidence cascade from hard kernel to outer shell. That cascade is not consolidation.
+    787 +
+    788 +9. Outward demotion as controlled forgetting.
+    789 +
+    790 +   The paper describes demoting stale or over-specialized inner material outward. The current code has no demotion operation, no stale-feature detector, and no sh
+         ell swap teacher.
+    791 +
+    792 +10. Internal demotion-swap teacher.
+    793 +
+    794 +   The paper describes a teacher that audits proposed internal shell swaps. The current code has evaluation-time ablations, but no training-time internal reorgani
+         zation audit.
+    795 +
+    796 +11. Multi-task or old-task retention objective.
+    797 +
+    798 +   The current script trains plain CIFAR-10 as one 10-class task. It does not implement Split-CIFAR tasks, old-task heads, worst-old-task retention, task-boundary
+          audits, or switching penalties.
+    799 +
+    800 +12. Larger sparse CIFAR-scale column pool.
+    801 +
+    802 +   The paper's CIFAR direction discusses larger pools with sparse active support. The current tested graph uses four active columns, all active.
+    803 +
+    804 +13. Explicit non-adjacent depth routes beyond the current K skips.
+    805 +
+    806 +   The current K path receives stage4, stage3, and stage2 through sequential concatenations. There are no separate named route families from shallow stages to dee
+         p shell states, no top-down prediction routes from deep shells to shallow stages, and no independently lesionable depth-route nodes.
+    807 +
+    808 +14. Local task heads for split continual learning.
+    809 +
+    810 +   The current `output` is one 10-way CIFAR-10 head. The split-task local head setup described for continual learning is not present in this script.
+    811 +
+    812 +15. Transformer or reinforcement-learning extensions.
+    813 +
+    814 +   The paper discusses possible extensions beyond vision classification. None of those are part of the current CIFAR-10 implementation.
+    815 +
+    816 +## Current Architectural Facts To Keep In Mind
+    817 +
+    818 +The columns are predictive-coding nodes, not ordinary feedforward-only modules. Their latents are inferred for each batch before local parameter gradients are com
+         puted.
+    819 +
+    820 +The current shell bridge is also a predictive-coding latent. It can send inference gradients back to shell pools because it is a graph node, not only a classifier
+          input.
+    821 +
+    822 +The current per-column shell direct readout preserves shell and column identity until the classifier. The `column_pool` path does not preserve that identity becau
+         se it averages after the combiner.
+    823 +
+    824 +The current `outer_shell` can be useful only through coupling. In recent ablations, `outer_shell_only` stayed near chance, while removing `outer_shell` from the c
+         ombined shell path damaged accuracy in several runs.
+    825 +
+    826 +The current outward shell evidence cascade should not be described as faithful HiBaCaML promotion. It is a learned communication path in the opposite direction.
+    827 +
+    828 +The current implementation has shell slices inside each K/L/B output before mixing, but it does not give each microcolumn an independent persistent hard-kernel-pl
+         us-shell state with promotion, demotion, and certificates.
+    829 +
+    830 +The current support mask gives a static architectural support. It is not the paper's teacher-first support controller.
+    831 +
+    832 +## Reference Pointers
+    833 +
+    834 +Key code locations:
+    835 +
+    836 +- `scripts/train_cifar10_depth_spanning.py`, `build_depth_spanning_graph()`: graph construction, backbone, stage taps, columns, combiner, readout paths, teacher h
+         eads, optional bypass, task map, and inference config.
+    837 +- `scripts/train_cifar10_depth_spanning.py`, `train_cifar10_depth_spanning()`: data loaders, optimizer schedule, training loop, best-validation checkpoint selecti
+         on, and ablation reporting.
+    838 +- `columnar_cl_fabricpc/columns/depth_spanning_column.py`, `SHELL_NAMES`, `DEFAULT_SHELL_PATH_MASK`, and `DepthSpanningColumnNode`: shell layout and column intern
+         als.
+    839 +- `columnar_cl_fabricpc/columns/depth_spanning_column.py`, `_same_tier_inhibition()`: same-tier inhibition operation.
+    840 +- `columnar_cl_fabricpc/columns/stage_taps.py`, `StageTapTokenizer`: conversion from backbone stages to token streams.
+    841 +- `columnar_cl_fabricpc/columns/stage_taps.py`, `GlobalPoolNode`: global context vector for B.
+    842 +- `columnar_cl_fabricpc/columns/accuracy_nodes.py`, `MaskedColumnCombinerNode`: static support mask and active-column combination.
+    843 +- `columnar_cl_fabricpc/columns/accuracy_nodes.py`, `FeatureSliceNode`: shell slicing for readout and diagnostics.
+    844 +- `columnar_cl_fabricpc/columns/label_smoothed_ce.py`, `WeightedLabelSmoothedCrossEntropyEnergy`: weighted class energy for main and auxiliary classifier heads.
+    845 +- `/home/ni/repos/fpc/FabricPC/fabricpc/nodes/base.py`, `NodeBase.forward_and_latent_grads()` and `NodeBase.forward_and_weight_grads()`: autodiff implementation o
+         f latent gradients and local weight gradients.
+    846 +- `/home/ni/repos/fpc/FabricPC/fabricpc/core/inference.py`, `InferenceSGDNormClip`: clipped latent inference update.
+    847 +- `/home/ni/repos/fpc/FabricPC/fabricpc/training/train.py`, `get_graph_param_gradient()` and `train_step()`: inference to convergence followed by local parameter
+         gradients and optimizer update.
+
+• Context compacted
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll do a quick consistency pass on the new architecture review now: whitespace, accidental non-ASCII dashes, and repo status. Then I’ll report back without moving into
+  new experiment design.
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran wc -l docs/dev-plans/codex-architechture-review-2026.07.01.md
+  └ 847 docs/dev-plans/codex-architechture-review-2026.07.01.md
+
+• Explored
+  └ Search [—–] in codex-architechture-review-2026.07.01.md
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +9 lines (ctrl + t to view transcript)
+    codex_resnet18_shelldynamicson_halfinhib_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed7_lr0p005_ep20_she
+    lls_rogdora43_20260701_004751.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Created columnarCL-fabricPC-experiments/docs/dev-plans/codex-architechture-review-2026.07.01.md.
+
+  It is a comprehensive architecture review covering the current 77-node / 131-edge CIFAR-10 graph, predictive-coding training and inference flow, K/L/B column pathways,
+  shell layout and inhibition, readout/bridge/teacher mechanisms, ablations, ASCII diagrams, and the HiBaCaML mechanisms not yet implemented.
+
+  Validation: git diff --check passed, and I checked the file for accidental em/en dashes. I left the existing work-log and result-log changes untouched.
+
+─ Worked for 7m 33s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Based on this analysis and recent results, please dive deep and come up with a recommendation for our next step, then pause before implementing to get my feedback.
+
+
+• I’ll base this on the current code path and the latest experiment logs rather than starting from a generic plan. I’m going to read the work log, the architecture review,
+  and the recent result files, then I’ll give a recommendation and stop before any code changes.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+
+• Explored
+  └ List results
+    Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md, codex-architechture-review-2026.07.01.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The current work log ends at the half-inhibition result and explicitly pauses. I’m going to quantify the recent trajectory across the relevant logs now so the
+  recommendation reflects what has actually improved or failed.
+
+• Explored
+  └ Read codex-architechture-review-2026.07.01.md
+    Search Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|column_shell_paths_only|without_outer_shell|outer_shell_only|direct_shell_readout_only|
+           shell_bridge_only|column_paths_only|backbone|seed|shell_inhibition_strengths|shell_evidence_cascade_scale in
+           codex_shell_inhibition_half_replicate_sweep_rogdora43_20260630_183953.log
+    Search Test Accuracy|Best Val Accuracy|Best Val Epoch|column_shell_paths_only|without_outer_shell|outer_shell_only|direct_shell_readout_only|shell_bridge_only|
+           column_paths_only in
+
+           codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_2026
+           0629
+           _040553.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The results show a useful separation: bridge plus direct shell readout gave the best peak, outward shell communication stabilized seeds, and weakening inhibition made
+  the system less stable. I’m checking the exact column implementation now so the recommendation targets one mechanism rather than another coefficient sweep.
+
+• Explored
+  └ Read depth_spanning_column.py, train_cifar10_depth_spanning.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I have enough to form a recommendation, but one more pass through the forward path is useful because the likely next step touches the shell communication direction and
+  the B pathway.
+
+• Explored
+  └ Read depth_spanning_column.py, train_cifar10_depth_spanning.py
+    Search def add_argument|column_shell|shell_evidence|shell_inhibition|num_columns|active_nonshared|column_mode|combiner|bypass_columns in
+    train_cifar10_depth_spanning.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The file read showed the implemented shell cascade is still purely outward and feedforward inside the column. That matters because the strongest paper-faithful missing
+  mechanism is not another readout lesion, but an actual inward consolidation path from outer material toward inner shells.
+
+• Explored
+  └ Read depth_spanning_column.py, train_cifar10_depth_spanning.py
+    Search Promotion|promotion|demotion|outer|inward|consolidation|same-tier|support|teacher|certificate|prun|shell dynamics|CIFAR in hibacaml_agi26.txt
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The paper notes a specific CIFAR-scale shell mechanism: same-tier inhibition plus inward anti-overlap weighting, with rare promotion. That points to a better next step
+  than further reducing inhibition or only tuning readout heads.
+
+• Explored
+  └ Read hibacaml_agi26.txt
+    Search Shell Norms|hard_kernel|inner_shell|middle_shell|outer_shell|mean_l2|Column latent statistics|Classifier edge weight norms|column_shell_paths_only|Test
+    Accuracy|
+           Best Val Accuracy|Epoch [0-9]+: in
+
+           codex_resnet18_shelldynamicson_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed99_lr0p005_ep20_shell
+           s_ro
+           gdora43_20260630_081110.log
+    Search Column latent statistics|Shell Norms|mean_l2|Classifier edge weight norms|column_shell_paths_only|Test Accuracy|Best Val Accuracy|Epoch [0-9]+: in
+
+           codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_2026
+           0629
+           _040553.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• One possible path is larger sparse support, but I don’t want to recommend it unless the existing capacity test points there. I’m checking that result too, because if six
+  columns already failed under the current combiner, that changes the priority.
+
+• Explored
+  └ Search Test Accuracy|Best Val Accuracy|Best Val Epoch|column_shell_paths_only|column_shell_bridge_only|column_shell_readout_only|column_only|column_pool_plus|combined|
+           Columns:|Active columns|Parameters in codex_shell_bridge_readout_column_capacity_sweep_rogdora43_20260629_133952.log
+    Search column_only|column_shell_readout_only|column_shell_bridge_only|column_shell_readout_plus_bridge|column_pool_plus_shell_readout|column_pool_plus_shell_bridge|
+           combined in
+
+           codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_2026
+           0629
+           _040553.log
+    Search column_only|column_shell_readout_only|column_shell_bridge_only|column_shell_readout_plus_bridge|column_pool_plus_shell_readout|column_pool_plus_shell_bridge|
+           combined in
+
+           codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed99_lr0p005_ep20_shells_rogdora43_2026
+           0629
+           _070408.log
+    Search column_only|column_shell_readout_only|column_shell_bridge_only|column_shell_readout_plus_bridge|column_pool_plus_shell_readout|column_pool_plus_shell_bridge|
+           combined in
+
+           codex_resnet18_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed7_lr0p005_ep20_shells_rogdora43_20260
+           629_
+           100317.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m going to grab exact line anchors for the recommendation so the proposed change can be tied back to the code that currently collapses column identity.
+
+• Explored
+  └ Read accuracy_nodes.py, train_cifar10_depth_spanning.py, depth_spanning_column.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The line anchors confirm the result pattern: the named combiner is a support-masked sum, while the working path is a separate set of per-column shell edges into output.
+  My recommendation will focus on bringing that working identity-preserving path into the actual composer.
+
+• Explored
+  └ Search class MaskedColumnCombinerNode|support_mask|combination|attention|pre_activation in accuracy_nodes.py
+    Read accuracy_nodes.py
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I noticed that last line-number read skipped the combiner body; I’m reading that missing section and then I’ll stop tooling and give the recommendation.
+
+• Explored
+  └ Read accuracy_nodes.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Recommendation
+
+  Implement a column-shell preserving predictive-coding composer before doing more shell-dynamics sweeps.
+
+  The main reason: the architecturally central path is still collapsed. MaskedColumnCombinerNode currently reduces all active columns to one token tensor by sum or scalar
+  attention in columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/accuracy_nodes.py:324, then column_pool -> output reads that merged tensor in columnarCL-
+  fabricPC-experiments/scripts/train_cifar10_depth_spanning.py:1421. In recent runs, column_only stays at chance, while the side path that preserves (column, shell)
+  identity reaches useful accuracy through the per-column shell pools and shell bridges added at columnarCL-fabricPC-experiments/scripts/
+  train_cifar10_depth_spanning.py:1493.
+
+  The result pattern is pretty clear:
+
+  - Four-column shell bridge plus direct shell readout can reach about 25 to 34 percent.
+  - The named column_pool path is repeatedly around chance.
+  - Six all-active columns did not fix this. It lowered results and left column_only at chance.
+  - Half inhibition made stability worse, so another inhibition coefficient sweep is not the next best move.
+  - The paper’s combiner is an attention-style composer over active columns. Our current sum combiner destroys the identity that the working path needs.
+
+  The concrete next implementation I would propose is a ColumnShellComposerNode that replaces the current main combiner path:
+
+  col_00 shell slices \
+  col_01 shell slices  \
+  col_02 shell slices   +--> ColumnShellComposerNode --> column_pool --> output
+  col_03 shell slices  /
+
+  Mechanism:
+
+  - For each active column c and shell s, slice the column latent into hard_kernel, inner_shell, middle_shell, and outer_shell.
+  - Project each (c, s) slice into a common composer width.
+  - Use a support-masked learned attention over (column, shell) components, not only over whole columns.
+  - Produce one (batch, tokens, embed_dim) predictive-coding latent, with Gaussian energy, so this remains inside FabricPC inference.
+  - Keep full same-tier inhibition from columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/depth_spanning_column.py:224, since weakening it hurt.
+  - Do not implement promotion yet. The paper says promotion should be rare and requires multi-task evidence. Plain CIFAR-10 does not provide that evidence.
+
+  I would not make the bypass path the next step, even though it improves accuracy, because it routes around the columnar mechanism. I also would not enlarge the column
+  pool yet, because the six-column test suggests capacity is not the bottleneck while composition is broken.
+
+  If you agree, the next implementation target is: make the main combiner -> column_pool -> output route preserve column and shell identity, then rerun the three-seed
+  CIFAR-10 test and require column_only or the new composer-only ablation to rise clearly above chance. I have not changed any files.
+
+─ Worked for 4m 04s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ 
+› I agree. Please proceed.
