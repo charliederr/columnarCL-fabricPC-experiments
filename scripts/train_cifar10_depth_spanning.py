@@ -82,6 +82,7 @@ from columnar_cl_fabricpc.columns import (
     get_shell_slices,
 )
 from columnar_cl_fabricpc.columns.accuracy_nodes import MaskedColumnCombinerNode
+from columnar_cl_fabricpc.columns.accuracy_nodes import ColumnShellComposerNode
 
 jax.config.update("jax_default_prng_impl", "threefry2x32")
 
@@ -1418,14 +1419,23 @@ def build_depth_spanning_graph(args):
         idx for idx, value in enumerate(support_mask) if value > 0.0
     )
 
-    # Combiner
-    combiner = MaskedColumnCombinerNode(
-        shape=(num_tokens, args.embed_dim),
-        name="combiner",
-        num_columns=args.num_columns,
-        support_mask=support_mask,
-        combination=args.combiner,
-    )
+    # Combiner. The shell_attention mode preserves column and shell identity
+    # inside one predictive-coding composer node before column_pool.
+    if args.combiner == "shell_attention":
+        combiner = ColumnShellComposerNode(
+            shape=(num_tokens, args.embed_dim),
+            name="combiner",
+            num_columns=args.num_columns,
+            support_mask=support_mask,
+        )
+    else:
+        combiner = MaskedColumnCombinerNode(
+            shape=(num_tokens, args.embed_dim),
+            name="combiner",
+            num_columns=args.num_columns,
+            support_mask=support_mask,
+            combination=args.combiner,
+        )
     nodes.append(combiner)
 
     for col in columns:
@@ -2075,7 +2085,11 @@ def parse_args():
         choices=["all_active", "first_sparse", "random_sparse"],
         default="all_active",
     )
-    parser.add_argument("--combiner", choices=["attention", "sum"], default="sum")
+    parser.add_argument(
+        "--combiner",
+        choices=["attention", "sum", "shell_attention"],
+        default="sum",
+    )
     parser.add_argument("--embed_dim", type=int, default=64)
     parser.add_argument("--microcolumn_dim", type=int, default=32)
     parser.add_argument("--batch_size", type=int, default=128)

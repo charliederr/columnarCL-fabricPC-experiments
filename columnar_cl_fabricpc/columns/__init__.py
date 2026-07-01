@@ -45,6 +45,7 @@ from columnar_cl_fabricpc.columns.label_smoothed_ce import (
     WeightedLabelSmoothedCrossEntropyEnergy,
 )
 from columnar_cl_fabricpc.columns.accuracy_nodes import (
+    ColumnShellComposerNode,
     FeatureSliceNode,
     GlobalAvgPoolNormNode,
     create_global_avg_pool_norm,
@@ -53,6 +54,7 @@ from columnar_cl_fabricpc.columns.accuracy_nodes import (
 __all__ = [
     "ClassificationHeadNode",
     "ColumnCombinerNode",
+    "ColumnShellComposerNode",
     "ColumnarNode",
     "LabelSmoothedCrossEntropyEnergy",
     "WeightedLabelSmoothedCrossEntropyEnergy",

@@ -13,6 +13,7 @@ readout_mode="${7:-bypass}"
 column_shell_teacher_weights="${8:-0,0,0,0}"
 column_shell_readout_mode="${9:-off}"
 column_shell_bridge_mode="${10:-off}"
+combiner_mode="${11:-sum}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
@@ -30,6 +31,7 @@ column_shell_readout_label="off"
 column_shell_readout_args=()
 column_shell_bridge_label="off"
 column_shell_bridge_args=()
+combiner_label="${combiner_mode//_/-}"
 
 if [[ "$diagnose_mode" == "diagnose" || "$diagnose_mode" == "--diagnose_energy" ]]; then
     diagnose_label="diag"
@@ -75,7 +77,13 @@ else
     exit 2
 fi
 
-log_path="${repo_root}/results/codex_resnet18_shelldynamicson_column_teacher${teacher_weight_label}_shell${shell_weights_label}_colshell${column_shell_weights_label}_colshellreadout${column_shell_readout_label}_colshellbridge${column_shell_bridge_label}_${readout_label}_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+if [[ "$combiner_mode" != "sum" && "$combiner_mode" != "attention" && "$combiner_mode" != "shell_attention" ]]; then
+    echo "Unknown combiner mode: $combiner_mode" >&2
+    echo "Use 'sum', 'attention', or 'shell_attention'." >&2
+    exit 2
+fi
+
+log_path="${repo_root}/results/codex_resnet18_shelldynamicson_combiner${combiner_label}_column_teacher${teacher_weight_label}_shell${shell_weights_label}_colshell${column_shell_weights_label}_colshellreadout${column_shell_readout_label}_colshellbridge${column_shell_bridge_label}_${readout_label}_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -96,6 +104,7 @@ mkdir -p results
     echo "column_shell_teacher_weights: $column_shell_teacher_weights"
     echo "column_shell_readout: $column_shell_readout_label"
     echo "column_shell_bridge: $column_shell_bridge_label"
+    echo "combiner: $combiner_mode"
     echo "shell_evidence_cascade: on"
     echo "shell_evidence_cascade_scale: 0.05,0.05,0.05"
     echo "shell_inhibition_strengths: 0,0.35,0.22,0.10"
@@ -109,7 +118,7 @@ mkdir -p results
         --num_shared 2 \
         --active_nonshared 2 \
         --column_mode all_active \
-        --combiner sum \
+        --combiner "$combiner_mode" \
         --embed_dim 64 \
         --microcolumn_dim 32 \
         --batch_size 128 \

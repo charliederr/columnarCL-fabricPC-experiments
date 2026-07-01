@@ -2160,3 +2160,78 @@ The diagnostic answer is that the full same-tier inhibition coefficients are bet
 Pause point:
 
 No follow-up experiment is proposed here. The next step is to inspect and discuss the architecture and code mechanisms before choosing another direction.
+
+## 2026-07-01 Column-Shell Composer Implementation
+
+Timestamp and machine: 2026-07-01 08:25:17 EDT on `rogdora43`.
+
+Direction update:
+
+The recent result pattern showed that the main whole-column `combiner -> column_pool -> output` route stayed at chance, while the side route that preserved `(column, shell)` identity through direct per-column shell pools and per-column shell bridges carried useful class signal. The next implementation therefore changed the main composer mechanism instead of tuning inhibition coefficients again.
+
+Implemented mechanism:
+
+- Added `ColumnShellComposerNode` in `columnar_cl_fabricpc/columns/accuracy_nodes.py`.
+- Exported `ColumnShellComposerNode` from `columnar_cl_fabricpc/columns/__init__.py`.
+- Added `--combiner shell_attention` to `scripts/train_cifar10_depth_spanning.py`.
+- When `--combiner shell_attention` is selected, the graph keeps the node name `combiner`, but uses `ColumnShellComposerNode` rather than `MaskedColumnCombinerNode`.
+- Updated `scripts/run_codex_cifar10_depth_spanning.sh` with an optional eleventh positional argument for combiner mode. Existing calls default to `sum`.
+- Added `scripts/run_codex_shell_composer_replicate_sweep.sh` for a three-seed shell-composer experiment.
+
+Mechanism details:
+
+`ColumnShellComposerNode` receives the active column latents, where each column latent has shape `(batch, tokens, embed_dim)`. It slices the final feature axis into `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell` using the same shell layout as `DepthSpanningColumnNode`. For each column index `c` and shell name `s`, it applies a learned projection:
+
+```text
+projected(c, s) = column(c)[..., shell_slice(s)] @ W_col{c}_{s} + b_col{c}_{s}
+```
+
+It also learns `component_attention`, a matrix with shape `(num_columns, 4)`. The row index is the column index and the shell index follows `SHELL_NAMES`. The support mask zeros inactive columns by setting their logits to a large negative value before softmax. The composer output is:
+
+```text
+combiner_z_mu = sum over active c and all shells s of attention(c, s) * projected(c, s)
+```
+
+This output remains a FabricPC predictive-coding node with Gaussian energy. Its latent is inferred during predictive-coding inference, then `column_pool` averages it and feeds the main `output` classifier. This keeps the main architectural path inside predictive coding rather than routing around it with classifier-only side edges.
+
+The implementation deliberately does not implement promotion or demotion. The HiBaCaML paper treats promotion as rare and dependent on multi-task evidence. Plain CIFAR-10 does not provide that evidence. The current change instead fixes the composer mechanism that was losing column and shell identity before readout.
+
+Verification:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile columnar_cl_fabricpc/columns/accuracy_nodes.py columnar_cl_fabricpc/columns/__init__.py scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+```
+
+Result: passed.
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_composer_replicate_sweep.sh
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py tests/test_depth_spanning_column.py
+```
+
+Result: 43 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -k 'not cifar_data'
+```
+
+Result: 145 passed, 22 deselected.
+
+Full-suite note:
+
+Running the full suite without excluding data tests reached `tests/test_cifar_data.py` and failed because the sandbox could not write to `/home/ni/.local/share/columnar_cl_fabricpc`. The non-data tests passed. This failure is not specific to the column-shell composer implementation.
+
+Next experiment:
+
+Run the three-seed shell-composer replicate. The primary success criterion is that the `column_only` ablation, which now means `ColumnShellComposerNode -> column_pool -> output`, rises clearly above chance. The secondary criteria are that `column_shell_readout_plus_bridge` does not collapse and that seed-to-seed range does not widen relative to the full-inhibition shell-dynamics run.
+
+Pasteable command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_replicate_sweep.sh
+```

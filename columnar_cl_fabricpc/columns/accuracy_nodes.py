@@ -27,6 +27,12 @@ from fabricpc.core.types import NodeInfo, NodeParams, NodeState
 from fabricpc.nodes.base import NodeBase, SlotSpec
 from fabricpc.utils.helpers import layernorm
 
+from columnar_cl_fabricpc.columns.depth_spanning_column import (
+    DEFAULT_SHELL_PROPORTIONS,
+    SHELL_NAMES,
+    get_shell_slices,
+)
+
 
 def _hidden_activation(x: jax.Array, activation_name: str, leaky_alpha: float) -> jax.Array:
     if activation_name == "relu":
@@ -411,6 +417,172 @@ class MaskedColumnCombinerNode(NodeBase):
             )
         else:
             raise ValueError(f"Unknown combiner mode: {combination}")
+
+        z_mu = node_info.activation.forward(pre_activation, node_info.activation.config)
+        error = state.z_latent - z_mu
+        state = state._replace(pre_activation=pre_activation, z_mu=z_mu, error=error)
+        state = node_info.node_class.energy_functional(state, node_info)
+        return jnp.sum(state.energy), state
+
+
+class ColumnShellComposerNode(NodeBase):
+    """
+    Compose active columns through learned attention over column-shell components.
+
+    Each input is one depth-spanning column latent with shape
+    `(batch, tokens, embed_dim)`. The composer slices each input into the shared
+    shell layout, projects every `(column, shell)` component to `embed_dim`, and
+    combines those projected components with a support-masked attention weight.
+    """
+
+    def __init__(
+        self,
+        shape: Tuple[int, ...],
+        name: str,
+        num_columns: int,
+        support_mask: Tuple[float, ...],
+        shell_proportions: Tuple[int, int, int, int] = DEFAULT_SHELL_PROPORTIONS,
+        activation=IdentityActivation(),
+        energy=GaussianEnergy(),
+        weight_init: Optional[InitializerBase] = KaimingInitializer(),
+        latent_init: Optional[InitializerBase] = NormalInitializer(std=0.02),
+    ):
+        if len(shape) != 2:
+            raise ValueError(
+                f"ColumnShellComposerNode shape must be (num_tokens, output_dim), got {shape}"
+            )
+        if len(support_mask) != num_columns:
+            raise ValueError("support_mask length must equal num_columns")
+        if sum(support_mask) <= 0:
+            raise ValueError("support_mask must activate at least one column")
+
+        output_dim = shape[-1]
+        get_shell_slices(output_dim, shell_proportions)
+        super().__init__(
+            shape=shape,
+            name=name,
+            activation=activation,
+            energy=energy,
+            latent_init=latent_init,
+            weight_init=weight_init,
+            num_columns=num_columns,
+            support_mask=tuple(float(value) for value in support_mask),
+            shell_proportions=tuple(int(value) for value in shell_proportions),
+        )
+
+    @staticmethod
+    def get_slots() -> Dict[str, SlotSpec]:
+        return {"in": SlotSpec(name="in", is_multi_input=True)}
+
+    @staticmethod
+    def get_weight_fan_in(source_shape: Tuple[int, ...], config: Dict[str, Any]) -> int:
+        active_count = max(1.0, float(sum(config.get("support_mask", (1.0,)))))
+        return int(source_shape[-1] * active_count)
+
+    @staticmethod
+    def _projection_weight_name(column_idx: int, shell_name: str) -> str:
+        return f"W_col{column_idx:02d}_{shell_name}"
+
+    @staticmethod
+    def _projection_bias_name(column_idx: int, shell_name: str) -> str:
+        return f"b_col{column_idx:02d}_{shell_name}"
+
+    @staticmethod
+    def initialize_params(
+        key: jax.Array,
+        node_shape: Tuple[int, ...],
+        input_shapes: Dict[str, Tuple[int, ...]],
+        weight_init: Optional[InitializerBase] = None,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> NodeParams:
+        if config is None:
+            config = {}
+        if weight_init is None:
+            weight_init = KaimingInitializer()
+
+        num_columns = int(config.get("num_columns", len(input_shapes)))
+        output_dim = node_shape[-1]
+        shell_proportions = tuple(
+            config.get("shell_proportions", DEFAULT_SHELL_PROPORTIONS)
+        )
+        shell_slices = get_shell_slices(output_dim, shell_proportions)
+        keys = jax.random.split(key, max(1, num_columns * len(SHELL_NAMES)))
+
+        weights = {
+            "component_attention": jnp.zeros(
+                (num_columns, len(SHELL_NAMES)), dtype=jnp.float32
+            )
+        }
+        biases = {}
+        key_idx = 0
+        for column_idx in range(num_columns):
+            for shell_name in SHELL_NAMES:
+                start, end = shell_slices[shell_name]
+                weights[
+                    ColumnShellComposerNode._projection_weight_name(
+                        column_idx, shell_name
+                    )
+                ] = initialize(keys[key_idx], (end - start, output_dim), weight_init)
+                biases[
+                    ColumnShellComposerNode._projection_bias_name(
+                        column_idx, shell_name
+                    )
+                ] = jnp.zeros((output_dim,), dtype=jnp.float32)
+                key_idx += 1
+
+        return NodeParams(weights=weights, biases=biases)
+
+    @staticmethod
+    def forward(
+        params: NodeParams,
+        inputs: Dict[str, jnp.ndarray],
+        state: NodeState,
+        node_info: NodeInfo,
+    ) -> Tuple[jax.Array, NodeState]:
+        config = node_info.node_config
+        num_columns = int(config.get("num_columns"))
+        sorted_inputs = [inputs[key] for key in sorted(inputs.keys())]
+        if len(sorted_inputs) != num_columns:
+            raise ValueError(
+                f"ColumnShellComposerNode expected {num_columns} inputs, got {len(sorted_inputs)}"
+            )
+
+        output_dim = sorted_inputs[0].shape[-1]
+        shell_slices = get_shell_slices(
+            output_dim,
+            tuple(config.get("shell_proportions", DEFAULT_SHELL_PROPORTIONS)),
+        )
+        column_mask = jnp.asarray(
+            config.get("support_mask"), dtype=sorted_inputs[0].dtype
+        )[:, None]
+        logits = params.weights["component_attention"]
+        logits = jnp.where(column_mask > 0.0, logits, -1.0e9)
+        attention = jax.nn.softmax(jnp.reshape(logits, (-1,)))
+        attention = jnp.reshape(attention, logits.shape)
+
+        pre_activation = jnp.zeros_like(sorted_inputs[0])
+        for column_idx, column_value in enumerate(sorted_inputs):
+            for shell_idx, shell_name in enumerate(SHELL_NAMES):
+                start, end = shell_slices[shell_name]
+                shell_value = column_value[..., start:end]
+                projected = (
+                    jnp.matmul(
+                        shell_value,
+                        params.weights[
+                            ColumnShellComposerNode._projection_weight_name(
+                                column_idx, shell_name
+                            )
+                        ],
+                    )
+                    + params.biases[
+                        ColumnShellComposerNode._projection_bias_name(
+                            column_idx, shell_name
+                        )
+                    ]
+                )
+                pre_activation = (
+                    pre_activation + attention[column_idx, shell_idx] * projected
+                )
 
         z_mu = node_info.activation.forward(pre_activation, node_info.activation.config)
         error = state.z_latent - z_mu

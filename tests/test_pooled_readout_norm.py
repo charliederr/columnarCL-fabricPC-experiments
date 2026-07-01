@@ -14,6 +14,7 @@ from fabricpc.graph_initialization import initialize_params
 from fabricpc.nodes import IdentityNode
 
 from columnar_cl_fabricpc.columns import (
+    ColumnShellComposerNode,
     FeatureSliceNode,
     GlobalAvgPoolNormNode,
     SHELL_NAMES,
@@ -162,6 +163,61 @@ def test_feature_slice_node_exposes_contiguous_feature_axis() -> None:
     assert jnp.allclose(state.z_mu, x[:, 2:5])
 
 
+def test_column_shell_composer_masks_inactive_column_components() -> None:
+    """The shell composer ignores shell components from inactive columns."""
+    col_0 = IdentityNode(shape=(2, 8), name="col_00")
+    col_1 = IdentityNode(shape=(2, 8), name="col_01")
+    composer = ColumnShellComposerNode(
+        shape=(2, 8),
+        name="composer",
+        num_columns=2,
+        support_mask=(1.0, 0.0),
+    )
+    structure = graph(
+        nodes=[col_0, col_1, composer],
+        edges=[
+            Edge(source=col_0, target=composer.slot("in")),
+            Edge(source=col_1, target=composer.slot("in")),
+        ],
+        task_map=TaskMap(x=col_0),
+        inference=InferenceSGD(),
+    )
+    params = ColumnShellComposerNode.initialize_params(
+        jax.random.PRNGKey(0),
+        node_shape=(2, 8),
+        input_shapes={
+            "col_00->composer:in": (2, 8),
+            "col_01->composer:in": (2, 8),
+        },
+        config={
+            "num_columns": 2,
+            "support_mask": (1.0, 0.0),
+        },
+    )
+    state = NodeState(
+        z_latent=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+        z_mu=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+        error=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+        energy=jnp.zeros((1,), dtype=jnp.float32),
+        pre_activation=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+        latent_grad=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+    )
+
+    _, state = ColumnShellComposerNode.forward(
+        params,
+        {
+            "col_00->composer:in": jnp.zeros((1, 2, 8), dtype=jnp.float32),
+            "col_01->composer:in": 100.0
+            * jnp.ones((1, 2, 8), dtype=jnp.float32),
+        },
+        state,
+        structure.nodes["composer"].node_info,
+    )
+
+    assert params.weights["component_attention"].shape == (2, len(SHELL_NAMES))
+    assert jnp.allclose(state.z_mu, jnp.zeros((1, 2, 8), dtype=jnp.float32))
+
+
 def test_weighted_cross_entropy_scales_energy_and_latent_gradient() -> None:
     """The auxiliary teacher weight scales its class energy and gradient."""
     target = jnp.asarray([[1.0, 0.0, 0.0]], dtype=jnp.float32)
@@ -264,6 +320,28 @@ def test_depth_spanning_graph_routes_raw_column_pool_to_output() -> None:
     assert "bypass_pool" in output_sources
     assert "column_readout_norm" not in output_sources
     assert "column_readout_norm" not in structure.nodes
+
+
+def test_depth_spanning_graph_uses_shell_composer_combiner_mode() -> None:
+    """The shell_attention combiner preserves column-shell identity in combiner."""
+    args = _tiny_depth_spanning_args(
+        combiner="shell_attention",
+        bypass_columns=False,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    combiner_sources = {
+        edge.source
+        for edge in structure.edges.values()
+        if edge.target == "combiner" and edge.slot == "in"
+    }
+    output_sources = output_input_edge_sources(structure)
+
+    assert support_mask == (1.0, 1.0)
+    assert structure.nodes["combiner"].node_info.node_class is ColumnShellComposerNode
+    assert combiner_sources == {"col_00", "col_01"}
+    assert set(output_sources) == {"column_pool"}
+    assert "component_attention" in params.nodes["combiner"].weights
 
 
 def test_depth_spanning_graph_adds_column_teacher_head() -> None:
