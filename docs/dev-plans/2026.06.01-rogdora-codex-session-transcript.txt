@@ -1026,3 +1026,138 @@
  
  
 › I agree. Please proceed.
+
+
+
+gap here>>>>
+
+
+
+
+
+• I’ll inspect the latest result logs and the current architecture notes, then I’ll keep this to analysis and recommendation only. No files or code will be changed in this
+  pass.
+
+• Ran pwd && git status --short --branch
+  └ /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+    ## improve/plain-cifar10...origin/improve/plain-cifar10
+    … +8 lines (ctrl + t to view transcript)
+    codex_resnet18_shelldynamicson_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed7_lr
+    0p005_ep20_shells_rogdora43_20260701_144651.log
+
+• Explored
+  └ Search Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|Test readout ablations|Test combined column shell path ablations|Test shell readout ablations|
+           combined:|column_only:|column_shell_readout_only:|column_pool_plus_shell_readout:|column_shell_bridge_only:|column_pool_plus_shell_bridge:|
+           column_shell_readout_plus_bridge:|column_shell_paths_only:|without hard_kernel:|without inner_shell:|without middle_shell:|without outer_shell:|outer_shell
+           only:|
+           Epoch [0-9]+: in codex_resnet18_shelldynamicson_combinershell-
+
+           attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed*_lr0p005_ep20_shells_rogdora43_20260701_*
+           .log
+
+• Ran tail -120 docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ | --- | ---: | ---: | ---: |
+    | 99 | 14.43% | 19.56% | 22.01% |
+    … +116 lines (ctrl + t to view transcript)
+    cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_replicate_sweep.sh
+    ```
+
+• Explored
+  └ Read codex-architechture-review-2026.07.01.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The result pattern is clear enough to compare accuracy, but I’m checking the ablation blocks directly because the important question is whether the new composer route
+  learned independently or only as part of the full combined readout.
+
+• Explored
+  └ Read codex_resnet18_shelldynamicson_combinershell-
+
+         attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed99_lr0p005_ep20_shells_rogdora43_20260701_08
+         3127
+         .log
+    Search shell composer|ColumnShellComposer|composer|next step|recommend|Success|primary success|collapse|main whole-column|column_only|column_shell_paths_only in codex-
+           architechture-review-2026.07.01.md
+    Read codex_resnet18_shelldynamicson_combinershell-
+
+         attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260701_11
+         3854
+         .log, codex_resnet18_shelldynamicson_combinershell-
+
+         attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed7_lr0p005_ep20_shells_rogdora43_20260701_144
+         651.
+         log, codex_resnet18_shelldynamicson_combinershell-
+
+         attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed99_lr0p005_ep20_shells_rogdora43_20260701_08
+         3127
+         .log, codex-architechture-review-2026.07.01.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The last run confirms the new shell_attention composer produced a stable combined classifier but did not meet the stated success criterion for the independent composer
+  path. I’m checking the composer implementation now so the recommendation is tied to mechanism rather than another blind sweep.
+
+• Explored
+  └ Search class ColumnShellComposerNode|component_attention|combiner == \"shell_attention\"|column_shell_readout|column_shell_bridge|evaluate_readout_ablations|
+           evaluate_column_shell_path_ablations in accuracy_nodes.py
+    Read accuracy_nodes.py, train_cifar10_depth_spanning.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I have enough context now. I’m going to synthesize the result into a recommendation and explicitly separate what the run proved, what it did not prove, and what I would
+  do next if you approve.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The shell-composer run did not meet the main success criterion. shell_attention means ColumnShellComposerNode -> column_pool -> output; that route should have made
+  column_only reliably rise above CIFAR-10 chance. It did not.
+
+   Seed      Test    Best val    column_only    column_shell_paths_only
+  ━━━━━━  ━━━━━━━━  ━━━━━━━━━━  ━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━
+   99      26.49%      26.52%         19.20%                     13.44%
+  ──────  ────────  ──────────  ─────────────  ─────────────────────────
+   42      26.59%      28.94%         11.19%                     16.11%
+  ──────  ────────  ──────────  ─────────────  ─────────────────────────
+   7       27.90%      27.84%         10.00%                     10.00%
+
+  The useful part is stability: mean test accuracy was about 27.0%, with only a 1.41 point seed range. The bad part is that the older full same-tier inhibition shell-path
+  run was stronger: about 28.75% mean, and its column_shell_paths_only route stayed near the full classifier on all seeds. The new composer stabilized the full combined
+  output, but it weakened the previously useful side path and did not make the main column_pool route dependable.
+
+  My interpretation is that the full classifier is learning through co-adapted simultaneous routes, not through a clean column-shell composer. The current ablations zero
+  trained output edges after training. That can tell us which readout edges are sufficient after the fact, but it does not tell us whether the composer attention
+  collapsed, whether the composer projections learned, or whether the classifier depends on interactions among column_pool, direct shell pools, and bridge nodes.
+
+  Recommended Next Step
+
+  I recommend pausing architecture changes and adding composer diagnostics before another long run.
+
+  Specifically, I would add logging and evaluation for:
+
+  1. component_attention: the learned static attention matrix inside ColumnShellComposerNode, with rows as columns and entries as hard_kernel, inner_shell, middle_shell,
+     and outer_shell.
+
+  2. Per-column, per-shell projection norms: the norm of each learned projection from one (column, shell) slice into the composer output.
+  3. Output edge norms: the classifier weight norm from column_pool, each direct shell pool, and each shell bridge into output.
+  4. Composer-internal lesions: evaluate by masking one composer component at a time inside ColumnShellComposerNode, instead of only masking output classifier edges.
+
+  Then I would run a short diagnostic comparison, probably one seed first:
+
+  - Current shell_attention with direct shell readout and shell bridge enabled.
+  - shell_attention composer-only, with direct shell readout and shell bridge disabled.
+
+  Alternatives considered:
+
+  - Run more sweeps as-is: no code work, but the present ablations cannot explain the mechanism.
+  - Revert to sum: likely recovers some accuracy, but leaves the main composer collapse unsolved.
+  - Build a stronger dynamic composer now: plausible, but we would be guessing before knowing whether attention, projection, or classifier routing is failing.
+
+  So my concrete recommendation is: implement diagnostics next, not a new architecture change yet. Then use the diagnostic result to decide whether the composer needs
+  route isolation, dynamic attention, stronger shell-local predictive constraints, or a simpler return to the direct-plus-bridge shell path.
+
+─ Worked for 3m 11s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ 
+› Implement {feature}
+ 
+  gp
