@@ -437,19 +437,215 @@ def diagnose_shell_norms(
     return stats
 
 
-def diagnose_classifier_edge_weights(params) -> Dict[str, float]:
+def diagnose_output_edge_weight_norms(
+    params: GraphParams,
+    structure: GraphStructure,
+) -> Dict[str, float]:
     """
-    Per-edge Frobenius norm of the classifier (Linear "output" node)'s weight
-    matrices, one per incoming edge. With --bypass_columns, this surfaces whether
-    the classifier is using the bypass edge or the pooled column-readout edge.
+    Per-source Frobenius norm of the classifier's incoming weight matrices.
+
+    The source name is the architectural route feeding the `output` classifier,
+    such as `column_pool`, `bypass_pool`, a per-column shell pool, or a shell
+    bridge node.
     """
     if "output" not in params.nodes:
         return {}
+    edge_sources = output_input_edge_sources(structure)
     out_weights = params.nodes["output"].weights
     return {
-        edge_key: float(jnp.linalg.norm(W))
-        for edge_key, W in out_weights.items()
+        source_name: float(jnp.linalg.norm(out_weights[edge_key]))
+        for source_name, edge_key in sorted(edge_sources.items())
+        if edge_key in out_weights
     }
+
+
+def has_shell_composer(structure: GraphStructure) -> bool:
+    """Return true when the graph uses `ColumnShellComposerNode` at `combiner`."""
+    if "combiner" not in structure.nodes:
+        return False
+    return (
+        structure.nodes["combiner"].node_info.node_class
+        is ColumnShellComposerNode
+    )
+
+
+def active_composer_components(
+    structure: GraphStructure,
+) -> Tuple[Tuple[int, str], ...]:
+    """
+    Return active `(column index, shell name)` components in the composer.
+
+    The column index names the `col_XX` input to `combiner`. The shell name is
+    one of `hard_kernel`, `inner_shell`, `middle_shell`, or `outer_shell`.
+    """
+    if not has_shell_composer(structure):
+        return ()
+    config = structure.nodes["combiner"].node_info.node_config
+    num_columns = int(config.get("num_columns", 0))
+    support_mask = tuple(float(value) for value in config.get("support_mask", ()))
+    return tuple(
+        (column_idx, shell_name)
+        for column_idx in range(num_columns)
+        if column_idx < len(support_mask) and support_mask[column_idx] > 0.0
+        for shell_name in SHELL_NAMES
+    )
+
+
+def diagnose_composer_attention(
+    params: GraphParams,
+    structure: GraphStructure,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Report the learned attention over active `(column, shell)` components.
+
+    `attention[c][s]` is the softmax weight on column `c` and shell `s` inside
+    `ColumnShellComposerNode`. Inactive columns are masked before softmax.
+    """
+    if not has_shell_composer(structure):
+        return {}
+    config = structure.nodes["combiner"].node_info.node_config
+    logits = params.nodes["combiner"].weights["component_attention"]
+    support_mask = jnp.asarray(config.get("support_mask"), dtype=logits.dtype)[:, None]
+    masked_logits = jnp.where(support_mask > 0.0, logits, -1.0e9)
+    attention = jax.nn.softmax(jnp.reshape(masked_logits, (-1,)))
+    attention = jnp.reshape(attention, logits.shape)
+
+    rows: Dict[str, Dict[str, float]] = {}
+    for column_idx, shell_name in active_composer_components(structure):
+        column_key = f"col_{column_idx:02d}"
+        if column_key not in rows:
+            rows[column_key] = {}
+        shell_idx = SHELL_NAMES.index(shell_name)
+        rows[column_key][shell_name] = float(attention[column_idx, shell_idx])
+    return rows
+
+
+def diagnose_composer_projection_norms(
+    params: GraphParams,
+    structure: GraphStructure,
+) -> Dict[str, float]:
+    """
+    Report Frobenius norms of composer projection matrices.
+
+    Each entry is one learned projection from a `(column, shell)` feature slice
+    into the shared composer output feature axis.
+    """
+    if not has_shell_composer(structure):
+        return {}
+    combiner_params = params.nodes["combiner"]
+    norms = {}
+    for column_idx, shell_name in active_composer_components(structure):
+        weight_name = ColumnShellComposerNode._projection_weight_name(
+            column_idx,
+            shell_name,
+        )
+        key = f"col_{column_idx:02d}.{shell_name}"
+        norms[key] = float(jnp.linalg.norm(combiner_params.weights[weight_name]))
+    return norms
+
+
+def mask_composer_components(
+    params: GraphParams,
+    structure: GraphStructure,
+    kept_components: Tuple[Tuple[int, str], ...] | None = None,
+    dropped_components: Tuple[Tuple[int, str], ...] | None = None,
+) -> GraphParams:
+    """
+    Zero selected composer projections in a copied parameter tree.
+
+    Components are identified as `(column index, shell name)` pairs. Keeping
+    components means all other active components are zeroed. Dropping components
+    means only those active components are zeroed. The graph structure and
+    learned attention logits are unchanged.
+    """
+    if kept_components is not None and dropped_components is not None:
+        raise ValueError("Use either kept_components or dropped_components, not both")
+    if not has_shell_composer(structure):
+        raise ValueError("Composer component masking requires shell_attention combiner")
+
+    active_components = active_composer_components(structure)
+    keep_set = set(kept_components) if kept_components is not None else None
+    drop_set = set(dropped_components) if dropped_components is not None else set()
+    combiner_params = params.nodes["combiner"]
+    masked_weights = dict(combiner_params.weights)
+    masked_biases = dict(combiner_params.biases)
+
+    for component in active_components:
+        if keep_set is not None:
+            should_zero = component not in keep_set
+        else:
+            should_zero = component in drop_set
+        if not should_zero:
+            continue
+        column_idx, shell_name = component
+        weight_name = ColumnShellComposerNode._projection_weight_name(
+            column_idx,
+            shell_name,
+        )
+        bias_name = ColumnShellComposerNode._projection_bias_name(
+            column_idx,
+            shell_name,
+        )
+        masked_weights[weight_name] = jnp.zeros_like(masked_weights[weight_name])
+        masked_biases[bias_name] = jnp.zeros_like(masked_biases[bias_name])
+
+    masked_combiner = NodeParams(
+        weights=masked_weights,
+        biases=masked_biases,
+    )
+    return params._replace(nodes={**params.nodes, "combiner": masked_combiner})
+
+
+def evaluate_composer_component_ablations(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Evaluate composer-internal lesions through the `column_pool` route only.
+
+    The baseline keeps only `column_pool -> output`. Each lesion then zeros one
+    active `(column, shell)` projection inside `ColumnShellComposerNode` before
+    evaluating the same column-pool readout.
+    """
+    if not has_shell_composer(structure):
+        return {}
+    output_sources = output_input_edge_sources(structure)
+    if "column_pool" not in output_sources:
+        return {}
+
+    column_only_params = mask_output_input_sources(
+        params,
+        structure,
+        kept_sources=("column_pool",),
+    )
+    results = {
+        "composer_column_only": evaluate_pcn(
+            column_only_params,
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+    }
+    for column_idx, shell_name in active_composer_components(structure):
+        component = ((column_idx, shell_name),)
+        masked = mask_composer_components(
+            column_only_params,
+            structure,
+            dropped_components=component,
+        )
+        case_name = f"composer_without_col{column_idx:02d}_{shell_name}"
+        results[case_name] = evaluate_pcn(
+            masked,
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+    return results
 
 
 def node_input_edge_sources(
@@ -980,6 +1176,32 @@ def print_shell_norms(title: str, stats: Dict[str, Dict[str, float]]) -> None:
             f"mean_l2={shell_stats['mean_l2']:.4f} "
             f"std_l2={shell_stats['std_l2']:.4f}"
         )
+
+
+def print_composer_attention(title: str, rows: Dict[str, Dict[str, float]]) -> None:
+    """Print the shell composer's learned component attention table."""
+    if not rows:
+        return
+    print("\n" + title)
+    print("-" * len(title))
+    header = "  column       " + " ".join(f"{shell_name:>13s}" for shell_name in SHELL_NAMES)
+    print(header)
+    for column_name in sorted(rows):
+        values = rows[column_name]
+        pieces = " ".join(
+            f"{values.get(shell_name, 0.0):13.6f}" for shell_name in SHELL_NAMES
+        )
+        print(f"  {column_name:10s} {pieces}")
+
+
+def print_scalar_diagnostics(title: str, values: Dict[str, float]) -> None:
+    """Print a sorted scalar diagnostic table."""
+    if not values:
+        return
+    print("\n" + title)
+    print("-" * len(title))
+    for key, value in sorted(values.items()):
+        print(f"  {key:40s} {value:.6f}")
 
 
 def make_classifier_energy(label_smoothing: float, weight: float = 1.0):
@@ -1818,7 +2040,7 @@ def train_cifar10_depth_spanning(args):
                 f"mean={corr['mean_abs_offdiag']:.4f}"
             )
 
-            edge_norms = diagnose_classifier_edge_weights(params)
+            edge_norms = diagnose_output_edge_weight_norms(params, structure)
             if edge_norms:
                 pieces = [f"{k}={v:.4f}" for k, v in sorted(edge_norms.items())]
                 print(f"    output ||W|| per edge: {' '.join(pieces)}")
@@ -1888,6 +2110,32 @@ def train_cifar10_depth_spanning(args):
         print("Evaluating final params on test set...")
 
     ablation_key = jax.random.PRNGKey(args.seed + 2026)
+    if args.diagnose_composer:
+        print_composer_attention(
+            "Composer Attention (selected params)",
+            diagnose_composer_attention(eval_params, structure),
+        )
+        print_scalar_diagnostics(
+            "Composer Projection Norms (selected params)",
+            diagnose_composer_projection_norms(eval_params, structure),
+        )
+        print_scalar_diagnostics(
+            "Output Edge Weight Norms (selected params)",
+            diagnose_output_edge_weight_norms(eval_params, structure),
+        )
+        val_composer_metrics = evaluate_composer_component_ablations(
+            eval_params,
+            structure,
+            val_loader,
+            train_config,
+            ablation_key,
+        )
+        if val_composer_metrics:
+            print_ablation_results(
+                "Validation Composer Component Lesions",
+                val_composer_metrics,
+            )
+
     val_ablation_metrics = evaluate_readout_ablations(
         eval_params, structure, val_loader, train_config, ablation_key
     )
@@ -2113,6 +2361,15 @@ def parse_args():
         help=(
             "Log shell-resolved column norms and evaluate shell-slice readout "
             "ablations after training."
+        ),
+    )
+    parser.add_argument(
+        "--diagnose_composer",
+        action="store_true",
+        help=(
+            "For shell_attention combiner runs, log composer attention, "
+            "composer projection norms, output edge norms, and validation "
+            "lesions of one composer component at a time."
         ),
     )
     parser.add_argument(

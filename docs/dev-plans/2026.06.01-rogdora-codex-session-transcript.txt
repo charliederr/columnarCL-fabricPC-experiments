@@ -1161,3 +1161,817 @@ gap here>>>>
 › Implement {feature}
  
   gp
+
+
+
+
+  So my concrete recommendation is: implement diagnostics next, not a new architecture change yet. Then use the diagnostic result to decide whether the composer needs
+  route isolation, dynamic attention, stronger shell-local predictive constraints, or a simpler return to the direct-plus-bridge shell path.
+
+─ Worked for 3m 11s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Your plan strikes me as sound. Please proceed with what you're recommending, adding the 4 logging and evaluation, then running a short diagnostic comparison. If you
+  want me to run that diagnostic with GPU support, just provide the command please.
+
+
+• I’ll implement this as evaluation-only instrumentation around the existing graph. The goal is to expose learned routing and edge usage without changing training dynamics
+  or touching upstream FabricPC.
+
+• Explored
+  └ Read accuracy_nodes.py, train_cifar10_depth_spanning.py
+    Search def mask_node_input_sources|def node_input_edge_sources|def output_input_edge_sources|def mask_output_input_sources|class GraphParams|class EdgeInfo|edge_key|
+    slot
+           in core
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m going to make a scoped edit in two files: the composer node will accept an evaluation-time mask, and the training script will print composer attention/projection
+  norms, named output edge norms, and composer-internal lesion results.
+
+• Explored
+  └ Read accuracy_nodes.py
+
+• Ran git diff -- columnar_cl_fabricpc/columns/accuracy_nodes.py scripts/train_cifar10_depth_spanning.py scripts/run_codex_cifar10_depth_spanning.sh scripts/
+  │ run_codex_shell_composer_replicate_sweep.sh docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ (no output)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• For the composer lesions I’m using copied parameters that zero selected composer projection matrices and biases. That preserves the trained graph and avoids adding a new
+  trainable mask that would change the optimization problem.
+
+• Explored
+  └ Read types.py
+    Search def initialize_params|weights\[edge_key\]|NodeParams\( in graph_initialization
+    Read __init__.py, initialize.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m also going to add a small runner for the two-case diagnostic comparison so the GPU run is a single pasteable command. The script will write both runs into results/
+  and avoid heredocs or multi-line shell.
+
+• Explored
+  └ Read run_codex_cifar10_depth_spanning.sh, run_codex_shell_composer_replicate_sweep.sh
+    Search diagnose_composer|shell_attention|column_shell_readout|column_shell_bridge in tests
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m checking the existing tests before patching so the new diagnostics have coverage at the same graph-construction level as the rest of this experiment code.
+
+• Explored
+  └ Read test_pooled_readout_norm.py
+
+
+› if the changes you're making to the composer node affect the structure of the network, please remember to properly correct the ascii art graphical representation of the
+  network architecture in the docstring at the top
+
+
+• Good catch. These diagnostics do not change graph topology or the composer’s training structure; they only inspect learned parameters and evaluate copied parameter sets
+  with selected composer projections zeroed. I will not change the top-level architecture diagram unless I end up making a structural graph change.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m also going to leave the network ASCII art unchanged because the graph edges and nodes are unchanged. The new runner and flag only add inspection and lesion
+  evaluation around the existing shell_attention graph.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+199 -6)
+    439
+    440 -def diagnose_classifier_edge_weights(params) -> Dict[str, float]:
+    440 +def diagnose_output_edge_weight_norms(
+    441 +    params: GraphParams,
+    442 +    structure: GraphStructure,
+    443 +) -> Dict[str, float]:
+    444      """
+    442 -    Per-edge Frobenius norm of the classifier (Linear "output" node)'s weight
+    443 -    matrices, one per incoming edge. With --bypass_columns, this surfaces whether
+    444 -    the classifier is using the bypass edge or the pooled column-readout edge.
+    445 +    Per-source Frobenius norm of the classifier's incoming weight matrices.
+    446 +
+    447 +    The source name is the architectural route feeding the `output` classifier,
+    448 +    such as `column_pool`, `bypass_pool`, a per-column shell pool, or a shell
+    449 +    bridge node.
+    450      """
+        ⋮
+    452          return {}
+    453 +    edge_sources = output_input_edge_sources(structure)
+    454      out_weights = params.nodes["output"].weights
+    455      return {
+    450 -        edge_key: float(jnp.linalg.norm(W))
+    451 -        for edge_key, W in out_weights.items()
+    456 +        source_name: float(jnp.linalg.norm(out_weights[edge_key]))
+    457 +        for source_name, edge_key in sorted(edge_sources.items())
+    458 +        if edge_key in out_weights
+    459      }
+        ⋮
+    461
+    462 +def has_shell_composer(structure: GraphStructure) -> bool:
+    463 +    """Return true when the graph uses `ColumnShellComposerNode` at `combiner`."""
+    464 +    if "combiner" not in structure.nodes:
+    465 +        return False
+    466 +    return (
+    467 +        structure.nodes["combiner"].node_info.node_class
+    468 +        is ColumnShellComposerNode
+    469 +    )
+    470 +
+    471 +
+    472 +def active_composer_components(
+    473 +    structure: GraphStructure,
+    474 +) -> Tuple[Tuple[int, str], ...]:
+    475 +    """
+    476 +    Return active `(column index, shell name)` components in the composer.
+    477 +
+    478 +    The column index names the `col_XX` input to `combiner`. The shell name is
+    479 +    one of `hard_kernel`, `inner_shell`, `middle_shell`, or `outer_shell`.
+    480 +    """
+    481 +    if not has_shell_composer(structure):
+    482 +        return ()
+    483 +    config = structure.nodes["combiner"].node_info.node_config
+    484 +    num_columns = int(config.get("num_columns", 0))
+    485 +    support_mask = tuple(float(value) for value in config.get("support_mask", ()))
+    486 +    return tuple(
+    487 +        (column_idx, shell_name)
+    488 +        for column_idx in range(num_columns)
+    489 +        if column_idx < len(support_mask) and support_mask[column_idx] > 0.0
+    490 +        for shell_name in SHELL_NAMES
+    491 +    )
+    492 +
+    493 +
+    494 +def diagnose_composer_attention(
+    495 +    params: GraphParams,
+    496 +    structure: GraphStructure,
+    497 +) -> Dict[str, Dict[str, float]]:
+    498 +    """
+    499 +    Report the learned attention over active `(column, shell)` components.
+    500 +
+    501 +    `attention[c][s]` is the softmax weight on column `c` and shell `s` inside
+    502 +    `ColumnShellComposerNode`. Inactive columns are masked before softmax.
+    503 +    """
+    504 +    if not has_shell_composer(structure):
+    505 +        return {}
+    506 +    config = structure.nodes["combiner"].node_info.node_config
+    507 +    logits = params.nodes["combiner"].weights["component_attention"]
+    508 +    support_mask = jnp.asarray(config.get("support_mask"), dtype=logits.dtype)[:, None]
+    509 +    masked_logits = jnp.where(support_mask > 0.0, logits, -1.0e9)
+    510 +    attention = jax.nn.softmax(jnp.reshape(masked_logits, (-1,)))
+    511 +    attention = jnp.reshape(attention, logits.shape)
+    512 +
+    513 +    rows: Dict[str, Dict[str, float]] = {}
+    514 +    for column_idx, shell_name in active_composer_components(structure):
+    515 +        column_key = f"col_{column_idx:02d}"
+    516 +        if column_key not in rows:
+    517 +            rows[column_key] = {}
+    518 +        shell_idx = SHELL_NAMES.index(shell_name)
+    519 +        rows[column_key][shell_name] = float(attention[column_idx, shell_idx])
+    520 +    return rows
+    521 +
+    522 +
+    523 +def diagnose_composer_projection_norms(
+    524 +    params: GraphParams,
+    525 +    structure: GraphStructure,
+    526 +) -> Dict[str, float]:
+    527 +    """
+    528 +    Report Frobenius norms of composer projection matrices.
+    529 +
+    530 +    Each entry is one learned projection from a `(column, shell)` feature slice
+    531 +    into the shared composer output feature axis.
+    532 +    """
+    533 +    if not has_shell_composer(structure):
+    534 +        return {}
+    535 +    combiner_params = params.nodes["combiner"]
+    536 +    norms = {}
+    537 +    for column_idx, shell_name in active_composer_components(structure):
+    538 +        weight_name = ColumnShellComposerNode._projection_weight_name(
+    539 +            column_idx,
+    540 +            shell_name,
+    541 +        )
+    542 +        key = f"col_{column_idx:02d}.{shell_name}"
+    543 +        norms[key] = float(jnp.linalg.norm(combiner_params.weights[weight_name]))
+    544 +    return norms
+    545 +
+    546 +
+    547 +def mask_composer_components(
+    548 +    params: GraphParams,
+    549 +    structure: GraphStructure,
+    550 +    kept_components: Tuple[Tuple[int, str], ...] | None = None,
+    551 +    dropped_components: Tuple[Tuple[int, str], ...] | None = None,
+    552 +) -> GraphParams:
+    553 +    """
+    554 +    Zero selected composer projections in a copied parameter tree.
+    555 +
+    556 +    Components are identified as `(column index, shell name)` pairs. Keeping
+    557 +    components means all other active components are zeroed. Dropping components
+    558 +    means only those active components are zeroed. The graph structure and
+    559 +    learned attention logits are unchanged.
+    560 +    """
+    561 +    if kept_components is not None and dropped_components is not None:
+    562 +        raise ValueError("Use either kept_components or dropped_components, not both")
+    563 +    if not has_shell_composer(structure):
+    564 +        raise ValueError("Composer component masking requires shell_attention combiner")
+    565 +
+    566 +    active_components = active_composer_components(structure)
+    567 +    keep_set = set(kept_components) if kept_components is not None else None
+    568 +    drop_set = set(dropped_components) if dropped_components is not None else set()
+    569 +    combiner_params = params.nodes["combiner"]
+    570 +    masked_weights = dict(combiner_params.weights)
+    571 +    masked_biases = dict(combiner_params.biases)
+    572 +
+    573 +    for component in active_components:
+    574 +        should_zero = component not in keep_set if keep_set is not None else component in drop_set
+    575 +        if not should_zero:
+    576 +            continue
+    577 +        column_idx, shell_name = component
+    578 +        weight_name = ColumnShellComposerNode._projection_weight_name(
+    579 +            column_idx,
+    580 +            shell_name,
+    581 +        )
+    582 +        bias_name = ColumnShellComposerNode._projection_bias_name(
+    583 +            column_idx,
+    584 +            shell_name,
+    585 +        )
+    586 +        masked_weights[weight_name] = jnp.zeros_like(masked_weights[weight_name])
+    587 +        masked_biases[bias_name] = jnp.zeros_like(masked_biases[bias_name])
+    588 +
+    589 +    masked_combiner = NodeParams(
+    590 +        weights=masked_weights,
+    591 +        biases=masked_biases,
+    592 +    )
+    593 +    return params._replace(nodes={**params.nodes, "combiner": masked_combiner})
+    594 +
+    595 +
+    596 +def evaluate_composer_component_ablations(
+    597 +    params: GraphParams,
+    598 +    structure: GraphStructure,
+    599 +    loader,
+    600 +    config: dict,
+    601 +    rng_key: jax.Array,
+    602 +) -> Dict[str, Dict[str, float]]:
+    603 +    """
+    604 +    Evaluate composer-internal lesions through the `column_pool` route only.
+    605 +
+    606 +    The baseline keeps only `column_pool -> output`. Each lesion then zeros one
+    607 +    active `(column, shell)` projection inside `ColumnShellComposerNode` before
+    608 +    evaluating the same column-pool readout.
+    609 +    """
+    610 +    if not has_shell_composer(structure):
+    611 +        return {}
+    612 +    output_sources = output_input_edge_sources(structure)
+    613 +    if "column_pool" not in output_sources:
+    614 +        return {}
+    615 +
+    616 +    column_only_params = mask_output_input_sources(
+    617 +        params,
+    618 +        structure,
+    619 +        kept_sources=("column_pool",),
+    620 +    )
+    621 +    results = {
+    622 +        "composer_column_only": evaluate_pcn(
+    623 +            column_only_params,
+    624 +            structure,
+    625 +            loader,
+    626 +            config,
+    627 +            rng_key,
+    628 +        )
+    629 +    }
+    630 +    for column_idx, shell_name in active_composer_components(structure):
+    631 +        component = ((column_idx, shell_name),)
+    632 +        masked = mask_composer_components(
+    633 +            column_only_params,
+    634 +            structure,
+    635 +            dropped_components=component,
+    636 +        )
+    637 +        case_name = f"composer_without_col{column_idx:02d}_{shell_name}"
+    638 +        results[case_name] = evaluate_pcn(
+    639 +            masked,
+    640 +            structure,
+    641 +            loader,
+    642 +            config,
+    643 +            rng_key,
+    644 +        )
+    645 +    return results
+    646 +
+    647 +
+    648  def node_input_edge_sources(
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The first patch added the core parameter-copy lesion machinery. Next I’m wiring it into the CLI behind --diagnose_composer, so normal experiment output stays unchanged
+  unless the diagnostic flag is passed.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+26 -0)
+    1177
+    1178 +def print_composer_attention(title: str, rows: Dict[str, Dict[str, float]]) -> None:
+    1179 +    """Print the shell composer's learned component attention table."""
+    1180 +    if not rows:
+    1181 +        return
+    1182 +    print("\n" + title)
+    1183 +    print("-" * len(title))
+    1184 +    header = "  column       " + " ".join(f"{shell_name:>13s}" for shell_name in SHELL_NAMES)
+    1185 +    print(header)
+    1186 +    for column_name in sorted(rows):
+    1187 +        values = rows[column_name]
+    1188 +        pieces = " ".join(
+    1189 +            f"{values.get(shell_name, 0.0):13.6f}" for shell_name in SHELL_NAMES
+    1190 +        )
+    1191 +        print(f"  {column_name:10s} {pieces}")
+    1192 +
+    1193 +
+    1194 +def print_scalar_diagnostics(title: str, values: Dict[str, float]) -> None:
+    1195 +    """Print a sorted scalar diagnostic table."""
+    1196 +    if not values:
+    1197 +        return
+    1198 +    print("\n" + title)
+    1199 +    print("-" * len(title))
+    1200 +    for key, value in sorted(values.items()):
+    1201 +        print(f"  {key:40s} {value:.6f}")
+    1202 +
+    1203 +
+    1204  def make_classifier_energy(label_smoothing: float, weight: float = 1.0):
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The diagnostics will report source names for classifier edge norms, for example column_pool and column00_outer_shell_pool, instead of FabricPC edge keys. That should
+  make the logs easier to read when comparing route use.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+1 -1)
+    2039
+    2040 -            edge_norms = diagnose_classifier_edge_weights(params)
+    2040 +            edge_norms = diagnose_output_edge_weight_norms(params, structure)
+    2041              if edge_norms:
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m placing the composer lesion evaluation on the validation set only. The normal test metrics still run as before, and this keeps the diagnostic comparison from
+  spending most of its time on repeated full-test inference passes.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+26 -0)
+    2109      ablation_key = jax.random.PRNGKey(args.seed + 2026)
+    2110 +    if args.diagnose_composer:
+    2111 +        print_composer_attention(
+    2112 +            "Composer Attention (selected params)",
+    2113 +            diagnose_composer_attention(eval_params, structure),
+    2114 +        )
+    2115 +        print_scalar_diagnostics(
+    2116 +            "Composer Projection Norms (selected params)",
+    2117 +            diagnose_composer_projection_norms(eval_params, structure),
+    2118 +        )
+    2119 +        print_scalar_diagnostics(
+    2120 +            "Output Edge Weight Norms (selected params)",
+    2121 +            diagnose_output_edge_weight_norms(eval_params, structure),
+    2122 +        )
+    2123 +        val_composer_metrics = evaluate_composer_component_ablations(
+    2124 +            eval_params,
+    2125 +            structure,
+    2126 +            val_loader,
+    2127 +            train_config,
+    2128 +            ablation_key,
+    2129 +        )
+    2130 +        if val_composer_metrics:
+    2131 +            print_ablation_results(
+    2132 +                "Validation Composer Component Lesions",
+    2133 +                val_composer_metrics,
+    2134 +            )
+    2135 +
+    2136      val_ablation_metrics = evaluate_readout_ablations(
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll add the CLI switch now and then update the existing runner to accept a composer diagnostic mode. After that I’ll add a two-case shell-composer diagnostic script.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+9 -0)
+    2363      parser.add_argument(
+    2364 +        "--diagnose_composer",
+    2365 +        action="store_true",
+    2366 +        help=(
+    2367 +            "For shell_attention combiner runs, log composer attention, "
+    2368 +            "composer projection norms, output edge norms, and validation "
+    2369 +            "lesions of one composer component at a time."
+    2370 +        ),
+    2371 +    )
+    2372 +    parser.add_argument(
+    2373          "--bypass_columns",
+
+• Edited columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh (+9 -0)
+    44      extra_args+=(--diagnose_energy --diagnose_shells)
+    45 +elif [[ "$diagnose_mode" == "composer" || "$diagnose_mode" == "--diagnose_composer" ]]; then
+    46 +    diagnose_label="composer"
+    47 +    extra_args+=(--diagnose_composer)
+    48 +elif [[ "$diagnose_mode" == "composer_shells" ]]; then
+    49 +    diagnose_label="composer_shells"
+    50 +    extra_args+=(--diagnose_composer --diagnose_shells)
+    51 +elif [[ "$diagnose_mode" == "diag_shells_composer" ]]; then
+    52 +    diagnose_label="diag_shells_composer"
+    53 +    extra_args+=(--diagnose_energy --diagnose_shells --diagnose_composer)
+    54  fi
+
+• Added columnarCL-fabricPC-experiments/scripts/run_codex_shell_composer_diagnostic_comparison.sh (+64 -0)
+     1 +#!/usr/bin/env bash
+     2 +set -euo pipefail
+     3 +
+     4 +repo_root="/home/ni/repos/fpc/columnarCL-fabricPC-experiments"
+     5 +runner="${repo_root}/scripts/run_codex_cifar10_depth_spanning.sh"
+     6 +seed="${1:-42}"
+     7 +num_epochs="${2:-8}"
+     8 +lr="${3:-0.005}"
+     9 +hostname_value="$(hostname)"
+    10 +timestamp="$(date +%Y%m%d_%H%M%S)"
+    11 +master_log="${repo_root}/results/codex_shell_composer_diagnostic_comparison_seed${seed}_${hostname_value}_${timestamp}.log"
+    12 +
+    13 +cd "$repo_root"
+    14 +mkdir -p results
+    15 +
+    16 +run_case() {
+    17 +    local case_name="$1"
+    18 +    local shell_readout_mode="$2"
+    19 +    local shell_bridge_mode="$3"
+    20 +
+    21 +    echo "======================================================================"
+    22 +    echo "Starting case=$case_name at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    23 +    echo "seed: $seed"
+    24 +    echo "lr: $lr"
+    25 +    echo "num_epochs: $num_epochs"
+    26 +    echo "diagnose_mode: composer_shells"
+    27 +    echo "combiner: shell_attention"
+    28 +    echo "column_teacher_weight: 0.0"
+    29 +    echo "shell_teacher_weights: 0,0,0,0"
+    30 +    echo "column_shell_teacher_weights: 0,0,0,0"
+    31 +    echo "column_shell_readout: $shell_readout_mode"
+    32 +    echo "column_shell_bridge: $shell_bridge_mode"
+    33 +    echo "readout_mode: nobypass"
+    34 +    echo "======================================================================"
+    35 +
+    36 +    bash "$runner" "$seed" "$lr" composer_shells "$num_epochs" 0.0 0,0,0,0 nobypass 0,0,0,0 "$shell_readout_mode" "$shell_bridge_mode" shell_attention
+    37 +
+    38 +    echo "Finished case=$case_name at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    39 +    echo
+    40 +}
+    41 +
+    42 +{
+    43 +    echo "repo: $repo_root"
+    44 +    echo "git_commit: $(git rev-parse HEAD)"
+    45 +    echo "git_status:"
+    46 +    git status --short --branch
+    47 +    echo "runner: $runner"
+    48 +    echo "seed: $seed"
+    49 +    echo "lr: $lr"
+    50 +    echo "num_epochs: $num_epochs"
+    51 +    echo "diagnose_mode: composer_shells"
+    52 +    echo "started_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    53 +    echo
+    54 +    echo "planned_cases:"
+    55 +    echo "1. shell_composer_with_direct_readout_and_bridge"
+    56 +    echo "2. shell_composer_composer_only"
+    57 +    echo
+    58 +
+    59 +    run_case "shell_composer_with_direct_readout_and_bridge" on on
+    60 +    run_case "shell_composer_composer_only" off off
+    61 +
+    62 +    echo "completed_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    63 +    echo "master_log: $master_log"
+    64 +} 2>&1 | tee "$master_log"
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The two-case script is in place. I’ll set its execute bit and then add targeted tests for the new masking and diagnostic helpers before running the lightweight checks
+  locally.
+
+• Ran chmod +x scripts/run_codex_shell_composer_diagnostic_comparison.sh
+  └ (no output)
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+86 -0)
+     26      ColumnTeacherTargetLoader,
+     27 +    active_composer_components,
+     28      build_depth_spanning_graph,
+        ⋮
+     33      column_shell_teacher_target_name,
+     34 +    diagnose_composer_attention,
+     35 +    diagnose_composer_projection_norms,
+     36 +    diagnose_output_edge_weight_norms,
+     37 +    has_shell_composer,
+     38      mask_column_shell_path_inputs,
+     39 +    mask_composer_components,
+     40      mask_output_input_sources,
+        ⋮
+    352
+    353 +def test_shell_composer_diagnostics_report_active_components() -> None:
+    354 +    """Composer diagnostics expose attention and projection norms by component."""
+    355 +    args = _tiny_depth_spanning_args(
+    356 +        combiner="shell_attention",
+    357 +        bypass_columns=False,
+    358 +    )
+    359 +    structure, _ = build_depth_spanning_graph(args)
+    360 +    params = initialize_params(structure, jax.random.PRNGKey(0))
+    361 +
+    362 +    components = active_composer_components(structure)
+    363 +    attention = diagnose_composer_attention(params, structure)
+    364 +    projection_norms = diagnose_composer_projection_norms(params, structure)
+    365 +
+    366 +    assert has_shell_composer(structure)
+    367 +    assert components == tuple(
+    368 +        (column_idx, shell_name)
+    369 +        for column_idx in (0, 1)
+    370 +        for shell_name in SHELL_NAMES
+    371 +    )
+    372 +    assert set(attention) == {"col_00", "col_01"}
+    373 +    assert sum(
+    374 +        attention[column_name][shell_name]
+    375 +        for column_name in attention
+    376 +        for shell_name in SHELL_NAMES
+    377 +    ) == pytest.approx(1.0)
+    378 +    assert set(projection_norms) == {
+    379 +        f"col_{column_idx:02d}.{shell_name}"
+    380 +        for column_idx in (0, 1)
+    381 +        for shell_name in SHELL_NAMES
+    382 +    }
+    383 +
+    384 +
+    385 +def test_mask_composer_components_zeroes_selected_projection() -> None:
+    386 +    """Composer lesions zero selected projection weights without changing graph."""
+    387 +    args = _tiny_depth_spanning_args(
+    388 +        combiner="shell_attention",
+    389 +        bypass_columns=False,
+    390 +    )
+    391 +    structure, _ = build_depth_spanning_graph(args)
+    392 +    params = initialize_params(structure, jax.random.PRNGKey(0))
+    393 +    hard_weight = ColumnShellComposerNode._projection_weight_name(0, "hard_kernel")
+    394 +    hard_bias = ColumnShellComposerNode._projection_bias_name(0, "hard_kernel")
+    395 +    inner_weight = ColumnShellComposerNode._projection_weight_name(0, "inner_shell")
+    396 +
+    397 +    masked = mask_composer_components(
+    398 +        params,
+    399 +        structure,
+    400 +        dropped_components=((0, "hard_kernel"),),
+    401 +    )
+    402 +
+    403 +    assert jnp.allclose(
+    404 +        masked.nodes["combiner"].weights[hard_weight],
+    405 +        jnp.zeros_like(params.nodes["combiner"].weights[hard_weight]),
+    406 +    )
+    407 +    assert jnp.allclose(
+    408 +        masked.nodes["combiner"].biases[hard_bias],
+    409 +        jnp.zeros_like(params.nodes["combiner"].biases[hard_bias]),
+    410 +    )
+    411 +    assert jnp.allclose(
+    412 +        masked.nodes["combiner"].weights[inner_weight],
+    413 +        params.nodes["combiner"].weights[inner_weight],
+    414 +    )
+    415 +
+    416 +
+    417 +def test_output_edge_weight_norms_are_named_by_source() -> None:
+    418 +    """Output edge norms use architectural source names rather than edge keys."""
+    419 +    args = _tiny_depth_spanning_args(
+    420 +        column_shell_readout=True,
+    421 +        column_shell_bridge=True,
+    422 +    )
+    423 +    structure, _ = build_depth_spanning_graph(args)
+    424 +    params = initialize_params(structure, jax.random.PRNGKey(0))
+    425 +    norms = diagnose_output_edge_weight_norms(params, structure)
+    426 +
+    427 +    assert "column_pool" in norms
+    428 +    assert "bypass_pool" in norms
+    429 +    assert column_shell_pool_node_name(0, "hard_kernel") in norms
+    430 +    assert column_shell_bridge_node_name(0) in norms
+    431 +
+    432 +
+    433  def test_depth_spanning_graph_adds_column_teacher_head() -> None:
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The tests now cover active composer component enumeration, attention/projection diagnostic output, named classifier edge norms, and projection masking. I’m running
+  syntax and targeted pytest checks next.
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_composer_diagnostic_comparison.sh scripts/run_codex_shell_composer_replicate_sweep.sh
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py columnar_cl_fabricpc/columns/accuracy_nodes.py
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +6 lines (ctrl + t to view transcript)
+
+    ============================== 26 passed in 8.79s ==============================
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The targeted tests passed. I’m running the broader non-data suite now; I’m avoiding CIFAR data tests locally because this sandbox cannot write the default data cache
+  under the home directory.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -k 'not cifar_data'
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +14 lines (ctrl + t to view transcript)
+
+    ===================== 148 passed, 22 deselected in 26.27s ======================
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The broader non-data suite passed. I’m going to append a concise work-log entry now with the implemented diagnostics, the fact that graph topology did not change, and
+  the exact diagnostic command to run on the GPU machine.
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z'
+  └ 2026-07-01 19:22:48 EDT
+
+• Ran hostname
+  └ rogdora43
+
+• Ran tail -50 docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └
+    It also learns `component_attention`, a matrix with shape `(num_columns, 4)`. The row index is the column index and the shell index follows `SHELL_NAMES`. The support
+    … +47 lines (ctrl + t to view transcript)
+    cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_replicate_sweep.sh
+    ```
+
+• Ran git diff --stat
+  └  scripts/run_codex_cifar10_depth_spanning.sh |   9 +
+     scripts/train_cifar10_depth_spanning.py     | 268 +++++++++++++++++++++++++++-
+     tests/test_pooled_readout_norm.py           |  86 +++++++++
+     3 files changed, 356 insertions(+), 7 deletions(-)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work-log update will describe the mechanism and verification only; it will not claim the diagnostic results until the GPU run completes and you share the logs.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+57 -0)
+    2237  ```
+    2238 +
+    2239 +## 2026-07-01 Shell-Composer Diagnostic Instrumentation
+    2240 +
+    2241 +Timestamp and machine: 2026-07-01 19:22:48 EDT on `rogdora43`.
+    2242 +
+    2243 +Direction update:
+    2244 +
+    2245 +The three-seed shell-composer run showed a stable combined classifier but did not satisfy the primary criterion that `ColumnShellComposerNode -> column_pool -> o
+          utput` should become independently class-informative. The next change therefore adds diagnostic logging and evaluation around the existing shell composer rather
+          than changing the architecture.
+    2246 +
+    2247 +Topology note:
+    2248 +
+    2249 +No graph nodes or edges changed. The ASCII architecture diagram in `scripts/train_cifar10_depth_spanning.py` remains accurate. The new code only inspects learned
+           parameters and evaluates copied parameter trees with selected composer projections zeroed.
+    2250 +
+    2251 +Implemented diagnostics:
+    2252 +
+    2253 +- Added `--diagnose_composer` to `scripts/train_cifar10_depth_spanning.py`.
+    2254 +- Added composer attention logging. `attention[c, s]` is the learned softmax weight inside `ColumnShellComposerNode`, where `c` is the active column index and `s
+          ` is one of `hard_kernel`, `inner_shell`, `middle_shell`, or `outer_shell`.
+    2255 +- Added composer projection norm logging. Each value is the Frobenius norm of the learned projection from one `(column, shell)` slice into the shared composer ou
+          tput feature axis.
+    2256 +- Replaced edge-key classifier norm reporting with source-name reporting. The output now names architectural routes such as `column_pool`, `column00_hard_kernel_
+          pool`, and `column00_shell_bridge`.
+    2257 +- Added validation composer component lesions. Each lesion keeps the classifier restricted to `column_pool -> output`, then zeros one active composer projection
+          such as `(col_00, outer_shell)` in a copied parameter tree before evaluation.
+    2258 +- Added `scripts/run_codex_shell_composer_diagnostic_comparison.sh`, which runs a two-case comparison: shell composer with direct shell readout plus bridge, then
+           shell composer without those side routes.
+    2259 +
+    2260 +Verification:
+    2261 +
+    2262 +```bash
+    2263 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py columnar_cl_fabricpc/columns/accuracy_nodes.py
+    2264 +```
+    2265 +
+    2266 +Result: passed.
+    2267 +
+    2268 +```bash
+    2269 +bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_composer_diagnostic_comparison.sh scripts/run_codex_shell_composer_replicate_sweep.sh
+    2270 +```
+    2271 +
+    2272 +Result: passed.
+    2273 +
+    2274 +```bash
+    2275 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+    2276 +```
+    2277 +
+    2278 +Result: 26 passed.
+    2279 +
+    2280 +```bash
+    2281 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -k 'not cifar_data'
+    2282 +```
+    2283 +
+    2284 +Result: 148 passed, 22 deselected.
+    2285 +
+    2286 +Next diagnostic run:
+    2287 +
+    2288 +The recommended next run is a one-seed, two-case shell-composer comparison. It uses seed 42, learning rate 0.005, 8 epochs, no bypass, zero teacher weights, shel
+          l diagnostics, and composer diagnostics. The first case preserves the direct per-column shell readout and shell bridge. The second case removes those side routes
+           so `ColumnShellComposerNode -> column_pool -> output` is the only classifier route.
+    2289 +
+    2290 +Pasteable command:
+    2291 +
+    2292 +```bash
+    2293 +cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh
+    2294 +```
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The implementation and work log are updated. I’m doing a final diff review for accidental topology/documentation drift and checking the runner is executable.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +2 lines (ctrl + t to view transcript)
+     M tests/test_pooled_readout_norm.py
+    ?? scripts/run_codex_shell_composer_diagnostic_comparison.sh
+
+• Ran git diff -- scripts/train_cifar10_depth_spanning.py | sed -n '1,260p'
+  └ diff --git a/scripts/train_cifar10_depth_spanning.py b/scripts/train_cifar10_depth_spanning.py
+    index 2dba2e2..8b14357 100644
+    … +256 lines (ctrl + t to view transcript)
+                 )
+
+
+• Ran git diff -- scripts/run_codex_cifar10_depth_spanning.sh tests/test_pooled_readout_norm.py docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md | sed
+  │ -n '1,260p'
+  └ diff --git a/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md b/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    index d88fea4..7394715 100644
+    … +192 lines (ctrl + t to view transcript)
+         """The column teacher head receives class error from the pooled columns only."""
+         structure, _ = build_depth_spanning_graph(_tiny_depth_spanning_args())
+
+• Explored
+  └ List run_codex_shell_composer_diagnostic_comparison.sh
+    Read run_codex_shell_composer_diagnostic_comparison.sh
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The final diff shows no graph-construction changes beyond diagnostics and runner wiring. I’m cleaning up one long conditional in the masking helper for readability, then
+  I’ll rerun the fast syntax/test checks that cover the edited code.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+4 -1)
+    573      for component in active_components:
+    574 -        should_zero = component not in keep_set if keep_set is not None else component in drop_set
+    574 +        if keep_set is not None:
+    575 +            should_zero = component not in keep_set
+    576 +        else:
+    577 +            should_zero = component in drop_set
+    578          if not should_zero:
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll rerun the checks affected by that cleanup.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py
+  └ (no output)
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_composer_diagnostic_comparison.sh
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +6 lines (ctrl + t to view transcript)
+
+    ============================== 26 passed in 8.67s ==============================
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The rerun passed. I’m doing one last status and whitespace check, then I’ll hand you the GPU command for the diagnostic comparison.
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +2 lines (ctrl + t to view transcript)
+     M tests/test_pooled_readout_norm.py
+    ?? scripts/run_codex_shell_composer_diagnostic_comparison.sh
+
+• Ran git diff --stat
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md |  57 +++++
+     scripts/run_codex_cifar10_depth_spanning.sh        |   9 +
+     scripts/train_cifar10_depth_spanning.py            | 271 ++++++++++++++++++++-
+     tests/test_pooled_readout_norm.py                  |  86 +++++++
+     4 files changed, 416 insertions(+), 7 deletions(-)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the composer diagnostics and comparison runner. No graph topology changed, so I left the ASCII architecture docstring unchanged.
+
+  Changes made:
+
+  - Added --diagnose_composer in columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py.
+  - Logs composer attention, composer projection norms, and named output edge norms.
+  - Adds validation composer lesions by zeroing one (column, shell) composer projection at a time through copied params.
+  - Added columnarCL-fabricPC-experiments/scripts/run_codex_shell_composer_diagnostic_comparison.sh.
+  - Updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md.
+
+  Verification:
+
+  - py_compile passed.
+  - bash -n passed for the edited runners.
+  - pytest tests/test_pooled_readout_norm.py: 26 passed.
+  - pytest -k 'not cifar_data': 148 passed, 22 deselected.
+
+  Please run this GPU diagnostic command:
+
+  cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh 42 8 0.005
+
+  It runs two sequential cases and writes logs under results/: current shell composer with direct shell readout plus bridge, then composer-only with those side routes
+  disabled.
+
+─ Worked for 7m 30s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ 
+› Implement {feature}

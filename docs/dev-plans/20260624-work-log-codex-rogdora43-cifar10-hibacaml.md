@@ -2235,3 +2235,60 @@ Pasteable command:
 ```bash
 cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_replicate_sweep.sh
 ```
+
+## 2026-07-01 Shell-Composer Diagnostic Instrumentation
+
+Timestamp and machine: 2026-07-01 19:22:48 EDT on `rogdora43`.
+
+Direction update:
+
+The three-seed shell-composer run showed a stable combined classifier but did not satisfy the primary criterion that `ColumnShellComposerNode -> column_pool -> output` should become independently class-informative. The next change therefore adds diagnostic logging and evaluation around the existing shell composer rather than changing the architecture.
+
+Topology note:
+
+No graph nodes or edges changed. The ASCII architecture diagram in `scripts/train_cifar10_depth_spanning.py` remains accurate. The new code only inspects learned parameters and evaluates copied parameter trees with selected composer projections zeroed.
+
+Implemented diagnostics:
+
+- Added `--diagnose_composer` to `scripts/train_cifar10_depth_spanning.py`.
+- Added composer attention logging. `attention[c, s]` is the learned softmax weight inside `ColumnShellComposerNode`, where `c` is the active column index and `s` is one of `hard_kernel`, `inner_shell`, `middle_shell`, or `outer_shell`.
+- Added composer projection norm logging. Each value is the Frobenius norm of the learned projection from one `(column, shell)` slice into the shared composer output feature axis.
+- Replaced edge-key classifier norm reporting with source-name reporting. The output now names architectural routes such as `column_pool`, `column00_hard_kernel_pool`, and `column00_shell_bridge`.
+- Added validation composer component lesions. Each lesion keeps the classifier restricted to `column_pool -> output`, then zeros one active composer projection such as `(col_00, outer_shell)` in a copied parameter tree before evaluation.
+- Added `scripts/run_codex_shell_composer_diagnostic_comparison.sh`, which runs a two-case comparison: shell composer with direct shell readout plus bridge, then shell composer without those side routes.
+
+Verification:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py columnar_cl_fabricpc/columns/accuracy_nodes.py
+```
+
+Result: passed.
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_composer_diagnostic_comparison.sh scripts/run_codex_shell_composer_replicate_sweep.sh
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+```
+
+Result: 26 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -k 'not cifar_data'
+```
+
+Result: 148 passed, 22 deselected.
+
+Next diagnostic run:
+
+The recommended next run is a one-seed, two-case shell-composer comparison. It uses seed 42, learning rate 0.005, 8 epochs, no bypass, zero teacher weights, shell diagnostics, and composer diagnostics. The first case preserves the direct per-column shell readout and shell bridge. The second case removes those side routes so `ColumnShellComposerNode -> column_pool -> output` is the only classifier route.
+
+Pasteable command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh
+```

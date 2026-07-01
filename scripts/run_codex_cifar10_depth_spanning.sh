@@ -42,6 +42,15 @@ elif [[ "$diagnose_mode" == "shells" || "$diagnose_mode" == "--diagnose_shells" 
 elif [[ "$diagnose_mode" == "diag_shells" ]]; then
     diagnose_label="diag_shells"
     extra_args+=(--diagnose_energy --diagnose_shells)
+elif [[ "$diagnose_mode" == "composer" || "$diagnose_mode" == "--diagnose_composer" ]]; then
+    diagnose_label="composer"
+    extra_args+=(--diagnose_composer)
+elif [[ "$diagnose_mode" == "composer_shells" ]]; then
+    diagnose_label="composer_shells"
+    extra_args+=(--diagnose_composer --diagnose_shells)
+elif [[ "$diagnose_mode" == "diag_shells_composer" ]]; then
+    diagnose_label="diag_shells_composer"
+    extra_args+=(--diagnose_energy --diagnose_shells --diagnose_composer)
 fi
 
 if [[ "$readout_mode" == "bypass" || "$readout_mode" == "--bypass_columns" ]]; then

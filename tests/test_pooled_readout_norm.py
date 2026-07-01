@@ -24,13 +24,19 @@ from scripts.train_cifar10_depth_spanning import (
     COLUMN_TEACHER_NODE,
     COLUMN_TEACHER_TARGET,
     ColumnTeacherTargetLoader,
+    active_composer_components,
     build_depth_spanning_graph,
     column_shell_bridge_node_name,
     column_shell_pool_node_name,
     column_shell_slice_node_name,
     column_shell_teacher_node_name,
     column_shell_teacher_target_name,
+    diagnose_composer_attention,
+    diagnose_composer_projection_norms,
+    diagnose_output_edge_weight_norms,
+    has_shell_composer,
     mask_column_shell_path_inputs,
+    mask_composer_components,
     mask_output_input_sources,
     mask_node_input_sources,
     mask_output_source_feature_slice,
@@ -342,6 +348,86 @@ def test_depth_spanning_graph_uses_shell_composer_combiner_mode() -> None:
     assert combiner_sources == {"col_00", "col_01"}
     assert set(output_sources) == {"column_pool"}
     assert "component_attention" in params.nodes["combiner"].weights
+
+
+def test_shell_composer_diagnostics_report_active_components() -> None:
+    """Composer diagnostics expose attention and projection norms by component."""
+    args = _tiny_depth_spanning_args(
+        combiner="shell_attention",
+        bypass_columns=False,
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+
+    components = active_composer_components(structure)
+    attention = diagnose_composer_attention(params, structure)
+    projection_norms = diagnose_composer_projection_norms(params, structure)
+
+    assert has_shell_composer(structure)
+    assert components == tuple(
+        (column_idx, shell_name)
+        for column_idx in (0, 1)
+        for shell_name in SHELL_NAMES
+    )
+    assert set(attention) == {"col_00", "col_01"}
+    assert sum(
+        attention[column_name][shell_name]
+        for column_name in attention
+        for shell_name in SHELL_NAMES
+    ) == pytest.approx(1.0)
+    assert set(projection_norms) == {
+        f"col_{column_idx:02d}.{shell_name}"
+        for column_idx in (0, 1)
+        for shell_name in SHELL_NAMES
+    }
+
+
+def test_mask_composer_components_zeroes_selected_projection() -> None:
+    """Composer lesions zero selected projection weights without changing graph."""
+    args = _tiny_depth_spanning_args(
+        combiner="shell_attention",
+        bypass_columns=False,
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    hard_weight = ColumnShellComposerNode._projection_weight_name(0, "hard_kernel")
+    hard_bias = ColumnShellComposerNode._projection_bias_name(0, "hard_kernel")
+    inner_weight = ColumnShellComposerNode._projection_weight_name(0, "inner_shell")
+
+    masked = mask_composer_components(
+        params,
+        structure,
+        dropped_components=((0, "hard_kernel"),),
+    )
+
+    assert jnp.allclose(
+        masked.nodes["combiner"].weights[hard_weight],
+        jnp.zeros_like(params.nodes["combiner"].weights[hard_weight]),
+    )
+    assert jnp.allclose(
+        masked.nodes["combiner"].biases[hard_bias],
+        jnp.zeros_like(params.nodes["combiner"].biases[hard_bias]),
+    )
+    assert jnp.allclose(
+        masked.nodes["combiner"].weights[inner_weight],
+        params.nodes["combiner"].weights[inner_weight],
+    )
+
+
+def test_output_edge_weight_norms_are_named_by_source() -> None:
+    """Output edge norms use architectural source names rather than edge keys."""
+    args = _tiny_depth_spanning_args(
+        column_shell_readout=True,
+        column_shell_bridge=True,
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    norms = diagnose_output_edge_weight_norms(params, structure)
+
+    assert "column_pool" in norms
+    assert "bypass_pool" in norms
+    assert column_shell_pool_node_name(0, "hard_kernel") in norms
+    assert column_shell_bridge_node_name(0) in norms
 
 
 def test_depth_spanning_graph_adds_column_teacher_head() -> None:
