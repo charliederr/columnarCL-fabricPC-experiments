@@ -2081,3 +2081,82 @@ bash -n scripts/run_codex_shell_inhibition_half_replicate_sweep.sh
 ```
 
 Result: passed.
+
+## 2026-07-01 Half Same-Tier Inhibition Result
+
+Timestamp and machine: 2026-07-01 06:06:16 EDT on `rogdora43`.
+
+Completed command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_inhibition_half_replicate_sweep.sh
+```
+
+Master log:
+
+`results/codex_shell_inhibition_half_replicate_sweep_rogdora43_20260630_183953.log`
+
+Per-seed logs:
+
+- `results/codex_resnet18_shelldynamicson_halfinhib_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed99_lr0p005_ep20_shells_rogdora43_20260630_183953.log`
+- `results/codex_resnet18_shelldynamicson_halfinhib_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed42_lr0p005_ep20_shells_rogdora43_20260630_214411.log`
+- `results/codex_resnet18_shelldynamicson_halfinhib_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadouton_colshellbridgeon_nobypass_norm_fixedln_seed7_lr0p005_ep20_shells_rogdora43_20260701_004751.log`
+
+The tested configuration used four active columns, no backbone bypass, direct per-column shell readout, per-column shell bridge readout, zero class-energy weight on column and shell teacher heads, outward shell evidence cascade with `shell_evidence_cascade_scale = 0.05,0.05,0.05`, and half-strength same-tier inhibition with `shell_inhibition_strengths = 0,0.175,0.11,0.05`. CIFAR-10 chance accuracy is 10 percent.
+
+Results:
+
+| Seed | Test accuracy | Best validation accuracy | Best validation epoch | `column_shell_paths_only` test | `without_outer_shell` test | `outer_shell_only` test |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 99 | 22.02% | 22.64% | 5 | 22.01% | 21.61% | 10.00% |
+| 42 | 24.50% | 25.04% | 17 | 24.51% | 19.75% | 10.00% |
+| 7 | 30.46% | 30.38% | 18 | 30.33% | 19.67% | 10.00% |
+
+Additional readout diagnostics:
+
+| Seed | Direct shell readout only | Shell bridge only | Direct plus bridge |
+| --- | ---: | ---: | ---: |
+| 99 | 14.43% | 19.56% | 22.01% |
+| 42 | 10.33% | 17.97% | 24.51% |
+| 7 | 16.10% | 27.48% | 30.33% |
+
+Comparison:
+
+| Setting | Mean test accuracy | Test accuracy range |
+| --- | ---: | ---: |
+| No shell cascade | 29.37% | 9.02 points |
+| Outward shell cascade, no same-tier inhibition | 28.46% | 1.40 points |
+| Outward shell cascade plus full same-tier inhibition | 28.75% | 3.24 points |
+| Outward shell cascade plus half same-tier inhibition | 25.66% | 8.44 points |
+
+Direct comparison against full same-tier inhibition:
+
+| Seed | Full inhibition test | Half inhibition test | Change | Full `column_shell_paths_only` | Half `column_shell_paths_only` | Change |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 99 | 26.90% | 22.02% | -4.88 points | 26.96% | 22.01% | -4.95 points |
+| 42 | 29.22% | 24.50% | -4.72 points | 29.03% | 24.51% | -4.52 points |
+| 7 | 30.14% | 30.46% | +0.32 points | 30.30% | 30.33% | +0.03 points |
+
+`outer_shell` contribution inside the combined shell path:
+
+| Seed | Full inhibition drop when `outer_shell` is removed | Half inhibition drop when `outer_shell` is removed |
+| --- | ---: | ---: |
+| 99 | 9.29 points | 0.40 points |
+| 42 | 4.16 points | 4.76 points |
+| 7 | 15.69 points | 10.66 points |
+
+Conclusions:
+
+Half-strength same-tier inhibition is a negative diagnostic in this implementation. It did not produce a collapse to chance, but it lowered mean test accuracy from 28.75 percent to 25.66 percent and widened the three-seed range from 3.24 points to 8.44 points. The seed 99 and seed 42 results degraded by nearly five points each, while seed 7 was unchanged at the combined shell-path level.
+
+The seed 99 validation trace shows an early peak rather than no learning: validation accuracy reached 22.64 percent at epoch 5, then dropped as low as 9.68 percent at epoch 11 before recovering partially to 19.36 percent at epoch 20. This points to a training instability in that seed under half inhibition, not a failure to form any class signal.
+
+The `outer_shell` conclusion changed sharply for seed 99. Under full inhibition, removing `outer_shell` from the combined shell path cost 9.29 points. Under half inhibition, the same removal cost only 0.40 points. Since `outer_shell_only` stayed at chance in both runs, the change is not that `outer_shell` became independently class-readable. The change is that the coupled direct-plus-bridge path stopped using `outer_shell` as helpful contextual evidence for seed 99.
+
+For seed 7, half inhibition preserved the final accuracy but did not explain the broader behavior, because `outer_shell` still contributed 10.66 points and the shell bridge alone improved from 25.32 percent to 27.48 percent. For seed 42, half inhibition reduced bridge-only accuracy from 24.83 percent to 17.97 percent and reduced combined shell-path accuracy from 29.03 percent to 24.51 percent. The same coefficient change therefore did not act uniformly across seeds.
+
+The diagnostic answer is that the full same-tier inhibition coefficients are better supported than the half-strength coefficients for the current graph and training loop. This does not prove the full coefficients are optimal. It does show that simply allowing more same-tier shell feature magnitude through the K, L, and B pathways does not improve CIFAR-10 classification or stability here.
+
+Pause point:
+
+No follow-up experiment is proposed here. The next step is to inspect and discuss the architecture and code mechanisms before choosing another direction.
