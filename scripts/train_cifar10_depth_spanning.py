@@ -498,8 +498,9 @@ def diagnose_composer_attention(
     """
     Report the learned attention over active `(column, shell)` components.
 
-    `attention[c][s]` is the softmax weight on column `c` and shell `s` inside
-    `ColumnShellComposerNode`. Inactive columns are masked before softmax.
+    `attention[c][s]` is the softmax weight on column `c` for shell `s` inside
+    `ColumnShellComposerNode`. Inactive columns are masked before a separate
+    softmax is applied over columns for each shell.
     """
     if not has_shell_composer(structure):
         return {}
@@ -507,8 +508,7 @@ def diagnose_composer_attention(
     logits = params.nodes["combiner"].weights["component_attention"]
     support_mask = jnp.asarray(config.get("support_mask"), dtype=logits.dtype)[:, None]
     masked_logits = jnp.where(support_mask > 0.0, logits, -1.0e9)
-    attention = jax.nn.softmax(jnp.reshape(masked_logits, (-1,)))
-    attention = jnp.reshape(attention, logits.shape)
+    attention = jax.nn.softmax(masked_logits, axis=0)
 
     rows: Dict[str, Dict[str, float]] = {}
     for column_idx, shell_name in active_composer_components(structure):
@@ -528,7 +528,7 @@ def diagnose_composer_projection_norms(
     Report Frobenius norms of composer projection matrices.
 
     Each entry is one learned projection from a `(column, shell)` feature slice
-    into the shared composer output feature axis.
+    into the same shell's output feature slice.
     """
     if not has_shell_composer(structure):
         return {}

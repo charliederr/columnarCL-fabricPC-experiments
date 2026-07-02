@@ -2292,3 +2292,63 @@ Pasteable command:
 ```bash
 cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh
 ```
+
+## 2026-07-02 Shell-Preserving Composer Fix
+
+Timestamp and machine: 2026-07-02 05:49:12 EDT on `rogdora43`.
+
+Direction update:
+
+The shell-composer diagnostic comparison showed that the composer-only case reached 29.65 percent test accuracy at seed 42, but the learned `component_attention` concentrated almost all mass on one hard-kernel component. The old composer projected every `(column, shell)` input into the full `embed_dim` output. That allowed a hard-kernel input slice to write into dimensions later treated as `inner_shell`, `middle_shell`, and `outer_shell` during shell readout ablations.
+
+Mechanism change:
+
+`ColumnShellComposerNode` in `columnar_cl_fabricpc/columns/accuracy_nodes.py` is now shell-preserving.
+
+- `hard_kernel` inputs project only into the `hard_kernel` output slice.
+- `inner_shell` inputs project only into the `inner_shell` output slice.
+- `middle_shell` inputs project only into the `middle_shell` output slice.
+- `outer_shell` inputs project only into the `outer_shell` output slice.
+- `component_attention[c, s]` is now normalized over active columns for each shell `s`, where `c` is the column index and `s` is the shell name. Before this change, attention was normalized globally over all `(column, shell)` components.
+
+For an input shell slice with width `w_s`, the learned projection now has shape `(w_s, w_s)`. Before this change, it had shape `(w_s, embed_dim)`. The composer still has the same graph node name, `combiner`, and the same input and output graph edges. This means the top-level ASCII graph in `scripts/train_cifar10_depth_spanning.py` remains accurate.
+
+Diagnostic update:
+
+`diagnose_composer_attention()` in `scripts/train_cifar10_depth_spanning.py` now applies the same per-shell attention normalization as `ColumnShellComposerNode`. Composer projection norm diagnostics still report one norm for each `(column, shell)` projection, but those projections now refer to shell-local matrices.
+
+Verification:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile columnar_cl_fabricpc/columns/accuracy_nodes.py scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+```
+
+Result: 27 passed.
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_composer_diagnostic_comparison.sh scripts/run_codex_shell_composer_replicate_sweep.sh
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -k 'not cifar_data'
+```
+
+Result: 149 passed, 22 deselected.
+
+Next diagnostic run:
+
+Run the same short two-case diagnostic comparison again. The primary check is whether the composer-only case avoids chance-level collapse after preventing cross-shell writes. The second check is whether composer lesions now show any non-hard-kernel shell participation.
+
+Pasteable command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh 42 8 0.005
+```

@@ -427,12 +427,13 @@ class MaskedColumnCombinerNode(NodeBase):
 
 class ColumnShellComposerNode(NodeBase):
     """
-    Compose active columns through learned attention over column-shell components.
+    Compose active columns while preserving shell identity.
 
     Each input is one depth-spanning column latent with shape
     `(batch, tokens, embed_dim)`. The composer slices each input into the shared
-    shell layout, projects every `(column, shell)` component to `embed_dim`, and
-    combines those projected components with a support-masked attention weight.
+    shell layout, projects every `(column, shell)` component back into its own
+    shell width, and writes it only to that shell's output slice. Attention is
+    support-masked and normalized across columns separately for each shell.
     """
 
     def __init__(
@@ -522,12 +523,16 @@ class ColumnShellComposerNode(NodeBase):
                     ColumnShellComposerNode._projection_weight_name(
                         column_idx, shell_name
                     )
-                ] = initialize(keys[key_idx], (end - start, output_dim), weight_init)
+                ] = initialize(
+                    keys[key_idx],
+                    (end - start, end - start),
+                    weight_init,
+                )
                 biases[
                     ColumnShellComposerNode._projection_bias_name(
                         column_idx, shell_name
                     )
-                ] = jnp.zeros((output_dim,), dtype=jnp.float32)
+                ] = jnp.zeros((end - start,), dtype=jnp.float32)
                 key_idx += 1
 
         return NodeParams(weights=weights, biases=biases)
@@ -557,8 +562,7 @@ class ColumnShellComposerNode(NodeBase):
         )[:, None]
         logits = params.weights["component_attention"]
         logits = jnp.where(column_mask > 0.0, logits, -1.0e9)
-        attention = jax.nn.softmax(jnp.reshape(logits, (-1,)))
-        attention = jnp.reshape(attention, logits.shape)
+        attention = jax.nn.softmax(logits, axis=0)
 
         pre_activation = jnp.zeros_like(sorted_inputs[0])
         for column_idx, column_value in enumerate(sorted_inputs):
@@ -580,9 +584,11 @@ class ColumnShellComposerNode(NodeBase):
                         )
                     ]
                 )
-                pre_activation = (
-                    pre_activation + attention[column_idx, shell_idx] * projected
+                shell_update = (
+                    pre_activation[..., start:end]
+                    + attention[column_idx, shell_idx] * projected
                 )
+                pre_activation = pre_activation.at[..., start:end].set(shell_update)
 
         z_mu = node_info.activation.forward(pre_activation, node_info.activation.config)
         error = state.z_latent - z_mu

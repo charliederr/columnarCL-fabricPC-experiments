@@ -19,6 +19,7 @@ from columnar_cl_fabricpc.columns import (
     GlobalAvgPoolNormNode,
     SHELL_NAMES,
     WeightedLabelSmoothedCrossEntropyEnergy,
+    get_shell_slices,
 )
 from scripts.train_cifar10_depth_spanning import (
     COLUMN_TEACHER_NODE,
@@ -224,6 +225,62 @@ def test_column_shell_composer_masks_inactive_column_components() -> None:
     assert jnp.allclose(state.z_mu, jnp.zeros((1, 2, 8), dtype=jnp.float32))
 
 
+def test_column_shell_composer_projects_only_within_matching_shell() -> None:
+    """A composer input shell cannot write into another output shell."""
+    col_0 = IdentityNode(shape=(2, 8), name="col_00")
+    composer = ColumnShellComposerNode(
+        shape=(2, 8),
+        name="composer",
+        num_columns=1,
+        support_mask=(1.0,),
+    )
+    structure = graph(
+        nodes=[col_0, composer],
+        edges=[Edge(source=col_0, target=composer.slot("in"))],
+        task_map=TaskMap(x=col_0),
+        inference=InferenceSGD(),
+    )
+    params = ColumnShellComposerNode.initialize_params(
+        jax.random.PRNGKey(0),
+        node_shape=(2, 8),
+        input_shapes={"col_00->composer:in": (2, 8)},
+        config={
+            "num_columns": 1,
+            "support_mask": (1.0,),
+        },
+    )
+    weights = {name: jnp.zeros_like(value) for name, value in params.weights.items()}
+    biases = {name: jnp.zeros_like(value) for name, value in params.biases.items()}
+    shell_slices = get_shell_slices(8)
+    hard_start, hard_end = shell_slices["hard_kernel"]
+    hard_width = hard_end - hard_start
+    weights[
+        ColumnShellComposerNode._projection_weight_name(0, "hard_kernel")
+    ] = jnp.ones((hard_width, hard_width), dtype=jnp.float32)
+    params = params._replace(weights=weights, biases=biases)
+    state = NodeState(
+        z_latent=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+        z_mu=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+        error=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+        energy=jnp.zeros((1,), dtype=jnp.float32),
+        pre_activation=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+        latent_grad=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+    )
+    x = jnp.zeros((1, 2, 8), dtype=jnp.float32)
+    x = x.at[..., hard_start:hard_end].set(1.0)
+
+    _, state = ColumnShellComposerNode.forward(
+        params,
+        {"col_00->composer:in": x},
+        state,
+        structure.nodes["composer"].node_info,
+    )
+
+    assert jnp.all(state.z_mu[..., hard_start:hard_end] > 0.0)
+    assert jnp.allclose(state.z_mu[..., :hard_start], 0.0)
+    assert jnp.allclose(state.z_mu[..., hard_end:], 0.0)
+
+
 def test_weighted_cross_entropy_scales_energy_and_latent_gradient() -> None:
     """The auxiliary teacher weight scales its class energy and gradient."""
     target = jnp.asarray([[1.0, 0.0, 0.0]], dtype=jnp.float32)
@@ -348,6 +405,15 @@ def test_depth_spanning_graph_uses_shell_composer_combiner_mode() -> None:
     assert combiner_sources == {"col_00", "col_01"}
     assert set(output_sources) == {"column_pool"}
     assert "component_attention" in params.nodes["combiner"].weights
+    for shell_name, (start, end) in get_shell_slices(args.embed_dim).items():
+        weight_name = ColumnShellComposerNode._projection_weight_name(0, shell_name)
+        bias_name = ColumnShellComposerNode._projection_bias_name(0, shell_name)
+        shell_width = end - start
+        assert params.nodes["combiner"].weights[weight_name].shape == (
+            shell_width,
+            shell_width,
+        )
+        assert params.nodes["combiner"].biases[bias_name].shape == (shell_width,)
 
 
 def test_shell_composer_diagnostics_report_active_components() -> None:
@@ -370,11 +436,11 @@ def test_shell_composer_diagnostics_report_active_components() -> None:
         for shell_name in SHELL_NAMES
     )
     assert set(attention) == {"col_00", "col_01"}
-    assert sum(
-        attention[column_name][shell_name]
-        for column_name in attention
-        for shell_name in SHELL_NAMES
-    ) == pytest.approx(1.0)
+    for shell_name in SHELL_NAMES:
+        assert sum(
+            attention[column_name][shell_name]
+            for column_name in attention
+        ) == pytest.approx(1.0)
     assert set(projection_norms) == {
         f"col_{column_idx:02d}.{shell_name}"
         for column_idx in (0, 1)
