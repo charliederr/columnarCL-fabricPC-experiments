@@ -317,3 +317,157 @@ python scripts/train_cifar10_depth_spanning.py \
 ```
 
 After Stage 1 results are in, the plan branches based on whether β grows.
+
+---
+
+## Results (2026-06-23)
+
+Experiments completed on rogdora43 with validation run on singbuntu24. Full results: `results/stage1-3_results_summary_singbuntu24-claude_20260623.md`
+
+### Stage 1 Results (Tiny Backbone)
+
+| Configuration | Test Acc | Best Val | Status |
+|---------------|----------|----------|--------|
+| tiny_baseline | 22.28% | 21.74% | Columns alone hurt |
+| tiny_bypass_only | 39.89% | 41.62% | Bypass restores baseline |
+| tiny_norm_only | 18.13% | 19.54% | LayerNorm alone hurts |
+| tiny_bypass_norm | **44.07%** | 44.30% | **Best tiny config** |
+
+**Go criterion met:** `tiny_bypass_norm` (44.07%) exceeds `tiny_bypass_only` (39.89%) by +4.18 points. Column weight contribution ratio = 1.97 (columns contribute ~2× bypass weight). Proceeded to Stage 2A.
+
+### Stage 2 Results (ResNet18 Backbone)
+
+| Configuration | Test Acc | Best Val |
+|---------------|----------|----------|
+| resnet18_bypass_only | 29.17% | 33.14% |
+| resnet18_bypass_norm | **49.22%** | 49.56% |
+
+**Go criterion met:** `resnet18_bypass_norm` (49.22%) exceeds `resnet18_bypass_only` (29.17%) by +20.05 points. This exceeds the PC ResNet baseline (37.9%-42.45%) by 7+ points.
+
+### Stage 3 Results (40 Columns)
+
+| Configuration | Test Acc | Best Val |
+|---------------|----------|----------|
+| resnet18_bypass_norm_40col_k9 | 44.26% | 44.40% |
+
+**Finding:** 40 columns (44.26%) is worse than 4 columns (49.22%) by -4.96 points. Sparsity without task boundaries adds noise.
+
+### Key Findings
+
+1. **Bypass + LayerNorm is essential.** Both interventions together achieve best results.
+
+2. **LayerNorm effect scales with backbone depth:**
+   - Tiny: +4.18 points (39.89% → 44.07%)
+   - ResNet18: +20.05 points (29.17% → 49.22%)
+
+3. **Column contribution differs by backbone:**
+   - Tiny: columns contribute 1.97× bypass weight (columns primary)
+   - ResNet18: bypass contributes 2.3× column weight (bypass primary, columns refine)
+
+4. **Optimal plain CIFAR-10 configuration:** `resnet18 + bypass + LayerNorm + 4 columns` at 49.22%
+
+5. **40-column scaling deferred:** Without task boundaries to guide selection, more columns hurts.
+
+### Success Criteria Assessment
+
+| Criterion | Target | Achieved | Status |
+|-----------|--------|----------|--------|
+| Stage 1: `tiny_bypass_norm` ≥ 38% | 38% | 44.07% | **PASS** |
+| Stage 1: columns contributing | β > 0.1 | ratio = 1.97 | **PASS** |
+| Stage 2: `resnet18_bypass_norm` ≥ 38% | 38% | 49.22% | **PASS** |
+| Overall: match/beat PC ResNet baseline | 37.9%-42.45% | 49.22% | **PASS** |
+
+**Plain CIFAR-10 goal achieved.** The columnar architecture with bypass + LayerNorm exceeds the PC ResNet baseline.
+
+---
+
+## Phase 2: Split-CIFAR-10 Continual Learning
+
+With plain CIFAR-10 solved, the next phase implements the task-incremental protocol from the HiBaCaML paper.
+
+### Goal
+
+Demonstrate that the columnar architecture enables continual learning on Split-CIFAR-10 with reduced catastrophic forgetting compared to a non-columnar PC baseline.
+
+### Split-CIFAR-10 Protocol (from HiBaCaML paper)
+
+- **Tasks:** 5 binary classification tasks (classes 0-1, 2-3, 4-5, 6-7, 8-9)
+- **Training:** Sequential, one task at a time, no replay
+- **Evaluation:** After each task, evaluate on all seen tasks
+- **Metrics:**
+  - Per-task accuracy after training on that task (within-task)
+  - Per-task accuracy after training on subsequent tasks (forgetting)
+  - Average accuracy across all tasks (A_final)
+  - Backward transfer (BWT): average forgetting across tasks
+
+### Starting Configuration
+
+Based on Phase 1 results:
+- Backbone: ResNet18
+- Bypass: enabled (`--bypass_columns`)
+- LayerNorm: enabled (`--layer_norm_tokens`)
+- Columns: 4 initially, scale to 40 for column selection experiments
+- Column mode: `all_active` initially, then `random_sparse` with task-guided selection
+
+### Implementation Requirements
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Task-local classification heads | Not implemented | Need per-task output nodes |
+| Task ID during training | Not implemented | Need task boundary signals |
+| Sequential task training loop | Not implemented | Modify `train_pcn` or new script |
+| Per-task evaluation | Not implemented | Evaluate all heads after each task |
+| Column selection per task | Partial | `random_sparse` exists but not task-guided |
+| Forgetting metrics | Not implemented | BWT, A_final calculations |
+
+### Proposed Implementation Order
+
+1. **Create `train_split_cifar10.py`** - New training script for task-incremental protocol
+   - Task-local heads (5 binary classifiers)
+   - Sequential training loop with task boundaries
+   - Evaluation on all seen tasks after each training phase
+
+2. **Establish Split-CIFAR-10 baselines**
+   - PC ResNet without columns (expected: high forgetting)
+   - PC ResNet with replay buffer (upper bound)
+
+3. **Test columnar architecture**
+   - 4 columns, all_active (verify within-task accuracy preserved)
+   - 4 columns, with column freezing after task (test forgetting reduction)
+
+4. **Scale to paper configuration**
+   - 40 columns, k_active=9
+   - Task-guided column selection (shared + task-specific)
+   - Shell dynamics if beneficial
+
+### Success Criteria for Phase 2
+
+1. **Within-task accuracy preserved:** Each task reaches ≥45% (binary classification baseline ~50%)
+2. **Reduced forgetting:** BWT > -10% (less than 10% average accuracy drop on prior tasks)
+3. **Column specialization:** Different tasks activate different non-shared columns
+
+### Risks
+
+1. **Task-local heads add complexity.** Binary heads may behave differently than 10-way classifier. Mitigation: verify binary task accuracy before continual learning.
+
+2. **Column freezing may break PC inference.** Freezing column parameters while allowing z_latent inference may have unexpected effects. Mitigation: test freezing on single-task first.
+
+3. **Task ordering effects.** Performance may depend on which task is learned first. Mitigation: report results for multiple orderings or fixed canonical order.
+
+### Next Action
+
+Implement `train_split_cifar10.py` with:
+1. Split-CIFAR-10 data loading (5 binary tasks)
+2. Task-local binary classification heads
+3. Sequential training loop
+4. Per-task evaluation after each training phase
+
+```bash
+# Target command structure
+python scripts/train_split_cifar10.py \
+    --model resnet18 \
+    --bypass_columns \
+    --layer_norm_tokens \
+    --num_columns 4 \
+    --epochs_per_task 10
+```
