@@ -2352,3 +2352,33 @@ Pasteable command:
 ```bash
 cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh 42 8 0.005
 ```
+
+## 2026-07-02 Shell-Preserving Composer Replicate Prepared
+
+Timestamp and machine: 2026-07-02 10:07:49 EDT on `rogdora43`.
+
+Direction update:
+
+The corrected shell-preserving composer avoided chance-level collapse in the seed-42 composer-only diagnostic. The next test is a three-seed, 20-epoch replicate of the clean composer-only path before adding any new outer-shell mechanism.
+
+Prepared run script:
+
+- Added `scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh`.
+- The script runs seeds 42, 99, and 7 sequentially.
+- Each run uses `--combiner shell_attention`, no bypass, no direct per-column shell readout, no per-column shell bridge, zero teacher weights, shell diagnostics, and composer diagnostics.
+- Each child run writes its own result log through `scripts/run_codex_cifar10_depth_spanning.sh`.
+- The sweep writes a master log in `results/`.
+
+Verification:
+
+```bash
+bash -n scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh
+```
+
+Result: passed.
+
+Pasteable command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh
+```
