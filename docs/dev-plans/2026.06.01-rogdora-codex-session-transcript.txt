@@ -2465,3 +2465,1014 @@ Please run this GPU diagnostic command:
 › Implement {feature}
  
   gpt-5.5 xhigh · ~/
+
+
+
+
+
+
+
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The tests now cover active composer component enumeration, attention/projection diagnostic output, named classifier edge norms, and projection masking. I’m running
+  syntax and targeted pytest checks next.
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_composer_diagnostic_comparison.sh scripts/run_codex_shell_composer_replicate_sweep.sh
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py columnar_cl_fabricpc/columns/accuracy_nodes.py
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +6 lines (ctrl + t to view transcript)
+
+    ============================== 26 passed in 8.79s ==============================
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The targeted tests passed. I’m running the broader non-data suite now; I’m avoiding CIFAR data tests locally because this sandbox cannot write the default data cache
+  under the home directory.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -k 'not cifar_data'
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +14 lines (ctrl + t to view transcript)
+
+    ===================== 148 passed, 22 deselected in 26.27s ======================
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The broader non-data suite passed. I’m going to append a concise work-log entry now with the implemented diagnostics, the fact that graph topology did not change, and
+  the exact diagnostic command to run on the GPU machine.
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z'
+  └ 2026-07-01 19:22:48 EDT
+
+• Ran hostname
+  └ rogdora43
+
+• Ran tail -50 docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └
+    It also learns `component_attention`, a matrix with shape `(num_columns, 4)`. The row index is the column index and the shell index follows `SHELL_NAMES`. The support
+    … +47 lines (ctrl + t to view transcript)
+    cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_replicate_sweep.sh
+    ```
+
+• Ran git diff --stat
+  └  scripts/run_codex_cifar10_depth_spanning.sh |   9 +
+     scripts/train_cifar10_depth_spanning.py     | 268 +++++++++++++++++++++++++++-
+     tests/test_pooled_readout_norm.py           |  86 +++++++++
+     3 files changed, 356 insertions(+), 7 deletions(-)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work-log update will describe the mechanism and verification only; it will not claim the diagnostic results until the GPU run completes and you share the logs.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+57 -0)
+    2237  ```
+    2238 +
+    2239 +## 2026-07-01 Shell-Composer Diagnostic Instrumentation
+    2240 +
+    2241 +Timestamp and machine: 2026-07-01 19:22:48 EDT on `rogdora43`.
+    2242 +
+    2243 +Direction update:
+    2244 +
+    2245 +The three-seed shell-composer run showed a stable combined classifier but did not satisfy the primary criterion that `ColumnShellComposerNode -> column_pool -> o
+          utput` should become independently class-informative. The next change therefore adds diagnostic logging and evaluation around the existing shell composer rather
+          than changing the architecture.
+    2246 +
+    2247 +Topology note:
+    2248 +
+    2249 +No graph nodes or edges changed. The ASCII architecture diagram in `scripts/train_cifar10_depth_spanning.py` remains accurate. The new code only inspects learned
+           parameters and evaluates copied parameter trees with selected composer projections zeroed.
+    2250 +
+    2251 +Implemented diagnostics:
+    2252 +
+    2253 +- Added `--diagnose_composer` to `scripts/train_cifar10_depth_spanning.py`.
+    2254 +- Added composer attention logging. `attention[c, s]` is the learned softmax weight inside `ColumnShellComposerNode`, where `c` is the active column index and `s
+          ` is one of `hard_kernel`, `inner_shell`, `middle_shell`, or `outer_shell`.
+    2255 +- Added composer projection norm logging. Each value is the Frobenius norm of the learned projection from one `(column, shell)` slice into the shared composer ou
+          tput feature axis.
+    2256 +- Replaced edge-key classifier norm reporting with source-name reporting. The output now names architectural routes such as `column_pool`, `column00_hard_kernel_
+          pool`, and `column00_shell_bridge`.
+    2257 +- Added validation composer component lesions. Each lesion keeps the classifier restricted to `column_pool -> output`, then zeros one active composer projection
+          such as `(col_00, outer_shell)` in a copied parameter tree before evaluation.
+    2258 +- Added `scripts/run_codex_shell_composer_diagnostic_comparison.sh`, which runs a two-case comparison: shell composer with direct shell readout plus bridge, then
+           shell composer without those side routes.
+    2259 +
+    2260 +Verification:
+    2261 +
+    2262 +```bash
+    2263 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py columnar_cl_fabricpc/columns/accuracy_nodes.py
+    2264 +```
+    2265 +
+    2266 +Result: passed.
+    2267 +
+    2268 +```bash
+    2269 +bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_composer_diagnostic_comparison.sh scripts/run_codex_shell_composer_replicate_sweep.sh
+    2270 +```
+    2271 +
+    2272 +Result: passed.
+    2273 +
+    2274 +```bash
+    2275 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+    2276 +```
+    2277 +
+    2278 +Result: 26 passed.
+    2279 +
+    2280 +```bash
+    2281 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -k 'not cifar_data'
+    2282 +```
+    2283 +
+    2284 +Result: 148 passed, 22 deselected.
+    2285 +
+    2286 +Next diagnostic run:
+    2287 +
+    2288 +The recommended next run is a one-seed, two-case shell-composer comparison. It uses seed 42, learning rate 0.005, 8 epochs, no bypass, zero teacher weights, shel
+          l diagnostics, and composer diagnostics. The first case preserves the direct per-column shell readout and shell bridge. The second case removes those side routes
+           so `ColumnShellComposerNode -> column_pool -> output` is the only classifier route.
+    2289 +
+    2290 +Pasteable command:
+    2291 +
+    2292 +```bash
+    2293 +cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh
+    2294 +```
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The implementation and work log are updated. I’m doing a final diff review for accidental topology/documentation drift and checking the runner is executable.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +2 lines (ctrl + t to view transcript)
+     M tests/test_pooled_readout_norm.py
+    ?? scripts/run_codex_shell_composer_diagnostic_comparison.sh
+
+• Ran git diff -- scripts/train_cifar10_depth_spanning.py | sed -n '1,260p'
+  └ diff --git a/scripts/train_cifar10_depth_spanning.py b/scripts/train_cifar10_depth_spanning.py
+    index 2dba2e2..8b14357 100644
+    … +256 lines (ctrl + t to view transcript)
+                 )
+
+
+• Ran git diff -- scripts/run_codex_cifar10_depth_spanning.sh tests/test_pooled_readout_norm.py docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md | sed
+  │ -n '1,260p'
+  └ diff --git a/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md b/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    index d88fea4..7394715 100644
+    … +192 lines (ctrl + t to view transcript)
+         """The column teacher head receives class error from the pooled columns only."""
+         structure, _ = build_depth_spanning_graph(_tiny_depth_spanning_args())
+
+• Explored
+  └ List run_codex_shell_composer_diagnostic_comparison.sh
+    Read run_codex_shell_composer_diagnostic_comparison.sh
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The final diff shows no graph-construction changes beyond diagnostics and runner wiring. I’m cleaning up one long conditional in the masking helper for readability, then
+  I’ll rerun the fast syntax/test checks that cover the edited code.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+4 -1)
+    573      for component in active_components:
+    574 -        should_zero = component not in keep_set if keep_set is not None else component in drop_set
+    574 +        if keep_set is not None:
+    575 +            should_zero = component not in keep_set
+    576 +        else:
+    577 +            should_zero = component in drop_set
+    578          if not should_zero:
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll rerun the checks affected by that cleanup.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py
+  └ (no output)
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_composer_diagnostic_comparison.sh
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +6 lines (ctrl + t to view transcript)
+
+    ============================== 26 passed in 8.67s ==============================
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The rerun passed. I’m doing one last status and whitespace check, then I’ll hand you the GPU command for the diagnostic comparison.
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +2 lines (ctrl + t to view transcript)
+     M tests/test_pooled_readout_norm.py
+    ?? scripts/run_codex_shell_composer_diagnostic_comparison.sh
+
+• Ran git diff --stat
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md |  57 +++++
+     scripts/run_codex_cifar10_depth_spanning.sh        |   9 +
+     scripts/train_cifar10_depth_spanning.py            | 271 ++++++++++++++++++++-
+     tests/test_pooled_readout_norm.py                  |  86 +++++++
+     4 files changed, 416 insertions(+), 7 deletions(-)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the composer diagnostics and comparison runner. No graph topology changed, so I left the ASCII architecture docstring unchanged.
+
+  Changes made:
+
+  - Added --diagnose_composer in columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py.
+  - Logs composer attention, composer projection norms, and named output edge norms.
+  - Adds validation composer lesions by zeroing one (column, shell) composer projection at a time through copied params.
+  - Added columnarCL-fabricPC-experiments/scripts/run_codex_shell_composer_diagnostic_comparison.sh.
+  - Updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md.
+
+  Verification:
+
+  - py_compile passed.
+  - bash -n passed for the edited runners.
+  - pytest tests/test_pooled_readout_norm.py: 26 passed.
+  - pytest -k 'not cifar_data': 148 passed, 22 deselected.
+
+  Please run this GPU diagnostic command:
+
+  cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh 42 8 0.005
+
+  It runs two sequential cases and writes logs under results/: current shell composer with direct shell readout plus bridge, then composer-only with those side routes
+  disabled.
+
+─ Worked for 7m 30s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› This run has completed. Please analyze, propose a next step and wait for confirmation from me before implementing.
+
+
+• I’ll inspect the latest diagnostic comparison logs and keep this to analysis plus a recommended next step. I won’t change files or code until you confirm a direction.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10 [ahead 1]
+
+• Ran tail -120 docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ - Exported `ColumnShellComposerNode` from `columnar_cl_fabricpc/columns/__init__.py`.
+    - Added `--combiner shell_attention` to `scripts/train_cifar10_depth_spanning.py`.
+    … +116 lines (ctrl + t to view transcript)
+    cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh
+    ```
+
+• Explored
+  └ List results
+    Search codex_shell_composer_diagnostic_comparison|Starting case|Finished case|Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|Composer Attention|
+    Composer
+           Projection Norms|Output Edge Weight Norms|Validation Composer Component Lesions|Validation Readout Ablations|Test Readout Ablations|Test Shell Readout
+           Ablations|
+           composer_column_only|column_only|column_pool_plus_shell_bridge|combined|column_shell_paths_only|Epoch [0-9]+: in
+           codex_shell_composer_diagnostic_comparison_seed42_*
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The headline result is already surprising: the composer-only case reached essentially the same test accuracy as the side-route case, and its column_only equals combined
+  by construction. I’m reading the attention, projection-norm, and lesion tables now to see whether that success is broad across shells or dominated by one component.
+
+• Explored
+  └ Read codex_shell_composer_diagnostic_comparison_seed42_rogdora43_20260701_192527.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The diagnostic run changed the picture.
+
+  The side-route case reached 29.60% test, but column_only was only 14.52%. The composer-only case reached 29.65% test, and column_only was also 29.65% because column_pool
+  -> output was the only classifier route.
+
+  So the direct shell readout and shell bridge routes are not needed for this seed. They appear to interfere with training the main composer route.
+
+  The problem is still collapse, but now it is more specific: the composer collapsed to one hard-kernel component.
+
+  In the composer-only case, attention was mostly:
+
+  col_03 hard_kernel = 0.939795
+  col_00 hard_kernel = 0.037969
+  almost all other column-shell components ~= 0.001
+
+  The lesion confirms it. Removing col_03.hard_kernel dropped validation from 30.10% to 15.96%. Removing inner, middle, or outer shell components did essentially nothing.
+
+  One important mechanism detail: current ColumnShellComposerNode lets each input shell project into the full 64-dimensional output. That means hard-kernel evidence can
+  write into the output dimensions later labeled as inner_shell, middle_shell, and outer_shell. So the composer-only shell readout ablations no longer prove that input
+  shells participate semantically. They mostly show that the dominant hard-kernel projection spreads class evidence across the output vector.
+
+  Recommendation
+
+  I do not recommend another long sweep of the current composer yet. It would likely confirm accuracy, but it would be confirming a single hard-kernel shortcut.
+
+  My recommended next step is to fix the composer mechanism so it is shell-preserving:
+
+  - hard_kernel input slices only write to the hard_kernel output slice.
+  - inner_shell input slices only write to the inner_shell output slice.
+  - middle_shell input slices only write to the middle_shell output slice.
+  - outer_shell input slices only write to the outer_shell output slice.
+  - Attention should normalize across columns within each shell, not globally across all (column, shell) components.
+
+  Then run the same short composer-only diagnostic first. Success should mean: no chance-level collapse, column_only remains meaningfully above chance, and lesions show at
+  least middle or outer shell participation rather than one hard-kernel component dominating the whole classifier.
+
+  Alternative: run a three-seed composer-only replicate as-is. That is lower risk experimentally, but it does not address the architectural issue exposed by the
+  diagnostic. My preferred next step is the shell-preserving composer fix. I’ll wait for your confirmation before implementing.
+
+─ Worked for 1m 57s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Please proceed with trying to fix the composer mechanism so it is shell preserving and the subsequent suggestions along that path forward you made.
+
+
+• I’ll make the composer shell-preserving inside the existing combiner node: no graph-node or edge topology change, but the composer’s internal projections and attention
+  normalization will change. I’ll update tests and the work log, then give you the GPU command for the same short diagnostic.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10 [ahead 1]
+
+• Explored
+  └ Read train_cifar10_depth_spanning.py, test_pooled_readout_norm.py, accuracy_nodes.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m changing the composer in-place rather than adding a second mode. This makes shell_attention mean the corrected shell-preserving mechanism everywhere, so existing
+  callers and tests exercise the improved path.
+
+• Edited columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/accuracy_nodes.py (+15 -9)
+    429      """
+    430 -    Compose active columns through learned attention over column-shell components.
+    430 +    Compose active columns while preserving shell identity.
+    431
+        ⋮
+    433      `(batch, tokens, embed_dim)`. The composer slices each input into the shared
+    434 -    shell layout, projects every `(column, shell)` component to `embed_dim`, and
+    435 -    combines those projected components with a support-masked attention weight.
+    434 +    shell layout, projects every `(column, shell)` component back into its own
+    435 +    shell width, and writes it only to that shell's output slice. Attention is
+    436 +    support-masked and normalized across columns separately for each shell.
+    437      """
+        ⋮
+    525                      )
+    525 -                ] = initialize(keys[key_idx], (end - start, output_dim), weight_init)
+    526 +                ] = initialize(
+    527 +                    keys[key_idx],
+    528 +                    (end - start, end - start),
+    529 +                    weight_init,
+    530 +                )
+    531                  biases[
+        ⋮
+    534                      )
+    530 -                ] = jnp.zeros((output_dim,), dtype=jnp.float32)
+    535 +                ] = jnp.zeros((end - start,), dtype=jnp.float32)
+    536                  key_idx += 1
+        ⋮
+    564          logits = jnp.where(column_mask > 0.0, logits, -1.0e9)
+    560 -        attention = jax.nn.softmax(jnp.reshape(logits, (-1,)))
+    561 -        attention = jnp.reshape(attention, logits.shape)
+    565 +        attention = jax.nn.softmax(logits, axis=0)
+    566
+        ⋮
+    586                  )
+    583 -                pre_activation = (
+    584 -                    pre_activation + attention[column_idx, shell_idx] * projected
+    587 +                shell_update = (
+    588 +                    pre_activation[..., start:end]
+    589 +                    + attention[column_idx, shell_idx] * projected
+    590                  )
+    591 +                pre_activation = pre_activation.at[..., start:end].set(shell_update)
+    592
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The node now projects each shell into its own output slice and normalizes attention down the column axis for each shell. I’m updating diagnostics and tests so they check
+  the new mechanism directly, including that a hard-kernel input cannot write into outer-shell output dimensions.
+
+• Explored
+  └ Read __init__.py
+
+• Ran rg -n "ColumnShellComposer|component_attention|projects every|projected\(c, s\)|attention|shell_attention|shared composer output|full 64|combiner_z_mu|learns
+  │ `component_attention`" docs/dev-plans scripts tests columnar_cl_fabricpc/columns
+  └ bash: component_attention: command not found
+    columnar_cl_fabricpc/columns/__init__.py:48:    ColumnShellComposerNode,
+    … +255 lines (ctrl + t to view transcript)
+    docs/dev-plans/2026.06.21-rogdora-claude-session-transcripty.txt:3288:  - Classifier weight flips: on tiny the classifier learns to weight columns ~2× heavier than
+    bypass (63 vs 32). On resnet18 it weights bypass ~2.3× heavier than columns
+
+• Explored
+  └ Search def get_shell_slices|DEFAULT_SHELL_PROPORTIONS|SHELL_NAMES in depth_spanning_column.py
+    Read depth_spanning_column.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The shell proportions mean an embed_dim of 64 splits into widths 22, 7, 14, and 21. The corrected composer now uses projection matrices with those same input and output
+  widths per shell, rather than every shell writing to all 64 dimensions.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+5 -5)
+    500
+    501 -    `attention[c][s]` is the softmax weight on column `c` and shell `s` inside
+    502 -    `ColumnShellComposerNode`. Inactive columns are masked before softmax.
+    501 +    `attention[c][s]` is the softmax weight on column `c` for shell `s` inside
+    502 +    `ColumnShellComposerNode`. Inactive columns are masked before a separate
+    503 +    softmax is applied over columns for each shell.
+    504      """
+        ⋮
+    510      masked_logits = jnp.where(support_mask > 0.0, logits, -1.0e9)
+    510 -    attention = jax.nn.softmax(jnp.reshape(masked_logits, (-1,)))
+    511 -    attention = jnp.reshape(attention, logits.shape)
+    511 +    attention = jax.nn.softmax(masked_logits, axis=0)
+    512
+        ⋮
+    530      Each entry is one learned projection from a `(column, shell)` feature slice
+    531 -    into the shared composer output feature axis.
+    531 +    into the same shell's output feature slice.
+    532      """
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m updating the tests to validate the new invariant: per-shell attention sums to one across active columns, and projection shapes cannot cross shell boundaries.
+
+• Explored
+  └ Read __init__.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll add one direct forward test for shell preservation, not only graph-construction tests. That catches the specific regression where a hard-kernel component could
+  write into outer-shell dimensions.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+71 -5)
+     21      WeightedLabelSmoothedCrossEntropyEnergy,
+     22 +    get_shell_slices,
+     23  )
+        ⋮
+    227
+    228 +def test_column_shell_composer_projects_only_within_matching_shell() -> None:
+    229 +    """A composer input shell cannot write into another output shell."""
+    230 +    col_0 = IdentityNode(shape=(2, 8), name="col_00")
+    231 +    composer = ColumnShellComposerNode(
+    232 +        shape=(2, 8),
+    233 +        name="composer",
+    234 +        num_columns=1,
+    235 +        support_mask=(1.0,),
+    236 +    )
+    237 +    structure = graph(
+    238 +        nodes=[col_0, composer],
+    239 +        edges=[Edge(source=col_0, target=composer.slot("in"))],
+    240 +        task_map=TaskMap(x=col_0),
+    241 +        inference=InferenceSGD(),
+    242 +    )
+    243 +    params = ColumnShellComposerNode.initialize_params(
+    244 +        jax.random.PRNGKey(0),
+    245 +        node_shape=(2, 8),
+    246 +        input_shapes={"col_00->composer:in": (2, 8)},
+    247 +        config={
+    248 +            "num_columns": 1,
+    249 +            "support_mask": (1.0,),
+    250 +        },
+    251 +    )
+    252 +    weights = {name: jnp.zeros_like(value) for name, value in params.weights.items()}
+    253 +    biases = {name: jnp.zeros_like(value) for name, value in params.biases.items()}
+    254 +    shell_slices = get_shell_slices(8)
+    255 +    hard_start, hard_end = shell_slices["hard_kernel"]
+    256 +    hard_width = hard_end - hard_start
+    257 +    weights[
+    258 +        ColumnShellComposerNode._projection_weight_name(0, "hard_kernel")
+    259 +    ] = jnp.ones((hard_width, hard_width), dtype=jnp.float32)
+    260 +    params = params._replace(weights=weights, biases=biases)
+    261 +    state = NodeState(
+    262 +        z_latent=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+    263 +        z_mu=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+    264 +        error=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+    265 +        energy=jnp.zeros((1,), dtype=jnp.float32),
+    266 +        pre_activation=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+    267 +        latent_grad=jnp.zeros((1, 2, 8), dtype=jnp.float32),
+    268 +    )
+    269 +    x = jnp.zeros((1, 2, 8), dtype=jnp.float32)
+    270 +    x = x.at[..., hard_start:hard_end].set(1.0)
+    271 +
+    272 +    _, state = ColumnShellComposerNode.forward(
+    273 +        params,
+    274 +        {"col_00->composer:in": x},
+    275 +        state,
+    276 +        structure.nodes["composer"].node_info,
+    277 +    )
+    278 +
+    279 +    assert jnp.all(state.z_mu[..., hard_start:hard_end] > 0.0)
+    280 +    assert jnp.allclose(state.z_mu[..., :hard_start], 0.0)
+    281 +    assert jnp.allclose(state.z_mu[..., hard_end:], 0.0)
+    282 +
+    283 +
+    284  def test_weighted_cross_entropy_scales_energy_and_latent_gradient() -> None:
+        ⋮
+    407      assert "component_attention" in params.nodes["combiner"].weights
+    408 +    for shell_name, (start, end) in get_shell_slices(args.embed_dim).items():
+    409 +        weight_name = ColumnShellComposerNode._projection_weight_name(0, shell_name)
+    410 +        bias_name = ColumnShellComposerNode._projection_bias_name(0, shell_name)
+    411 +        shell_width = end - start
+    412 +        assert params.nodes["combiner"].weights[weight_name].shape == (
+    413 +            shell_width,
+    414 +            shell_width,
+    415 +        )
+    416 +        assert params.nodes["combiner"].biases[bias_name].shape == (shell_width,)
+    417
+        ⋮
+    438      assert set(attention) == {"col_00", "col_01"}
+    373 -    assert sum(
+    374 -        attention[column_name][shell_name]
+    375 -        for column_name in attention
+    376 -        for shell_name in SHELL_NAMES
+    377 -    ) == pytest.approx(1.0)
+    439 +    for shell_name in SHELL_NAMES:
+    440 +        assert sum(
+    441 +            attention[column_name][shell_name]
+    442 +            for column_name in attention
+    443 +        ) == pytest.approx(1.0)
+    444      assert set(projection_norms) == {
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The code and tests are patched. I’m running syntax and targeted tests first, then the broader non-data suite if those pass.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile columnar_cl_fabricpc/columns/accuracy_nodes.py scripts/train_cifar10_depth_spanning.py tests/
+  │ test_pooled_readout_norm.py
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +6 lines (ctrl + t to view transcript)
+
+    ============================== 27 passed in 9.30s ==============================
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The targeted tests passed, including the new cross-shell write prevention test. I’m running the non-data suite and shell scripts’ syntax checks next.
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_composer_diagnostic_comparison.sh scripts/run_codex_shell_composer_replicate_sweep.sh
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -k 'not cifar_data'
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +14 lines (ctrl + t to view transcript)
+
+    ===================== 149 passed, 22 deselected in 26.85s ======================
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Verification passed. I’m adding a work-log entry now with the mechanism change, the tests run, and the recommended next GPU diagnostic command.
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z'
+  └ 2026-07-02 05:49:12 EDT
+
+• Ran hostname
+  └ rogdora43
+
+• Ran git diff --stat
+  └  columnar_cl_fabricpc/columns/accuracy_nodes.py | 24 +++++---
+     scripts/train_cifar10_depth_spanning.py        | 10 ++--
+     tests/test_pooled_readout_norm.py              | 76 ++++++++++++++++++++++++--
+     3 files changed, 91 insertions(+), 19 deletions(-)
+
+• Ran tail -40 docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ - Added composer projection norm logging. Each value is the Frobenius norm of the learned projection from one `(column, shell)` slice into the shared composer output
+    feature axis.
+    … +40 lines (ctrl + t to view transcript)
+    cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh
+    ```
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work-log entry will record that this is an internal node mechanism change, not a graph-topology change, so the top-level ASCII architecture remains valid.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+60 -0)
+    2294  ```
+    2295 +
+    2296 +## 2026-07-02 Shell-Preserving Composer Fix
+    2297 +
+    2298 +Timestamp and machine: 2026-07-02 05:49:12 EDT on `rogdora43`.
+    2299 +
+    2300 +Direction update:
+    2301 +
+    2302 +The shell-composer diagnostic comparison showed that the composer-only case reached 29.65 percent test accuracy at seed 42, but the learned `component_attention`
+           concentrated almost all mass on one hard-kernel component. The old composer projected every `(column, shell)` input into the full `embed_dim` output. That allow
+          ed a hard-kernel input slice to write into dimensions later treated as `inner_shell`, `middle_shell`, and `outer_shell` during shell readout ablations.
+    2303 +
+    2304 +Mechanism change:
+    2305 +
+    2306 +`ColumnShellComposerNode` in `columnar_cl_fabricpc/columns/accuracy_nodes.py` is now shell-preserving.
+    2307 +
+    2308 +- `hard_kernel` inputs project only into the `hard_kernel` output slice.
+    2309 +- `inner_shell` inputs project only into the `inner_shell` output slice.
+    2310 +- `middle_shell` inputs project only into the `middle_shell` output slice.
+    2311 +- `outer_shell` inputs project only into the `outer_shell` output slice.
+    2312 +- `component_attention[c, s]` is now normalized over active columns for each shell `s`, where `c` is the column index and `s` is the shell name. Before this chan
+          ge, attention was normalized globally over all `(column, shell)` components.
+    2313 +
+    2314 +For an input shell slice with width `w_s`, the learned projection now has shape `(w_s, w_s)`. Before this change, it had shape `(w_s, embed_dim)`. The composer s
+          till has the same graph node name, `combiner`, and the same input and output graph edges. This means the top-level ASCII graph in `scripts/train_cifar10_depth_sp
+          anning.py` remains accurate.
+    2315 +
+    2316 +Diagnostic update:
+    2317 +
+    2318 +`diagnose_composer_attention()` in `scripts/train_cifar10_depth_spanning.py` now applies the same per-shell attention normalization as `ColumnShellComposerNode`.
+           Composer projection norm diagnostics still report one norm for each `(column, shell)` projection, but those projections now refer to shell-local matrices.
+    2319 +
+    2320 +Verification:
+    2321 +
+    2322 +```bash
+    2323 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile columnar_cl_fabricpc/columns/accuracy_nodes.py scripts/train_cifar10_depth_spanning.py tests/test
+          _pooled_readout_norm.py
+    2324 +```
+    2325 +
+    2326 +Result: passed.
+    2327 +
+    2328 +```bash
+    2329 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+    2330 +```
+    2331 +
+    2332 +Result: 27 passed.
+    2333 +
+    2334 +```bash
+    2335 +bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_composer_diagnostic_comparison.sh scripts/run_codex_shell_composer_replicate_sweep.sh
+    2336 +```
+    2337 +
+    2338 +Result: passed.
+    2339 +
+    2340 +```bash
+    2341 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -k 'not cifar_data'
+    2342 +```
+    2343 +
+    2344 +Result: 149 passed, 22 deselected.
+    2345 +
+    2346 +Next diagnostic run:
+    2347 +
+    2348 +Run the same short two-case diagnostic comparison again. The primary check is whether the composer-only case avoids chance-level collapse after preventing cross-
+          shell writes. The second check is whether composer lesions now show any non-hard-kernel shell participation.
+    2349 +
+    2350 +Pasteable command:
+    2351 +
+    2352 +```bash
+    2353 +cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh 42 8 0.005
+    2354 +```
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The implementation and notes are in place. I’m doing a final diff and whitespace check before I hand back the command.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10 [ahead 1]
+     M columnar_cl_fabricpc/columns/accuracy_nodes.py
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+     M scripts/train_cifar10_depth_spanning.py
+     M tests/test_pooled_readout_norm.py
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git diff -- columnar_cl_fabricpc/columns/accuracy_nodes.py scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py | sed -n '1,260p'
+  └ diff --git a/columnar_cl_fabricpc/columns/accuracy_nodes.py b/columnar_cl_fabricpc/columns/accuracy_nodes.py
+    index d443606..cc5fa64 100644
+    … +203 lines (ctrl + t to view transcript)
+             f"col_{column_idx:02d}.{shell_name}"
+             for column_idx in (0, 1)
+
+• Ran git diff --stat
+  └  columnar_cl_fabricpc/columns/accuracy_nodes.py     | 24 ++++---
+     ...24-work-log-codex-rogdora43-cifar10-hibacaml.md | 60 +++++++++++++++++
+     scripts/train_cifar10_depth_spanning.py            | 10 +--
+     tests/test_pooled_readout_norm.py                  | 76 ++++++++++++++++++++--
+     4 files changed, 151 insertions(+), 19 deletions(-)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The final diff is clean and the top-level graph remains unchanged. The only architectural change is inside ColumnShellComposerNode, where shell inputs now stay in their
+  matching output slices.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the shell-preserving composer fix.
+
+  What changed:
+
+  - ColumnShellComposerNode now projects each shell only into its matching output shell slice.
+  - Composer projection weights changed from (shell_width, embed_dim) to (shell_width, shell_width).
+  - Composer attention now softmaxes across active columns separately per shell, rather than globally across all (column, shell) components.
+  - Diagnostic attention logging now matches that corrected normalization.
+  - Added tests proving a hard-kernel input cannot write into non-hard-kernel output dimensions.
+  - Updated the work log with the mechanism, verification, and next command.
+
+  Verification passed:
+
+  - py_compile
+  - pytest tests/test_pooled_readout_norm.py: 27 passed
+  - pytest -k 'not cifar_data': 149 passed, 22 deselected
+  - bash -n on the relevant runner scripts
+  - git diff --check
+
+  Please run the short GPU diagnostic again:
+
+  cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh 42 8 0.005
+
+  The key thing to inspect afterward is whether composer-only still avoids collapse, and whether the lesion table shows any non-hard-kernel shell participation now that
+  hard-kernel evidence cannot write across the full feature axis.
+
+─ Worked for 3m 57s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› This run has completed. Please analyze, propose a next step and wait for confirmation from me before implementing.
+
+
+• I’ll inspect the newest diagnostic logs and compare them to the prior composer-only run. I’ll keep this to analysis and recommendation only, with no file or code edits.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+    ?? results/
+    … +4 lines (ctrl + t to view transcript)
+    r0p005_ep8_composer_shells_rogdora43_20260702_055317.log
+    ?? results/codex_shell_composer_diagnostic_comparison_seed42_rogdora43_20260702_055317.log
+
+• Explored
+  └ Search Starting case|Finished case|Epoch [0-9]+:|Composer Attention|Composer Projection Norms|Output Edge Weight Norms|Validation Composer Component Lesions|Validation
+           Readout Ablations|Validation Shell Readout Ablations|Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|Test Readout Ablations|Test Shell Readout
+           Ablations|composer_column_only|column_only|combined|column_pool_plus_shell_bridge|column_shell_paths_only|combined_without|column_.*_only in
+           codex_shell_composer_diagnostic_comparison_seed42_*
+    List results
+
+• Ran tail -120 docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ ```bash
+    cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_replicate_sweep.sh
+    … +116 lines (ctrl + t to view transcript)
+    cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh 42 8 0.005
+    ```
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The corrected composer avoided a hard collapse in the composer-only case, but the shell-participation story is mixed. I’m opening the full attention and lesion tables
+  for the two July 2 cases now so the recommendation is based on the corrected mechanism, not the old run.
+
+• Explored
+  └ Read codex_shell_composer_diagnostic_comparison_seed42_rogdora43_20260702_055317.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The shell-preserving composer did what we needed mechanistically: it avoided chance collapse in composer-only mode.
+
+  Key results:
+
+   Case                Test    Best val    column_only
+  ━━━━━━━━━━━━━━━━  ━━━━━━━━  ━━━━━━━━━━  ━━━━━━━━━━━━━
+   side routes on    29.91%      29.88%         19.48%
+  ────────────────  ────────  ──────────  ─────────────
+   composer-only     29.07%      29.90%         29.07%
+
+  The composer-only case is the cleaner result. It proves ColumnShellComposerNode -> column_pool -> output can classify without the direct shell readout or bridge side
+  routes.
+
+  The shell participation also improved. In composer-only mode:
+
+  - Removing hard_kernel dropped test from 29.07% to 16.66%.
+  - Removing middle_shell dropped test to 21.90%.
+  - Removing inner_shell dropped test to 27.53%.
+  - Removing outer_shell dropped test to 26.55%.
+  - middle_shell_only reached 20.53%, which is meaningfully above chance.
+  - outer_shell_only stayed at chance.
+
+  So the fix reduced the earlier hard-kernel-only shortcut. The model still relies most on hard_kernel, but middle_shell is now genuinely participating. outer_shell is
+  still the weak point: it contributes contextually, but it is not independently class-readable.
+
+  Recommendation
+
+  Next, I recommend a three-seed 20-epoch replicate of the corrected shell-preserving composer-only configuration:
+
+  - combiner=shell_attention
+  - column_shell_readout=off
+  - column_shell_bridge=off
+  - no bypass
+  - zero teacher weights
+  - shell and composer diagnostics enabled
+  - seeds 42, 99, 7
+
+  Rationale: before adding new mechanisms, we need to know whether this corrected composer is stable across seeds. If all three seeds avoid collapse and show middle-shell
+  participation, then the next architectural target should be outer-shell participation. If one seed collapses, the next step should be stabilizing the composer before
+  adding more shell-specific mechanisms.
+
+  Alternatives:
+
+  - Keep side routes on because the one-seed combined score is slightly higher. I do not recommend that yet because it weakens the clean composer path.
+  - Add outer-shell supervision now. I do not recommend that yet because we do not know whether the corrected composer is seed-stable.
+  - Run only 8 epochs again. That is cheaper, but 20 epochs compares better with the prior runs.
+
+  If you confirm, I’ll set up the sequential three-seed runner and give you one pasteable command.
+
+─ Worked for 1m 19s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› please proceed with the 3 seed, 20 epoch replicate now
+
+
+• I’ll add a dedicated three-seed runner for the corrected composer-only configuration, rather than repurposing the earlier side-route replicate script. This will keep the
+  result filenames and master log unambiguous.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+    ?? results/
+    … +4 lines (ctrl + t to view transcript)
+    r0p005_ep8_composer_shells_rogdora43_20260702_055317.log
+    ?? results/codex_shell_composer_diagnostic_comparison_seed42_rogdora43_20260702_055317.log
+
+• Explored
+  └ Read run_codex_shell_composer_replicate_sweep.sh, run_codex_cifar10_depth_spanning.sh
+
+• Ran tail -80 docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+    ```
+    … +76 lines (ctrl + t to view transcript)
+    cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_composer_diagnostic_comparison.sh 42 8 0.005
+    ```
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• There are only untracked result logs in the worktree, so I’ll leave them alone and add the new runner plus a short work-log note.
+
+• Added columnarCL-fabricPC-experiments/scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh (+72 -0)
+     1 +#!/usr/bin/env bash
+     2 +set -euo pipefail
+     3 +
+     4 +repo_root="/home/ni/repos/fpc/columnarCL-fabricPC-experiments"
+     5 +runner="${repo_root}/scripts/run_codex_cifar10_depth_spanning.sh"
+     6 +hostname_value="$(hostname)"
+     7 +timestamp="$(date +%Y%m%d_%H%M%S)"
+     8 +master_log="${repo_root}/results/codex_shell_preserving_composer_only_replicate_sweep_${hostname_value}_${timestamp}.log"
+     9 +
+    10 +cd "$repo_root"
+    11 +mkdir -p results
+    12 +
+    13 +run_case() {
+    14 +    local case_name="$1"
+    15 +    local seed="$2"
+    16 +
+    17 +    echo "======================================================================"
+    18 +    echo "Starting case=$case_name at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    19 +    echo "seed: $seed"
+    20 +    echo "lr: 0.005"
+    21 +    echo "num_epochs: 20"
+    22 +    echo "diagnose_mode: composer_shells"
+    23 +    echo "combiner: shell_attention"
+    24 +    echo "shell_evidence_cascade: on"
+    25 +    echo "shell_evidence_cascade_scale: 0.05,0.05,0.05"
+    26 +    echo "shell_inhibition_strengths: 0,0.35,0.22,0.10"
+    27 +    echo "column_teacher_weight: 0.0"
+    28 +    echo "shell_teacher_weights: 0,0,0,0"
+    29 +    echo "column_shell_teacher_weights: 0,0,0,0"
+    30 +    echo "column_shell_readout: off"
+    31 +    echo "column_shell_bridge: off"
+    32 +    echo "readout_mode: nobypass"
+    33 +    echo "======================================================================"
+    34 +
+    35 +    bash "$runner" "$seed" 0.005 composer_shells 20 0.0 0,0,0,0 nobypass 0,0,0,0 off off shell_attention
+    36 +
+    37 +    echo "Finished case=$case_name at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    38 +    echo
+    39 +}
+    40 +
+    41 +{
+    42 +    echo "repo: $repo_root"
+    43 +    echo "git_commit: $(git rev-parse HEAD)"
+    44 +    echo "git_status:"
+    45 +    git status --short --branch
+    46 +    echo "runner: $runner"
+    47 +    echo "combiner: shell_attention"
+    48 +    echo "diagnose_mode: composer_shells"
+    49 +    echo "shell_evidence_cascade: on"
+    50 +    echo "shell_evidence_cascade_scale: 0.05,0.05,0.05"
+    51 +    echo "shell_inhibition_strengths: 0,0.35,0.22,0.10"
+    52 +    echo "column_teacher_weight: 0.0"
+    53 +    echo "shell_teacher_weights: 0,0,0,0"
+    54 +    echo "column_shell_teacher_weights: 0,0,0,0"
+    55 +    echo "column_shell_readout: off"
+    56 +    echo "column_shell_bridge: off"
+    57 +    echo "readout_mode: nobypass"
+    58 +    echo "started_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    59 +    echo
+    60 +    echo "planned_cases:"
+    61 +    echo "1. seed42_shell_preserving_composer_only"
+    62 +    echo "2. seed99_shell_preserving_composer_only"
+    63 +    echo "3. seed7_shell_preserving_composer_only"
+    64 +    echo
+    65 +
+    66 +    run_case "seed42_shell_preserving_composer_only" 42
+    67 +    run_case "seed99_shell_preserving_composer_only" 99
+    68 +    run_case "seed7_shell_preserving_composer_only" 7
+    69 +
+    70 +    echo "completed_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    71 +    echo "master_log: $master_log"
+    72 +} 2>&1 | tee "$master_log"
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The replicate script is added. I’ll make it executable, run a syntax check, and append the exact command to the work log.
+
+• Ran chmod +x scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh
+  └ (no output)
+
+• Ran bash -n scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh
+  └ (no output)
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z'
+  └ 2026-07-02 10:07:49 EDT
+
+• Ran hostname
+  └ rogdora43
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The shell syntax check passed. I’m updating the work log with the prepared sweep and then I’ll do a final status check.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+30 -0)
+    2354  ```
+    2355 +
+    2356 +## 2026-07-02 Shell-Preserving Composer Replicate Prepared
+    2357 +
+    2358 +Timestamp and machine: 2026-07-02 10:07:49 EDT on `rogdora43`.
+    2359 +
+    2360 +Direction update:
+    2361 +
+    2362 +The corrected shell-preserving composer avoided chance-level collapse in the seed-42 composer-only diagnostic. The next test is a three-seed, 20-epoch replicate
+          of the clean composer-only path before adding any new outer-shell mechanism.
+    2363 +
+    2364 +Prepared run script:
+    2365 +
+    2366 +- Added `scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh`.
+    2367 +- The script runs seeds 42, 99, and 7 sequentially.
+    2368 +- Each run uses `--combiner shell_attention`, no bypass, no direct per-column shell readout, no per-column shell bridge, zero teacher weights, shell diagnostics,
+           and composer diagnostics.
+    2369 +- Each child run writes its own result log through `scripts/run_codex_cifar10_depth_spanning.sh`.
+    2370 +- The sweep writes a master log in `results/`.
+    2371 +
+    2372 +Verification:
+    2373 +
+    2374 +```bash
+    2375 +bash -n scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh
+    2376 +```
+    2377 +
+    2378 +Result: passed.
+    2379 +
+    2380 +Pasteable command:
+    2381 +
+    2382 +```bash
+    2383 +cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh
+    2384 +```
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll do one final check of the diff and status so the command I give you matches the script on disk.
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +6 lines (ctrl + t to view transcript)
+    ?? results/codex_shell_composer_diagnostic_comparison_seed42_rogdora43_20260702_055317.log
+    ?? scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh
+
+• Ran git diff --stat
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md | 30 ++++++++++++++++++++++
+     1 file changed, 30 insertions(+)
+
+• Explored
+  └ List run_codex_shell_preserving_composer_only_replicate_sweep.sh
+    Read run_codex_shell_preserving_composer_only_replicate_sweep.sh
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Set up the three-seed, 20-epoch corrected composer-only sweep.
+
+  Added:
+
+  - columnarCL-fabricPC-experiments/scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh
+  - Work-log entry in columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+  Verification:
+
+  - bash -n scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh passed.
+  - git diff --check passed.
+
+  Run this on the GPU machine:
+
+  cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh
+
+─ Worked for 1m 11s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ 
+› Implement {feature}
+ 
+  gpt-5.5 xhigh · ~/repos/fpc · Main [default]

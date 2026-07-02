@@ -2382,3 +2382,70 @@ Pasteable command:
 ```bash
 cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh
 ```
+
+## 2026-07-02 Shell-Preserving Composer Replicate Results
+
+Timestamp and machine: 2026-07-02 16:37:57 EDT on `rogdora43`.
+
+Run script:
+
+- `scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh`
+
+Master log:
+
+- `results/codex_shell_preserving_composer_only_replicate_sweep_rogdora43_20260702_100835.log`
+
+Child logs:
+
+- `results/codex_resnet18_shelldynamicson_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed42_lr0p005_ep20_composer_shells_rogdora43_20260702_100835.log`
+- `results/codex_resnet18_shelldynamicson_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed99_lr0p005_ep20_composer_shells_rogdora43_20260702_122627.log`
+- `results/codex_resnet18_shelldynamicson_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed7_lr0p005_ep20_composer_shells_rogdora43_20260702_144346.log`
+
+Run settings:
+
+- The model used `shell_attention`, where the composer node combines the four column shell slices into the column-token representation used by the classifier.
+- The run used no backbone bypass, no direct per-column shell readout, no per-column shell bridge, and zero teacher weights.
+- The shell evidence cascade was enabled with scale `0.05,0.05,0.05`.
+- Shell inhibition strengths were `hard_kernel=0`, `inner_shell=0.35`, `middle_shell=0.22`, and `outer_shell=0.10`.
+- Diagnostics were `composer_shells`, which evaluates readout ablations, shell-only ablations, and composer component lesions after training.
+
+Summary:
+
+| Seed | Status | Best validation accuracy | Best validation epoch | Test accuracy |
+| --- | --- | ---: | ---: | ---: |
+| 42 | Complete | 28.00% | 17 | 27.14% |
+| 99 | Complete | 32.46% | 19 | 32.36% |
+| 7 | Incomplete | Not recorded | Not recorded | Not recorded |
+
+Seed 7 was killed after the 20-epoch training progress reached the end, before the script wrote validation selection, test accuracy, or diagnostic tables. The log ends with the shell runner reporting `Killed` for the Python process at `scripts/run_codex_cifar10_depth_spanning.sh: line 151`. I am not treating seed 7 as a failed accuracy result, because the result file does not contain the evaluation metrics needed to compare it with seeds 42 and 99.
+
+Completed-seed aggregate:
+
+| Aggregate over complete seeds | Test accuracy |
+| --- | ---: |
+| Mean of seeds 42 and 99 | 29.75% |
+| Minimum complete seed | 27.14% |
+| Maximum complete seed | 32.36% |
+| Range across complete seeds | 5.22 percentage points |
+
+Mechanism observations:
+
+- The shell-preserving composer did not collapse to chance in the two complete 20-epoch runs.
+- `hard_kernel`, the innermost shell slice in each column, is still the strongest classifier source. Removing all hard-kernel shell contribution reduced test accuracy to 11.04% for seed 42 and 16.81% for seed 99.
+- `middle_shell`, the intermediate shell slice intended to carry a deeper contextual representation, now contributes measurable signal. The `middle_shell`-only test readout reached 19.13% for seed 42 and 21.65% for seed 99. Removing `middle_shell` reduced test accuracy from 27.14% to 21.16% for seed 42 and from 32.36% to 26.53% for seed 99.
+- `inner_shell`, the shell slice between `hard_kernel` and `middle_shell`, is not independently class-readable in these runs. The `inner_shell`-only test readout stayed at 10.00% in both complete seeds, while removing `inner_shell` caused only a small drop.
+- `outer_shell`, the most contextual shell slice, is still not independently class-readable. The `outer_shell`-only test readout stayed at 10.00% in both complete seeds. Removing `outer_shell` reduced test accuracy from 27.14% to 23.53% for seed 42 and from 32.36% to 31.94% for seed 99, so it may help the composed representation in some cases without carrying a stable class signal by itself.
+
+Composer attention and projection pattern:
+
+- Seed 42 concentrated `hard_kernel` attention on column 0 and `middle_shell` attention on column 1. The largest projection norms were `col_00.hard_kernel=46.28` and `col_01.middle_shell=23.14`.
+- Seed 99 concentrated `hard_kernel` attention on column 2 and `middle_shell` attention on column 1. The largest projection norms were `col_02.hard_kernel=59.52` and `col_01.middle_shell=30.91`.
+- This is qualitatively better than the pre-fix composer behavior, because the corrected composer no longer lets one shell write into every other shell slice. The model now finds seed-dependent column identities for the hard and middle shells while preserving shell-local output slices.
+
+Conclusion:
+
+The corrected shell-preserving composer is directionally useful for avoiding immediate chance-level collapse, but it has not yet produced robust CIFAR-10 accuracy. The complete runs show that `hard_kernel` and `middle_shell` carry the useful class signal. The central unresolved architectural issue is that `outer_shell` participates weakly and is not independently class-readable. That matters because the HiBaCaML-inspired direction wants context-bearing shell dynamics rather than only an innermost class path plus a smaller middle-shell contribution.
+
+Recommended next step:
+
+Before adding another architectural mechanism, recover the missing seed 7 evaluation or rerun seed 7 alone with the same configuration. The run was terminated after expensive training had already completed, so the immediate engineering weakness is that long experiments can lose their final metrics if post-training diagnostics are interrupted. After that result is recovered, the next architectural target should be outer-shell participation. The most likely faithful direction is to add a shell-local predictive objective or a shell-preserving context pathway that gives `outer_shell` a direct training signal while keeping classification routed through the predictive-coding graph rather than adding ordinary backpropagation.
