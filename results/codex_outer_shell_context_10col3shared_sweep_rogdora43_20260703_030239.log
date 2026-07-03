@@ -1,0 +1,160 @@
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 7ce3375909ace52a46fc184923c58b55b8eddda5
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+ M scripts/run_codex_cifar10_depth_spanning.sh
+ M scripts/train_cifar10_depth_spanning.py
+ M tests/test_pooled_readout_norm.py
+?? results/codex_outer_shell_context_10col3shared_sweep_rogdora43_20260703_030239.log
+?? results/codex_resnet18_shelldynamicson_10col_3shared_7active_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed42_lr0p005_ep20_composer_shells_rogdora43_20260702_165643.log
+?? results/codex_resnet18_shelldynamicson_10col_3shared_7active_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed42_lr0p005_ep20_composer_shells_rogdora43_20260702_170009.log
+?? results/codex_resnet18_shelldynamicson_10col_3shared_7active_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed7_lr0p005_ep20_composer_shells_rogdora43_20260702_225528.log
+?? results/codex_resnet18_shelldynamicson_10col_3shared_7active_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed99_lr0p005_ep20_composer_shells_rogdora43_20260702_195807.log
+?? results/codex_shell_preserving_composer_only_replicate_sweep_10col3shared_rogdora43_20260702_165643.log
+?? results/codex_shell_preserving_composer_only_replicate_sweep_10col3shared_rogdora43_20260702_170009.log
+?? scripts/run_codex_outer_shell_context_10col3shared_sweep.sh
+runner: /home/ni/repos/fpc/columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh
+combiner: shell_attention
+diagnose_mode: composer_shells
+num_columns: 10
+num_shared: 3
+active_nonshared: 7
+shell_evidence_cascade: on
+shell_evidence_cascade_scale: 0.05,0.05,0.05
+shell_inhibition_strengths: 0,0.35,0.22,0.10
+column_teacher_weight: 0.0
+shell_teacher_weights: 0,0,0,0
+column_shell_teacher_weights: 0,0,0,0.002
+column_shell_readout: off
+column_shell_bridge: off
+outer_shell_context: on
+readout_mode: nobypass
+started_at: 2026-07-03 03:02:39 EDT
+
+planned_cases:
+1. seed42_outer_shell_context_10col3shared
+2. seed99_outer_shell_context_10col3shared
+3. seed7_outer_shell_context_10col3shared
+
+======================================================================
+Starting case=seed42_outer_shell_context_10col3shared at 2026-07-03 03:02:39 EDT
+seed: 42
+num_columns: 10
+num_shared: 3
+active_nonshared: 7
+lr: 0.005
+num_epochs: 20
+diagnose_mode: composer_shells
+combiner: shell_attention
+shell_evidence_cascade: on
+shell_evidence_cascade_scale: 0.05,0.05,0.05
+shell_inhibition_strengths: 0,0.35,0.22,0.10
+column_teacher_weight: 0.0
+shell_teacher_weights: 0,0,0,0
+column_shell_teacher_weights: 0,0,0,0.002
+column_shell_readout: off
+column_shell_bridge: off
+outer_shell_context: on
+readout_mode: nobypass
+======================================================================
+tee: /home/ni/repos/fpc/columnarCL-fabricPC-experiments/results/codex_resnet18_shelldynamicson_10col_3shared_7active_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0p002_colshellreadoutoff_colshellbridgeoff_outercontexton_nobypass_norm_fixedln_seed42_lr0p005_ep20_composer_shells_rogdora43_20260703_030239.log: File name too long
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 7ce3375909ace52a46fc184923c58b55b8eddda5
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+ M scripts/run_codex_cifar10_depth_spanning.sh
+ M scripts/train_cifar10_depth_spanning.py
+ M tests/test_pooled_readout_norm.py
+?? results/codex_outer_shell_context_10col3shared_sweep_rogdora43_20260703_030239.log
+?? results/codex_resnet18_shelldynamicson_10col_3shared_7active_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed42_lr0p005_ep20_composer_shells_rogdora43_20260702_165643.log
+?? results/codex_resnet18_shelldynamicson_10col_3shared_7active_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed42_lr0p005_ep20_composer_shells_rogdora43_20260702_170009.log
+?? results/codex_resnet18_shelldynamicson_10col_3shared_7active_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed7_lr0p005_ep20_composer_shells_rogdora43_20260702_225528.log
+?? results/codex_resnet18_shelldynamicson_10col_3shared_7active_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed99_lr0p005_ep20_composer_shells_rogdora43_20260702_195807.log
+?? results/codex_shell_preserving_composer_only_replicate_sweep_10col3shared_rogdora43_20260702_165643.log
+?? results/codex_shell_preserving_composer_only_replicate_sweep_10col3shared_rogdora43_20260702_170009.log
+?? scripts/run_codex_outer_shell_context_10col3shared_sweep.sh
+python: /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+seed: 42
+num_columns: 10
+num_shared: 3
+active_nonshared: 7
+lr: 0.005
+num_epochs: 20
+diagnose: composer_shells
+column_teacher_head: enabled
+column_teacher_weight: 0.0
+shell_teacher_weights: 0,0,0,0
+column_shell_teacher_weights: 0,0,0,0.002
+column_shell_readout: off
+column_shell_bridge: off
+outer_shell_context: on
+combiner: shell_attention
+shell_evidence_cascade: on
+shell_evidence_cascade_scale: 0.05,0.05,0.05
+shell_inhibition_strengths: 0,0.35,0.22,0.10
+readout_mode: nobypass
+[CudaDevice(id=0)]
+gpu
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1783062169.220333  281511 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1783062169.220840  281511 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1783062170.359275  281511 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1783062170.359601  281511 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1783062170.536435  281511 cuda_executor.cc:1737] INTERNAL: CUDA Runtime error: Failed call to cudaGetRuntimeVersion: Error loading CUDA libraries. GPU will not be used.: Error loading CUDA libraries. GPU will not be used.
+W0000 00:00:1783062170.547475  281511 gpu_device.cc:2365] Cannot dlopen some GPU libraries. Please make sure the missing libraries mentioned above are installed properly if you would like to use GPU. Follow the guide at https://www.tensorflow.org/install/gpu for how to download and setup the required libraries for your platform.
+Skipping registering GPU devices...
+======================================================================
+CIFAR-10 Depth-Spanning Columnar Architecture
+======================================================================
+Model: resnet18
+Activation: leaky_relu
+Column activation: leaky_relu
+Columns: 10
+Column mode: all_active
+Shared columns: 3
+Active non-shared: 7
+Combiner: shell_attention
+Embed dim: 64
+Microcolumn dim: 32
+Shell widths: hard_kernel=22, inner_shell=7, middle_shell=14, outer_shell=21
+Shell evidence cascade: enabled
+Shell evidence cascade scale: hard_kernel->inner_shell=0.05, inner_shell->middle_shell=0.05, middle_shell->outer_shell=0.05
+Shell inhibition strengths: hard_kernel=0, inner_shell=0.35, middle_shell=0.22, outer_shell=0.1
+Epochs: 20.0
+Batch size: 128
+Learning rate: 0.005
+Weight decay: 0.01
+Inference steps: 40
+Inference eta: 0.1
+Column teacher head: enabled
+Column teacher weight: 0.0
+Shell teacher weights: hard_kernel=0, inner_shell=0, middle_shell=0, outer_shell=0
+Column shell teacher weights: hard_kernel=0, inner_shell=0, middle_shell=0, outer_shell=0.002
+Column shell readout: disabled
+Column shell bridge: disabled
+Outer shell context: enabled
+
+Stage outputs: stage2=(16, 16, 64), stage3=(8, 8, 128), stage4=(4, 4, 256)
+Target grid: (4, 4), tokens: 16
+
+Active columns: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+Graph: 147 nodes, 233 edges
+Parameters: 3,079,644
+
+Loading CIFAR-10...
+Train batches: 352
+Val batches: 40
+Test batches: 79
+
+Shell Norms (before training)
+-----------------------------
+  hard_kernel  width=22 mean_l2=4.6834 std_l2=0.0003
+  inner_shell  width= 7 mean_l2=2.6343 std_l2=0.0023
+  middle_shell width=14 mean_l2=3.7262 std_l2=0.0025
+  outer_shell  width=21 mean_l2=4.5527 std_l2=0.0046
+
+Training for 20.0 epochs...
+  0%|          | 0/7040 [00:00<?, ?it/s]Epoch 1/20:   0%|          | 0/7040 [00:00<?, ?it/s]

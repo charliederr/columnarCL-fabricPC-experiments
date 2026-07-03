@@ -14,6 +14,10 @@ column_shell_teacher_weights="${8:-0,0,0,0}"
 column_shell_readout_mode="${9:-off}"
 column_shell_bridge_mode="${10:-off}"
 combiner_mode="${11:-sum}"
+outer_shell_context_mode="${12:-off}"
+num_columns="${13:-4}"
+num_shared="${14:-2}"
+active_nonshared="${15:-2}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
@@ -32,6 +36,8 @@ column_shell_readout_args=()
 column_shell_bridge_label="off"
 column_shell_bridge_args=()
 combiner_label="${combiner_mode//_/-}"
+outer_shell_context_label="off"
+outer_shell_context_args=()
 
 if [[ "$diagnose_mode" == "diagnose" || "$diagnose_mode" == "--diagnose_energy" ]]; then
     diagnose_label="diag"
@@ -86,13 +92,24 @@ else
     exit 2
 fi
 
+if [[ "$outer_shell_context_mode" == "on" || "$outer_shell_context_mode" == "true" || "$outer_shell_context_mode" == "outercontext" ]]; then
+    outer_shell_context_label="on"
+    outer_shell_context_args+=(--outer_shell_context)
+elif [[ "$outer_shell_context_mode" == "off" || "$outer_shell_context_mode" == "false" || "$outer_shell_context_mode" == "nooutercontext" ]]; then
+    outer_shell_context_label="off"
+else
+    echo "Unknown outer shell context mode: $outer_shell_context_mode" >&2
+    echo "Use 'on' or 'off'." >&2
+    exit 2
+fi
+
 if [[ "$combiner_mode" != "sum" && "$combiner_mode" != "attention" && "$combiner_mode" != "shell_attention" ]]; then
     echo "Unknown combiner mode: $combiner_mode" >&2
     echo "Use 'sum', 'attention', or 'shell_attention'." >&2
     exit 2
 fi
 
-log_path="${repo_root}/results/codex_resnet18_shelldynamicson_combiner${combiner_label}_column_teacher${teacher_weight_label}_shell${shell_weights_label}_colshell${column_shell_weights_label}_colshellreadout${column_shell_readout_label}_colshellbridge${column_shell_bridge_label}_${readout_label}_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+log_path="${repo_root}/results/codex_resnet18_shelldynamicson_${num_columns}col_${num_shared}shared_${active_nonshared}active_combiner${combiner_label}_column_teacher${teacher_weight_label}_shell${shell_weights_label}_colshell${column_shell_weights_label}_colshellreadout${column_shell_readout_label}_colshellbridge${column_shell_bridge_label}_outercontext${outer_shell_context_label}_${readout_label}_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -104,6 +121,9 @@ mkdir -p results
     git status --short --branch
     echo "python: $python_bin"
     echo "seed: $seed"
+    echo "num_columns: $num_columns"
+    echo "num_shared: $num_shared"
+    echo "active_nonshared: $active_nonshared"
     echo "lr: $lr"
     echo "num_epochs: $num_epochs"
     echo "diagnose: $diagnose_label"
@@ -113,6 +133,7 @@ mkdir -p results
     echo "column_shell_teacher_weights: $column_shell_teacher_weights"
     echo "column_shell_readout: $column_shell_readout_label"
     echo "column_shell_bridge: $column_shell_bridge_label"
+    echo "outer_shell_context: $outer_shell_context_label"
     echo "combiner: $combiner_mode"
     echo "shell_evidence_cascade: on"
     echo "shell_evidence_cascade_scale: 0.05,0.05,0.05"
@@ -123,9 +144,9 @@ mkdir -p results
         --model resnet18 \
         --activation leaky_relu \
         --column_activation leaky_relu \
-        --num_columns 4 \
-        --num_shared 2 \
-        --active_nonshared 2 \
+        --num_columns "$num_columns" \
+        --num_shared "$num_shared" \
+        --active_nonshared "$active_nonshared" \
         --column_mode all_active \
         --combiner "$combiner_mode" \
         --embed_dim 64 \
@@ -146,6 +167,7 @@ mkdir -p results
         --column_shell_teacher_weights "$column_shell_teacher_weights" \
         "${column_shell_readout_args[@]}" \
         "${column_shell_bridge_args[@]}" \
+        "${outer_shell_context_args[@]}" \
         "${readout_args[@]}" \
         "${extra_args[@]}"
 } 2>&1 | tee "$log_path"

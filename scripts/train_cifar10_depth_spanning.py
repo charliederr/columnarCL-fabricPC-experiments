@@ -124,6 +124,11 @@ def column_shell_bridge_node_name(column_idx: int) -> str:
     return f"column{column_idx:02d}_shell_bridge"
 
 
+def outer_shell_context_node_name(column_idx: int) -> str:
+    """Return the node name for one column's outer-shell context latent."""
+    return f"column{column_idx:02d}_outer_shell_context"
+
+
 def column_shell_teacher_node_name(column_idx: int, shell_name: str) -> str:
     """Return the classifier node name for one column shell teacher head."""
     return f"column{column_idx:02d}_{shell_name}_teacher_output"
@@ -167,6 +172,13 @@ def is_column_shell_pool_for_shell(node_name: str, shell_name: str) -> bool:
 def is_column_shell_bridge_node(node_name: str) -> bool:
     """Return true for a per-column shell bridge latent."""
     return node_name.startswith("column") and node_name.endswith("_shell_bridge")
+
+
+def is_outer_shell_context_node(node_name: str) -> bool:
+    """Return true for a per-column outer-shell context latent."""
+    return node_name.startswith("column") and node_name.endswith(
+        "_outer_shell_context"
+    )
 
 
 def parse_shell_ordered_values(
@@ -285,6 +297,7 @@ def diagnose_energy_breakdown(
             node_name.startswith("col_")
             or is_column_shell_auxiliary_node(node_name)
             or is_column_shell_bridge_node(node_name)
+            or is_outer_shell_context_node(node_name)
         ):
             categories["columns"] += energy_sum
         elif node_name.startswith("stage") and ("tap" in node_name or "pool" in node_name):
@@ -348,6 +361,7 @@ def diagnose_column_outputs(
         or name in shell_teacher_nodes
         or is_column_shell_auxiliary_node(name)
         or is_column_shell_bridge_node(name)
+        or is_outer_shell_context_node(name)
         or name in (
             "combiner",
             "column_pool",
@@ -782,6 +796,9 @@ def evaluate_readout_ablations(
     column_shell_bridge_sources = tuple(
         sorted(source for source in edge_sources if is_column_shell_bridge_node(source))
     )
+    outer_shell_context_sources = tuple(
+        sorted(source for source in edge_sources if is_outer_shell_context_node(source))
+    )
     if column_source in edge_sources:
         cases.append(("column_only", (column_source,)))
     if column_shell_sources:
@@ -801,6 +818,15 @@ def evaluate_readout_ablations(
             (
                 "column_shell_readout_plus_bridge",
                 (*column_shell_sources, *column_shell_bridge_sources),
+            )
+        )
+    if outer_shell_context_sources:
+        cases.append(("outer_shell_context_only", outer_shell_context_sources))
+    if column_source in edge_sources and outer_shell_context_sources:
+        cases.append(
+            (
+                "column_pool_plus_outer_shell_context",
+                (column_source, *outer_shell_context_sources),
             )
         )
     if "bypass_pool" in edge_sources:
@@ -1040,6 +1066,110 @@ def evaluate_column_shell_bridge_ablations(
             rng_key,
         )
         results[f"column_shell_bridge_{shell_name}_only"] = evaluate_pcn(
+            shell_only_params,
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+    return results
+
+
+def mask_outer_shell_context_inputs(
+    params: GraphParams,
+    structure: GraphStructure,
+    context_sources: Tuple[str, ...],
+    shell_name: str,
+    keep_shell: bool,
+) -> GraphParams:
+    """
+    Mask inputs to outer-shell context latents by shell identity.
+
+    `context_sources` are outer-shell context nodes connected to `output`.
+    Each context node receives pooled shell vectors from one column and emits an
+    outer-shell-width latent. The masked parameter copy keeps either one shell's
+    context inputs or all other shell inputs.
+    """
+    masked = params
+    for context_source in context_sources:
+        context_input_sources = node_input_edge_sources(structure, context_source)
+        kept_sources = tuple(
+            source
+            for source in context_input_sources
+            if is_column_shell_pool_for_shell(source, shell_name) == keep_shell
+        )
+        masked = mask_node_input_sources(
+            masked,
+            structure,
+            context_source,
+            kept_sources,
+        )
+    return masked
+
+
+def evaluate_outer_shell_context_ablations(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Evaluate shell dependence inside the outer-shell context path.
+
+    The context path is a Gaussian predictive-coding latent that receives all
+    pooled shells from one column and emits only an outer-shell-width vector.
+    These ablations keep only context outputs at the classifier, then mask
+    context inputs shell by shell.
+    """
+    output_sources = output_input_edge_sources(structure)
+    context_sources = tuple(
+        sorted(source for source in output_sources if is_outer_shell_context_node(source))
+    )
+    if not context_sources:
+        return {}
+
+    context_only_params = mask_output_input_sources(params, structure, context_sources)
+    results = {
+        "outer_shell_context_only": evaluate_pcn(
+            context_only_params,
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+    }
+    for shell_name in SHELL_NAMES:
+        without_shell_params = mask_output_input_sources(
+            mask_outer_shell_context_inputs(
+                params,
+                structure,
+                context_sources,
+                shell_name,
+                keep_shell=False,
+            ),
+            structure,
+            context_sources,
+        )
+        shell_only_params = mask_output_input_sources(
+            mask_outer_shell_context_inputs(
+                params,
+                structure,
+                context_sources,
+                shell_name,
+                keep_shell=True,
+            ),
+            structure,
+            context_sources,
+        )
+        results[f"outer_shell_context_without_{shell_name}"] = evaluate_pcn(
+            without_shell_params,
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+        results[f"outer_shell_context_{shell_name}_only"] = evaluate_pcn(
             shell_only_params,
             structure,
             loader,
@@ -1732,6 +1862,7 @@ def build_depth_spanning_graph(args):
                 shell_weight > 0.0
                 or args.column_shell_readout
                 or args.column_shell_bridge
+                or args.outer_shell_context
             )
             if not needs_shell_pool:
                 continue
@@ -1772,6 +1903,20 @@ def build_depth_spanning_graph(args):
                 column_shell_task_map[
                     column_shell_teacher_target_name(column_idx, shell_name)
                 ] = shell_teacher_output
+
+        if args.outer_shell_context:
+            outer_start, outer_end = shell_slices["outer_shell"]
+            outer_context = Linear(
+                shape=(outer_end - outer_start,),
+                name=outer_shell_context_node_name(column_idx),
+                activation=IdentityActivation(),
+                flatten_input=False,
+                weight_init=XavierInitializer(),
+            )
+            nodes.append(outer_context)
+            for shell_pool in column_shell_pools:
+                edges.append(Edge(source=shell_pool, target=outer_context.slot("in")))
+            edges.append(Edge(source=outer_context, target=output.slot("in")))
 
         if args.column_shell_bridge:
             shell_bridge = Linear(
@@ -1882,6 +2027,7 @@ def train_cifar10_depth_spanning(args):
     print(f"Column shell teacher weights: {column_shell_teacher_summary}")
     print(f"Column shell readout: {'enabled' if args.column_shell_readout else 'disabled'}")
     print(f"Column shell bridge: {'enabled' if args.column_shell_bridge else 'disabled'}")
+    print(f"Outer shell context: {'enabled' if args.outer_shell_context else 'disabled'}")
     print()
 
     master_key = jax.random.PRNGKey(args.seed)
@@ -2205,6 +2351,18 @@ def train_cifar10_depth_spanning(args):
             "Validation Per-Column Shell Bridge Ablations",
             val_column_shell_bridge_metrics,
         )
+    val_outer_shell_context_metrics = evaluate_outer_shell_context_ablations(
+        eval_params,
+        structure,
+        val_loader,
+        train_config,
+        ablation_key,
+    )
+    if val_outer_shell_context_metrics:
+        print_ablation_results(
+            "Validation Outer-Shell Context Ablations",
+            val_outer_shell_context_metrics,
+        )
     val_column_shell_path_metrics = evaluate_column_shell_path_ablations(
         eval_params,
         structure,
@@ -2257,6 +2415,13 @@ def train_cifar10_depth_spanning(args):
         train_config,
         ablation_key,
     )
+    test_outer_shell_context_metrics = evaluate_outer_shell_context_ablations(
+        eval_params,
+        structure,
+        test_loader,
+        train_config,
+        ablation_key,
+    )
     test_column_shell_path_metrics = evaluate_column_shell_path_ablations(
         eval_params,
         structure,
@@ -2298,6 +2463,11 @@ def train_cifar10_depth_spanning(args):
         print_ablation_results(
             "Test Per-Column Shell Bridge Ablations",
             test_column_shell_bridge_metrics,
+        )
+    if test_outer_shell_context_metrics:
+        print_ablation_results(
+            "Test Outer-Shell Context Ablations",
+            test_outer_shell_context_metrics,
         )
     if test_column_shell_path_metrics:
         print_ablation_results(
@@ -2467,6 +2637,15 @@ def parse_args():
         help=(
             "Connect each active column's pooled shell vectors through one "
             "Gaussian shell bridge latent before the main output classifier."
+        ),
+    )
+    parser.add_argument(
+        "--outer_shell_context",
+        action="store_true",
+        help=(
+            "Connect each active column's pooled shells through a Gaussian "
+            "latent whose output width matches the outer_shell slice, then "
+            "feed that outer-shell context vector to the main classifier."
         ),
     )
     parser.add_argument(

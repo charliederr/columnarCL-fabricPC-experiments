@@ -38,10 +38,12 @@ from scripts.train_cifar10_depth_spanning import (
     has_shell_composer,
     mask_column_shell_path_inputs,
     mask_composer_components,
+    mask_outer_shell_context_inputs,
     mask_output_input_sources,
     mask_node_input_sources,
     mask_output_source_feature_slice,
     node_input_edge_sources,
+    outer_shell_context_node_name,
     output_input_edge_sources,
     parse_shell_teacher_weights,
     parse_shell_evidence_cascade_scale,
@@ -319,6 +321,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         column_shell_teacher_weights="0,0,0,0",
         column_shell_readout=False,
         column_shell_bridge=False,
+        outer_shell_context=False,
         shell_evidence_cascade_scale="0.05,0.05,0.05",
         shell_inhibition_strengths="0,0.35,0.22,0.10",
         infer_steps=2,
@@ -680,6 +683,42 @@ def test_depth_spanning_graph_adds_per_column_shell_bridge_edges() -> None:
             assert pool_name not in output_sources
 
 
+def test_depth_spanning_graph_adds_outer_shell_context_edges() -> None:
+    """Outer-shell context receives pooled shells and reaches output."""
+    args = _tiny_depth_spanning_args(
+        column_teacher_weight=0.0,
+        column_shell_teacher_weights="0,0,0,0",
+        column_shell_readout=False,
+        column_shell_bridge=False,
+        outer_shell_context=True,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    output_sources = output_input_edge_sources(structure)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+    outer_start, outer_end = get_shell_slices(args.embed_dim)["outer_shell"]
+    outer_width = outer_end - outer_start
+
+    assert active_columns == [0, 1]
+
+    for column_idx in active_columns:
+        context_name = outer_shell_context_node_name(column_idx)
+        expected_pool_names = {
+            column_shell_pool_node_name(column_idx, shell_name)
+            for shell_name in SHELL_NAMES
+        }
+        context_sources = {
+            edge.source
+            for edge in structure.edges.values()
+            if edge.target == context_name and edge.slot == "in"
+        }
+
+        assert context_name in output_sources
+        assert structure.nodes[context_name].node_info.shape == (outer_width,)
+        assert context_sources == expected_pool_names
+        for pool_name in expected_pool_names:
+            assert pool_name not in output_sources
+
+
 def test_column_teacher_target_loader_duplicates_labels() -> None:
     """The training wrapper adds column_y without changing x or y."""
     x = jnp.ones((2, 4, 4, 3), dtype=jnp.float32)
@@ -781,6 +820,33 @@ def test_mask_node_input_sources_zeroes_only_dropped_bridge_inputs() -> None:
         before = params.nodes[bridge_name].weights[edge_key]
         after = masked.nodes[bridge_name].weights[edge_key]
         if source_name == kept_pool:
+            assert jnp.allclose(after, before)
+        else:
+            assert jnp.allclose(after, jnp.zeros_like(before))
+
+
+def test_mask_outer_shell_context_inputs_masks_selected_shell() -> None:
+    """Outer-shell context input masking keeps only the requested shell inputs."""
+    args = _tiny_depth_spanning_args(
+        outer_shell_context=True,
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    context_name = outer_shell_context_node_name(0)
+    context_sources = node_input_edge_sources(structure, context_name)
+
+    masked = mask_outer_shell_context_inputs(
+        params,
+        structure,
+        (context_name,),
+        "outer_shell",
+        keep_shell=True,
+    )
+
+    for source_name, edge_key in context_sources.items():
+        before = params.nodes[context_name].weights[edge_key]
+        after = masked.nodes[context_name].weights[edge_key]
+        if source_name == column_shell_pool_node_name(0, "outer_shell"):
             assert jnp.allclose(after, before)
         else:
             assert jnp.allclose(after, jnp.zeros_like(before))

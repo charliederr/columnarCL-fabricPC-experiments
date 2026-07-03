@@ -2449,3 +2449,223 @@ The corrected shell-preserving composer is directionally useful for avoiding imm
 Recommended next step:
 
 Before adding another architectural mechanism, recover the missing seed 7 evaluation or rerun seed 7 alone with the same configuration. The run was terminated after expensive training had already completed, so the immediate engineering weakness is that long experiments can lose their final metrics if post-training diagnostics are interrupted. After that result is recovered, the next architectural target should be outer-shell participation. The most likely faithful direction is to add a shell-local predictive objective or a shell-preserving context pathway that gives `outer_shell` a direct training signal while keeping classification routed through the predictive-coding graph rather than adding ordinary backpropagation.
+
+## 2026-07-02 10-Column Composer Replicate Prepared
+
+Timestamp and machine: 2026-07-02 16:56:20 EDT on `rogdora43`.
+
+Direction update:
+
+The next run repeats the shell-preserving composer-only replicate with higher column capacity. The only intended architectural capacity change is from 4 columns with 2 shared columns to 10 columns with 3 shared columns. The run uses `active_nonshared=7`, where `active_nonshared` is the number of non-shared columns selected by sparse column modes. This sweep still uses `column_mode=all_active`, so all 10 columns participate in every case.
+
+Prepared run script:
+
+- Added `scripts/run_codex_shell_preserving_composer_only_replicate_sweep_10col3shared.sh`.
+- The script runs seeds 42, 99, and 7 sequentially.
+- Each run uses `num_columns=10`, `num_shared=3`, and `active_nonshared=7`.
+- Each run keeps the previous shell-preserving composer-only settings: `--combiner shell_attention`, no backbone bypass, no direct per-column shell readout, no per-column shell bridge, zero teacher weights, shell diagnostics, and composer diagnostics.
+- Each child log name includes `10col_3shared_7active` so it cannot be confused with the prior 4-column logs.
+
+Verification:
+
+```bash
+bash -n scripts/run_codex_shell_preserving_composer_only_replicate_sweep_10col3shared.sh
+```
+
+Result: passed.
+
+Launch command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_preserving_composer_only_replicate_sweep_10col3shared.sh
+```
+
+## 2026-07-03 10-Column Composer Replicate Results
+
+Timestamp and machine: 2026-07-03 02:41:20 EDT on `rogdora43`.
+
+Completed host-run master log:
+
+- `results/codex_shell_preserving_composer_only_replicate_sweep_10col3shared_rogdora43_20260702_170009.log`
+
+Child logs:
+
+- `results/codex_resnet18_shelldynamicson_10col_3shared_7active_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed42_lr0p005_ep20_composer_shells_rogdora43_20260702_170009.log`
+- `results/codex_resnet18_shelldynamicson_10col_3shared_7active_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed99_lr0p005_ep20_composer_shells_rogdora43_20260702_195807.log`
+- `results/codex_resnet18_shelldynamicson_10col_3shared_7active_combinershell-attention_column_teacher0p0_shell0_0_0_0_colshell0_0_0_0_colshellreadoutoff_colshellbridgeoff_nobypass_norm_fixedln_seed7_lr0p005_ep20_composer_shells_rogdora43_20260702_225528.log`
+
+Run settings:
+
+- `num_columns=10`, where `num_columns` is the number of depth-spanning column nodes connected to the shell-preserving composer.
+- `num_shared=3`, where `num_shared` is the number of columns that would always be active under sparse column modes.
+- `active_nonshared=7`, where `active_nonshared` is the number of non-shared columns selected by sparse column modes.
+- `column_mode=all_active`, so all 10 columns participated in every seed despite the shared/non-shared labels.
+- `combiner=shell_attention`, no backbone bypass, no direct per-column shell readout, no per-column shell bridge, and zero teacher weights.
+- JAX reported `[CudaDevice(id=0)]` and backend `gpu` for all three completed child runs.
+- Each child run built a 47-node, 93-edge graph with 3,061,694 parameters.
+
+Summary:
+
+| Seed | Status | Best validation accuracy | Best validation epoch | Test accuracy | Training time |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 42 | Complete | 22.82% | 6 | 21.53% | 6694.0 s |
+| 99 | Complete | 22.06% | 5 | 20.68% | 6673.4 s |
+| 7 | Complete | 26.90% | 19 | 25.79% | 6671.8 s |
+
+Aggregate:
+
+| Aggregate over complete seeds | Test accuracy |
+| --- | ---: |
+| Mean of seeds 42, 99, and 7 | 22.67% |
+| Minimum complete seed | 20.68% |
+| Maximum complete seed | 25.79% |
+| Range across complete seeds | 5.11 percentage points |
+
+Comparison to the previous 4-column shell-preserving composer-only run:
+
+- The 4-column completed seeds had a two-seed mean test accuracy of 29.75% from seed 42 at 27.14% and seed 99 at 32.36%.
+- The 10-column version reduced seed 42 from 27.14% to 21.53%.
+- The 10-column version reduced seed 99 from 32.36% to 20.68%.
+- Seed 7 completed this time at 25.79%, which fixes the missing-result problem from the earlier 4-column sweep but is still below the better 4-column complete seeds.
+
+Shell readout ablations on the test split:
+
+| Seed | Combined | Without hard kernel | Hard kernel only | Without inner shell | Inner shell only | Without middle shell | Middle shell only | Without outer shell | Outer shell only |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 42 | 21.53% | 12.13% | 18.47% | 20.13% | 15.88% | 19.02% | 13.84% | 21.14% | 10.00% |
+| 99 | 20.68% | 15.97% | 20.85% | 20.94% | 16.64% | 20.86% | 10.00% | 20.78% | 10.00% |
+| 7 | 25.79% | 15.79% | 22.03% | 24.52% | 13.84% | 25.56% | 16.69% | 24.45% | 10.00% |
+
+Mechanism observations:
+
+- Increasing the column count did not cause chance-level collapse, but it did reduce accuracy substantially.
+- `hard_kernel`, the innermost shell slice, remains the load-bearing source. Removing it caused the largest drop in every seed.
+- `inner_shell`, the shell slice between `hard_kernel` and `middle_shell`, became more independently class-readable than in the 4-column run. Its test-only readout was 13.84% to 16.64%, versus chance-level behavior in the prior complete 4-column seeds.
+- `middle_shell`, the intermediate context shell, became less reliable than it was in the 4-column run. Seed 99's `middle_shell`-only readout was at chance, and removing `middle_shell` barely changed seed 99 or seed 7.
+- `outer_shell`, the most contextual shell slice, remains the clearest unsolved problem. Its test-only readout was exactly 10.00% in all three seeds. Removing it had small effects compared with removing `hard_kernel`.
+
+Composer attention pattern:
+
+- Seed 42 concentrated `hard_kernel` attention on column 1, `inner_shell` attention on column 2, and `middle_shell` attention on column 6. `outer_shell` attention stayed nearly uniform across all columns.
+- Seed 99 concentrated both `hard_kernel` and `inner_shell` attention on column 2. `middle_shell` attention was distributed across several columns, especially columns 0, 8, and 9. `outer_shell` attention stayed nearly uniform.
+- Seed 7 concentrated `hard_kernel` attention on column 3, `inner_shell` attention on column 5, and `middle_shell` attention on column 9. `outer_shell` attention was mostly uniform, with column 9 somewhat higher than the others.
+
+Conclusion:
+
+The 10-column expansion is not an immediate improvement over the 4-column shell-preserving composer. The added capacity appears to diffuse or destabilize the useful middle-shell contribution more than it improves classification. It does, however, show that the composer can select different columns per shell when capacity is available: hard-kernel, inner-shell, and middle-shell attention often specialize to different columns. The remaining architecture gap is still not raw column count. It is the lack of a mechanism that makes the outer shell carry useful class-relevant contextual evidence while preserving predictive-coding structure.
+
+Recommended next step:
+
+Do not continue expanding columns until the shell dynamics are stronger. The next change should target outer-shell participation directly. The conservative HiBaCaML-aligned direction is to add a shell-local predictive objective or shell-preserving context pathway for `outer_shell`, then test it at 4 columns first. Four columns are faster and had better accuracy, so they are the better diagnostic setting for mechanism work. Once the outer shell becomes measurably useful at 4 columns, retest 10 columns to see whether extra capacity helps rather than diluting the signal.
+
+## 2026-07-03 Outer-Shell Context Path Prepared
+
+Timestamp and machine: 2026-07-03 02:56:56 EDT on `rogdora43`.
+
+Direction update:
+
+The next experiment stays with the user's requested 10-column setting while targeting `outer_shell`, the shell slice that remained at chance as an independent readout in the prior 10-column sweep. The implementation combines two graph-native mechanisms:
+
+- A shell-local predictive objective on each active column's `outer_shell` slice.
+- A shell-preserving context pathway whose output has only the `outer_shell` width.
+
+Implemented mechanism:
+
+`outer_shell_context` is a new optional per-column Gaussian latent. For active column `c`, `columncc_outer_shell_context` receives that column's pooled `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell` vectors. It emits a vector with width equal to the `outer_shell` slice. With `embed_dim=64`, this width is 21 feature dimensions. The context latent connects to the main `output` classifier.
+
+This path differs from the older `column_shell_bridge` path. `column_shell_bridge` emits a full `embed_dim` vector, so it can mix back into all shell-sized regions at readout. `outer_shell_context` emits only an outer-shell-width vector, so the pathway is context-using but shell-preserving at its output.
+
+The initial experiment also sets `column_shell_teacher_weights=0,0,0,0.002`. The value `0.002` is the cross-entropy energy multiplier on each per-column `outer_shell` teacher head. The other per-column shell teachers are omitted. This keeps the auxiliary target local to `outer_shell` and avoids adding direct label pressure to `hard_kernel`, `inner_shell`, or `middle_shell`.
+
+Files changed:
+
+- `scripts/train_cifar10_depth_spanning.py`
+- `scripts/run_codex_cifar10_depth_spanning.sh`
+- `scripts/run_codex_outer_shell_context_10col3shared_sweep.sh`
+- `tests/test_pooled_readout_norm.py`
+
+Training-script changes:
+
+- Added `--outer_shell_context`.
+- Added `outer_shell_context_node_name(c)`, where `c` is the column index.
+- Added `is_outer_shell_context_node(name)`.
+- Added per-column outer-shell context node construction inside `build_depth_spanning_graph`.
+- Added context nodes to energy diagnostics and latent diagnostics.
+- Added readout ablations for `outer_shell_context_only` and `column_pool_plus_outer_shell_context`.
+- Added context-input lesions that keep or drop one shell input at a time.
+- Added validation and test tables named `Outer-Shell Context Ablations`.
+
+Runner changes:
+
+- `scripts/run_codex_cifar10_depth_spanning.sh` now accepts:
+  - argument 12: `outer_shell_context_mode`, with `on` or `off`.
+  - argument 13: `num_columns`.
+  - argument 14: `num_shared`.
+  - argument 15: `active_nonshared`.
+- Result filenames now include the column capacity and `outercontexton/off`, so 4-column and 10-column logs are distinguishable.
+
+Prepared sweep:
+
+- `scripts/run_codex_outer_shell_context_10col3shared_sweep.sh`
+- Seeds: 42, 99, and 7.
+- `num_columns=10`, `num_shared=3`, `active_nonshared=7`.
+- `combiner=shell_attention`.
+- No backbone bypass.
+- No direct per-column shell readout.
+- No full-width per-column shell bridge.
+- `outer_shell_context=on`.
+- `column_shell_teacher_weights=0,0,0,0.002`.
+- Shell diagnostics and composer diagnostics enabled.
+
+Verification:
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_outer_shell_context_10col3shared_sweep.sh scripts/run_codex_shell_preserving_composer_only_replicate_sweep_10col3shared.sh
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+```
+
+Result: 29 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py -q
+```
+
+Result: 49 passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -k 'not cifar_data' -q
+```
+
+Result: 151 passed, 22 deselected.
+
+```bash
+git diff --check
+```
+
+Result: passed.
+
+Next experiment command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_outer_shell_context_10col3shared_sweep.sh
+```
+
+Primary readouts to inspect after the run:
+
+- Combined test accuracy.
+- `outer_shell_context_only`, the classifier accuracy when only the new context path reaches `output`.
+- `column_pool_plus_outer_shell_context`, the accuracy when the original composer path and new context path are kept together.
+- `outer_shell_context_outer_shell_only`, the context-path accuracy when each context node receives only its own outer-shell pool.
+- `outer_shell_context_without_outer_shell`, the context-path accuracy when outer-shell inputs are removed from the context nodes.
+- The regular `column_outer_shell_only` shell readout, to see whether the raw composed outer-shell slice becomes class-readable.
