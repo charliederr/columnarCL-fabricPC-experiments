@@ -2669,3 +2669,140 @@ Primary readouts to inspect after the run:
 - `outer_shell_context_outer_shell_only`, the context-path accuracy when each context node receives only its own outer-shell pool.
 - `outer_shell_context_without_outer_shell`, the context-path accuracy when outer-shell inputs are removed from the context nodes.
 - The regular `column_outer_shell_only` shell readout, to see whether the raw composed outer-shell slice becomes class-readable.
+
+## 2026-07-03 Outer-Shell Context Seed-42 Result
+
+Timestamp and machine: 2026-07-03 07:50:18 EDT on `rogdora43`.
+
+Master log:
+
+- `results/codex_outer_shell_context_10col3shared_sweep_rogdora43_20260703_030239.log`
+
+Run status:
+
+The sweep produced a complete seed-42 result, but it did not continue to seed 99 or seed 7. The shared runner attempted to create a child log whose filename exceeded the filesystem filename limit:
+
+```text
+tee: ... File name too long
+```
+
+The child training output still reached the master log, so the seed-42 result is usable. The failed child `tee` returned a nonzero status after Python finished, so the outer sweep stopped before the next planned cases.
+
+Seed-42 run settings:
+
+- `num_columns=10`, `num_shared=3`, `active_nonshared=7`.
+- `combiner=shell_attention`.
+- No backbone bypass.
+- No direct per-column shell readout.
+- No full-width per-column shell bridge.
+- `outer_shell_context=on`.
+- `column_shell_teacher_weights=0,0,0,0.002`.
+- Graph size: 147 nodes and 233 edges.
+- Parameter count: 3,079,644.
+- JAX reported `[CudaDevice(id=0)]` and backend `gpu`.
+
+Main result:
+
+| Setting | Seed | Best validation accuracy | Best validation epoch | Test accuracy |
+| --- | ---: | ---: | ---: | ---: |
+| 10 columns, no outer context | 42 | 22.82% | 6 | 21.53% |
+| 10 columns, outer context plus outer teacher `0.002` | 42 | 24.54% | 7 | 23.04% |
+
+The outer-shell context mechanism improved seed-42 test accuracy by 1.51 percentage points compared with the previous 10-column shell-preserving composer-only seed-42 run. This is a useful directional result, but it is not yet robust because only one seed completed.
+
+Readout details:
+
+| Readout | Test accuracy |
+| --- | ---: |
+| Combined | 23.04% |
+| `column_only` | 12.75% |
+| `outer_shell_context_only` | 11.26% |
+| `column_pool_plus_outer_shell_context` | 23.04% |
+| `column_outer_shell_only` | 10.00% |
+
+The context path is not independently sufficient. `outer_shell_context_only` is slightly above chance, but most of the useful signal still requires the combined classifier. The main combined accuracy equals `column_pool_plus_outer_shell_context`, which is expected because there is no bypass, no direct per-column shell readout, and no full-width bridge in this run.
+
+Outer-shell context input lesions on the test split:
+
+| Context-path lesion | Test accuracy |
+| --- | ---: |
+| `outer_shell_context_only` | 11.26% |
+| `outer_shell_context_without_hard_kernel` | 10.00% |
+| `outer_shell_context_hard_kernel_only` | 13.81% |
+| `outer_shell_context_without_inner_shell` | 17.80% |
+| `outer_shell_context_inner_shell_only` | 10.00% |
+| `outer_shell_context_without_middle_shell` | 14.60% |
+| `outer_shell_context_middle_shell_only` | 10.00% |
+| `outer_shell_context_without_outer_shell` | 12.12% |
+| `outer_shell_context_outer_shell_only` | 10.00% |
+
+This table shows that the context path mostly learned to route hard-kernel signal through an outer-shell-shaped latent. Removing hard-kernel inputs collapses the context-only path to chance. Keeping only outer-shell inputs is still chance. The context mechanism is therefore not yet solving the intended outer-shell problem, even though it modestly improved the combined classifier on seed 42.
+
+Per-column outer-shell teacher heads on the test split:
+
+| Head | Test accuracy |
+| --- | ---: |
+| `column00_outer_shell_teacher_output` | 16.12% |
+| `column01_outer_shell_teacher_output` | 10.00% |
+| `column02_outer_shell_teacher_output` | 10.00% |
+| `column03_outer_shell_teacher_output` | 13.60% |
+| `column04_outer_shell_teacher_output` | 10.00% |
+| `column05_outer_shell_teacher_output` | 11.46% |
+| `column06_outer_shell_teacher_output` | 10.00% |
+| `column07_outer_shell_teacher_output` | 16.23% |
+| `column08_outer_shell_teacher_output` | 10.08% |
+| `column09_outer_shell_teacher_output` | 10.00% |
+
+Some per-column outer-shell teacher heads are above chance, especially columns 0 and 7. This is better than the raw `column_outer_shell_only` readout, but it is still weak and not consistently distributed across columns.
+
+Composer attention pattern:
+
+- `hard_kernel` attention concentrated on column 0 at 99.63%.
+- `inner_shell` attention concentrated on column 0 at 97.76%.
+- `middle_shell` attention concentrated on column 2 at 84.19%.
+- `outer_shell` attention stayed distributed, with column 0 at 19.73% and column 5 at 19.30%.
+
+Conclusion:
+
+The outer-shell context path is a modest improvement for seed 42, but the mechanism did not make the raw outer shell class-readable. The context path used hard-kernel evidence heavily, which means the outer-shell-shaped latent can act as another classifier route without forcing the actual outer shell to carry class evidence. This is still useful because it shows the additional context path can help the combined classifier, but the next step should separate three questions:
+
+- Whether the context path helps without any outer-shell teacher.
+- Whether a stronger outer-shell teacher improves or destabilizes the path.
+- Whether the `0.002` outer-shell teacher result generalizes to seeds 99 and 7.
+
+Shared runner fix:
+
+The filename-limit failure came from the shared runner after capacity and context labels were added to the result filename. I changed `scripts/run_codex_cifar10_depth_spanning.sh` to use a compact child-log name. The full configuration remains in the log header. The compact filename records only short identifiers for column capacity, combiner, teacher weights, shell readout, shell bridge, outer context, readout mode, seed, learning rate, epoch count, diagnostic mode, hostname, and timestamp.
+
+Verification after the runner fix:
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_outer_shell_context_10col3shared_sweep.sh scripts/run_codex_outer_shell_context_followup_10col3shared_sweep.sh
+```
+
+Result: passed.
+
+```bash
+git diff --check
+```
+
+Result: passed.
+
+Next experiment:
+
+Added `scripts/run_codex_outer_shell_context_followup_10col3shared_sweep.sh`.
+
+Planned cases:
+
+| Case | Seed | `column_shell_teacher_weights` | Purpose |
+| --- | ---: | --- | --- |
+| `seed42_outer_context_no_outer_teacher` | 42 | `0,0,0,0` | Isolate the context path without any per-column outer-shell class target. |
+| `seed42_outer_context_outer_teacher0p006` | 42 | `0,0,0,0.006` | Test whether the seed-42 result improves with a stronger local outer-shell objective. |
+| `seed99_outer_context_outer_teacher0p002` | 99 | `0,0,0,0.002` | Check whether the seed-42 gain generalizes. |
+| `seed7_outer_context_outer_teacher0p002` | 7 | `0,0,0,0.002` | Check whether the seed-42 gain generalizes. |
+
+Run command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_outer_shell_context_followup_10col3shared_sweep.sh
+```

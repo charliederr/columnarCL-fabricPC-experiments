@@ -35,7 +35,6 @@ column_shell_readout_label="off"
 column_shell_readout_args=()
 column_shell_bridge_label="off"
 column_shell_bridge_args=()
-combiner_label="${combiner_mode//_/-}"
 outer_shell_context_label="off"
 outer_shell_context_args=()
 
@@ -109,7 +108,46 @@ if [[ "$combiner_mode" != "sum" && "$combiner_mode" != "attention" && "$combiner
     exit 2
 fi
 
-log_path="${repo_root}/results/codex_resnet18_shelldynamicson_${num_columns}col_${num_shared}shared_${active_nonshared}active_combiner${combiner_label}_column_teacher${teacher_weight_label}_shell${shell_weights_label}_colshell${column_shell_weights_label}_colshellreadout${column_shell_readout_label}_colshellbridge${column_shell_bridge_label}_outercontext${outer_shell_context_label}_${readout_label}_norm_fixedln_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+case "$combiner_mode" in
+    sum)
+        combiner_label="sum"
+        ;;
+    attention)
+        combiner_label="att"
+        ;;
+    shell_attention)
+        combiner_label="shatt"
+        ;;
+esac
+
+if [[ "$readout_label" == "bypass" ]]; then
+    readout_short="byp"
+else
+    readout_short="nobyp"
+fi
+
+if [[ "$column_shell_readout_label" == "on" ]]; then
+    column_shell_readout_short="sr1"
+else
+    column_shell_readout_short="sr0"
+fi
+
+if [[ "$column_shell_bridge_label" == "on" ]]; then
+    column_shell_bridge_short="br1"
+else
+    column_shell_bridge_short="br0"
+fi
+
+if [[ "$outer_shell_context_label" == "on" ]]; then
+    outer_shell_context_short="oc1"
+else
+    outer_shell_context_short="oc0"
+fi
+
+# Capacity and context labels made the original descriptive filename exceed
+# common 255-byte filename limits. The full configuration is still written in
+# the log header; the filename keeps only compact run identifiers.
+log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
