@@ -1,0 +1,39 @@
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 049aa5d574fb3c859fa8dc5742bff76522d53db0
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+ M scripts/run_codex_cifar10_depth_spanning.sh
+ M scripts/train_cifar10_depth_spanning.py
+ M tests/test_pooled_readout_norm.py
+?? results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_sr0_br0_oc1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260704_094757.log
+?? results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_sr0_br0_oc1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260703_075551.log
+?? results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0p002_sr0_br0_oc1_nobyp_seed7_lr0p005_ep20_composer_shells_rogdora43_20260703_193615.log
+?? results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0p002_sr0_br0_oc1_nobyp_seed99_lr0p005_ep20_composer_shells_rogdora43_20260703_153436.log
+?? results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0p006_sr0_br0_oc1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260703_113257.log
+?? results/codex_outer_shell_context_followup_10col3shared_rogdora43_20260703_075551.log
+?? results/codex_shell_lr_outer_context_10col3shared_rogdora43_20260704_094757.log
+?? scripts/run_codex_shell_lr_outer_context_10col3shared_sweep.sh
+python: /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+seed: 42
+num_columns: 10
+num_shared: 3
+active_nonshared: 7
+lr: 0.005
+shell_lr_multipliers: 1,1.5,2,3
+num_epochs: 20
+diagnose: composer_shells
+column_teacher_head: enabled
+column_teacher_weight: 0.0
+shell_teacher_weights: 0,0,0,0
+column_shell_teacher_weights: 0,0,0,0
+column_shell_readout: off
+column_shell_bridge: off
+outer_shell_context: on
+combiner: shell_attention
+shell_evidence_cascade: on
+shell_evidence_cascade_scale: 0.05,0.05,0.05
+shell_inhibition_strengths: 0,0.35,0.22,0.10
+readout_mode: nobypass
+[CudaDevice(id=0)]
+gpu

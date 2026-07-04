@@ -26,6 +26,8 @@ from scripts.train_cifar10_depth_spanning import (
     COLUMN_TEACHER_TARGET,
     ColumnTeacherTargetLoader,
     active_composer_components,
+    apply_shell_lr_multipliers,
+    build_shell_lr_multiplier_tree,
     build_depth_spanning_graph,
     column_shell_bridge_node_name,
     column_shell_pool_node_name,
@@ -45,6 +47,7 @@ from scripts.train_cifar10_depth_spanning import (
     node_input_edge_sources,
     outer_shell_context_node_name,
     output_input_edge_sources,
+    parse_shell_lr_multipliers,
     parse_shell_teacher_weights,
     parse_shell_evidence_cascade_scale,
     parse_shell_inhibition_strengths,
@@ -322,6 +325,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         column_shell_readout=False,
         column_shell_bridge=False,
         outer_shell_context=False,
+        shell_lr_multipliers="1,1,1,1",
         shell_evidence_cascade_scale="0.05,0.05,0.05",
         shell_inhibition_strengths="0,0.35,0.22,0.10",
         infer_steps=2,
@@ -346,6 +350,22 @@ def test_parse_shell_teacher_weights_maps_values_in_shell_order() -> None:
         parse_shell_teacher_weights("0.1,0.2")
     with pytest.raises(ValueError):
         parse_shell_teacher_weights("0.1,-0.2,0.3,0.4")
+
+
+def test_parse_shell_lr_multipliers_maps_values_in_shell_order() -> None:
+    """Shell learning-rate multipliers are parsed in shell order."""
+    multipliers = parse_shell_lr_multipliers("1,1.5,2,3")
+
+    assert [multipliers[shell_name] for shell_name in SHELL_NAMES] == [
+        1.0,
+        1.5,
+        2.0,
+        3.0,
+    ]
+    with pytest.raises(ValueError):
+        parse_shell_lr_multipliers("1,2")
+    with pytest.raises(ValueError):
+        parse_shell_lr_multipliers("1,-2,3,4")
 
 
 def test_parse_shell_inhibition_strengths_maps_values_in_shell_order() -> None:
@@ -480,6 +500,124 @@ def test_mask_composer_components_zeroes_selected_projection() -> None:
     assert jnp.allclose(
         masked.nodes["combiner"].weights[inner_weight],
         params.nodes["combiner"].weights[inner_weight],
+    )
+
+
+def test_shell_lr_multiplier_tree_scales_depth_column_shell_outputs() -> None:
+    """Depth-column output and shell-dynamics parameters get shell update rates."""
+    args = _tiny_depth_spanning_args(
+        shell_lr_multipliers="1,1.5,2,3",
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    shell_lr_multipliers = parse_shell_lr_multipliers(args.shell_lr_multipliers)
+
+    multiplier_tree = build_shell_lr_multiplier_tree(
+        params,
+        structure,
+        shell_lr_multipliers,
+    )
+    column_multipliers = multiplier_tree.nodes["col_00"]
+    shell_slices = get_shell_slices(args.embed_dim)
+
+    for shell_name in SHELL_NAMES:
+        start, end = shell_slices[shell_name]
+        expected = shell_lr_multipliers[shell_name]
+        assert jnp.allclose(
+            column_multipliers.weights["K_W_out"][:, start:end],
+            expected,
+        )
+        assert jnp.allclose(
+            column_multipliers.biases["K_b_out"][start:end],
+            expected,
+        )
+        assert jnp.allclose(
+            column_multipliers.weights["shell_path_scale"][
+                SHELL_NAMES.index(shell_name)
+            ],
+            expected,
+        )
+
+    assert jnp.allclose(
+        column_multipliers.weights["shell_evidence_cascade_scale"],
+        jnp.asarray([1.5, 2.0, 3.0], dtype=jnp.float32),
+    )
+    assert jnp.allclose(
+        column_multipliers.weights[
+            "shell_evidence_cascade_middle_shell_to_outer_shell"
+        ],
+        3.0,
+    )
+    assert jnp.allclose(
+        column_multipliers.biases[
+            "shell_evidence_cascade_b_inner_shell_to_middle_shell"
+        ],
+        2.0,
+    )
+    assert jnp.allclose(column_multipliers.weights["K_W_deep"], 1.0)
+
+
+def test_shell_lr_multiplier_tree_scales_composer_and_context_paths() -> None:
+    """Shell composer and outer-context parameters receive shell update rates."""
+    args = _tiny_depth_spanning_args(
+        combiner="shell_attention",
+        bypass_columns=False,
+        outer_shell_context=True,
+        shell_lr_multipliers="1,1.5,2,3",
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    shell_lr_multipliers = parse_shell_lr_multipliers(args.shell_lr_multipliers)
+
+    multiplier_tree = build_shell_lr_multiplier_tree(
+        params,
+        structure,
+        shell_lr_multipliers,
+    )
+    composer_multipliers = multiplier_tree.nodes["combiner"]
+    expected_attention = jnp.asarray([1.0, 1.5, 2.0, 3.0], dtype=jnp.float32)
+    assert jnp.allclose(
+        composer_multipliers.weights["component_attention"],
+        jnp.ones((args.num_columns, len(SHELL_NAMES))) * expected_attention,
+    )
+
+    outer_weight = ColumnShellComposerNode._projection_weight_name(0, "outer_shell")
+    inner_bias = ColumnShellComposerNode._projection_bias_name(0, "inner_shell")
+    assert jnp.allclose(composer_multipliers.weights[outer_weight], 3.0)
+    assert jnp.allclose(composer_multipliers.biases[inner_bias], 1.5)
+
+    context_name = outer_shell_context_node_name(0)
+    context_multipliers = multiplier_tree.nodes[context_name]
+    for value in context_multipliers.weights.values():
+        assert jnp.allclose(value, 3.0)
+    for value in context_multipliers.biases.values():
+        assert jnp.allclose(value, 3.0)
+
+
+def test_apply_shell_lr_multipliers_scales_update_tree() -> None:
+    """The Optax transform helper multiplies updates with the prepared tree."""
+    args = _tiny_depth_spanning_args(
+        shell_lr_multipliers="1,1.5,2,3",
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    updates = jax.tree_util.tree_map(jnp.ones_like, params)
+    multiplier_tree = build_shell_lr_multiplier_tree(
+        params,
+        structure,
+        parse_shell_lr_multipliers(args.shell_lr_multipliers),
+    )
+
+    scaled_updates = apply_shell_lr_multipliers(updates, multiplier_tree)
+    outer_start, outer_end = get_shell_slices(args.embed_dim)["outer_shell"]
+
+    assert jnp.allclose(
+        scaled_updates.nodes["col_00"].weights["K_W_out"][:, outer_start:outer_end],
+        3.0,
+    )
+    assert jnp.allclose(
+        scaled_updates.nodes["col_00"].weights["K_W_deep"],
+        1.0,
     )
 
 

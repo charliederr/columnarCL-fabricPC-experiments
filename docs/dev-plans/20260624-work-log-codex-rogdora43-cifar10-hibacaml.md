@@ -2806,3 +2806,192 @@ Run command:
 ```bash
 cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_outer_shell_context_followup_10col3shared_sweep.sh
 ```
+
+## 2026-07-04 Outer-Shell Context Follow-Up Results
+
+Timestamp and machine: 2026-07-04 09:22:59 EDT on `rogdora43`.
+
+Master log:
+
+- `results/codex_outer_shell_context_followup_10col3shared_rogdora43_20260703_075551.log`
+
+Child logs:
+
+- `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_sr0_br0_oc1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260703_075551.log`
+- `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0p006_sr0_br0_oc1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260703_113257.log`
+- `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0p002_sr0_br0_oc1_nobyp_seed99_lr0p005_ep20_composer_shells_rogdora43_20260703_153436.log`
+- `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0p002_sr0_br0_oc1_nobyp_seed7_lr0p005_ep20_composer_shells_rogdora43_20260703_193615.log`
+
+All four planned cases completed. Each child log reported `[CudaDevice(id=0)]` and backend `gpu`. The TensorFlow CUDA warning still appeared, but JAX reported the CUDA backend.
+
+Run settings shared by all cases:
+
+- `num_columns=10`, `num_shared=3`, `active_nonshared=7`.
+- `combiner=shell_attention`.
+- No backbone bypass.
+- No direct per-column shell readout.
+- No full-width per-column shell bridge.
+- `outer_shell_context=on`.
+- Shell diagnostics and composer diagnostics enabled.
+
+Summary:
+
+| Case | Seed | `column_shell_teacher_weights` | Best validation accuracy | Best validation epoch | Test accuracy |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Outer context, no outer teacher | 42 | `0,0,0,0` | 27.48% | 17 | 26.66% |
+| Outer context, stronger outer teacher | 42 | `0,0,0,0.006` | 23.92% | 7 | 22.54% |
+| Outer context, current outer teacher | 99 | `0,0,0,0.002` | 26.66% | 19 | 25.55% |
+| Outer context, current outer teacher | 7 | `0,0,0,0.002` | 24.50% | 18 | 24.01% |
+
+Comparison to prior 10-column no-context baseline:
+
+| Seed | No-context test | Outer context test | Difference |
+| ---: | ---: | ---: | ---: |
+| 42, no outer teacher | 21.53% | 26.66% | +5.13 pp |
+| 42, outer teacher `0.002` | 21.53% | 23.04% | +1.51 pp |
+| 42, outer teacher `0.006` | 21.53% | 22.54% | +1.01 pp |
+| 99, outer teacher `0.002` | 20.68% | 25.55% | +4.87 pp |
+| 7, outer teacher `0.002` | 25.79% | 24.01% | -1.78 pp |
+
+The three-seed mean for the `0.002` outer-teacher setting is 24.20% using seed 42 from the previous partial run plus seed 99 and seed 7 from this run. The earlier 10-column no-context mean was 22.67%. This is a modest mean improvement, but the no-teacher seed-42 result is stronger than any teacher-attached seed-42 result.
+
+Readout and shell ablations on the test split:
+
+| Case | Combined | `column_only` | `outer_shell_context_only` | `column_pool_plus_outer_shell_context` | `column_outer_shell_only` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Seed 42, no outer teacher | 26.66% | 10.00% | 15.58% | 26.66% | 10.00% |
+| Seed 42, outer teacher `0.006` | 22.54% | 11.93% | 10.00% | 22.54% | 10.00% |
+| Seed 99, outer teacher `0.002` | 25.55% | 10.00% | 10.74% | 25.55% | 10.00% |
+| Seed 7, outer teacher `0.002` | 24.01% | 10.00% | 10.00% | 24.01% | 10.00% |
+
+The raw composed outer-shell slice remains at chance in all cases. The no-teacher seed-42 run is the only run where `outer_shell_context_only` is clearly above chance.
+
+Outer-shell context input lesions on the test split:
+
+| Case | Context only | Without hard kernel | Hard kernel only | Without outer shell | Outer shell only |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Seed 42, no outer teacher | 15.58% | 11.80% | 10.00% | 11.51% | 10.00% |
+| Seed 42, outer teacher `0.006` | 10.00% | 10.00% | 10.00% | 10.00% | 10.00% |
+| Seed 99, outer teacher `0.002` | 10.74% | 11.86% | 10.00% | 10.00% | 10.00% |
+| Seed 7, outer teacher `0.002` | 10.00% | 10.00% | 10.00% | 10.00% | 10.00% |
+
+For seed 42 without an outer teacher, the context path uses multiple shell inputs together. Removing hard-kernel inputs or removing outer-shell inputs both reduces the context-only readout, but neither hard-kernel-only nor outer-shell-only is sufficient. With outer-shell teachers enabled, the context path is near chance in isolation.
+
+Per-column outer-shell teacher heads:
+
+- Seed 42 with outer teacher `0.006`: several teacher heads were above chance, including `column00_outer_shell_teacher_output=17.45%`, `column03_outer_shell_teacher_output=15.11%`, `column08_outer_shell_teacher_output=13.16%`, and `column09_outer_shell_teacher_output=16.22%` on test.
+- Seed 99 with outer teacher `0.002`: all per-column teacher heads were above chance on test, ranging from 16.45% to 22.39%.
+- Seed 7 with outer teacher `0.002`: five teacher heads were above chance on test, with `column05_outer_shell_teacher_output=20.30%` the strongest.
+
+The per-column outer-shell teacher heads can learn class signal, especially for seed 99, but that class signal does not make `column_outer_shell_only` or `outer_shell_context_only` reliably useful. This means the local teacher objective is not aligned with the main classifier route.
+
+Composer attention pattern:
+
+- Seed 42 without an outer teacher selected different columns per shell: `hard_kernel` and `middle_shell` concentrated on column 7, `inner_shell` on column 1, and `outer_shell` on column 3.
+- Seed 42 with outer teacher `0.006` concentrated `hard_kernel` on column 5 and concentrated `inner_shell`, `middle_shell`, and `outer_shell` mostly on column 0.
+- Seed 99 with outer teacher `0.002` concentrated `hard_kernel` on column 2 and concentrated `inner_shell`, `middle_shell`, and `outer_shell` on column 8.
+- Seed 7 with outer teacher `0.002` concentrated `hard_kernel` on column 3, `inner_shell` on column 8, `middle_shell` on column 1, and `outer_shell` on column 6.
+
+Conclusion:
+
+The outer-shell context path is useful, but the outer-shell teacher is not. The best result in this group is seed 42 with `outer_shell_context=on` and no per-column outer-shell teacher. The teacher-attached runs show that outer-shell teacher heads can learn local class labels, but this does not translate into the main predictive-coding readout. The current teacher objective is probably creating local classifiers that are not coordinated with the shell-composer and context routes.
+
+The strongest immediate hypothesis is that the context path should be tested as an architectural mechanism without local class teacher pressure. The next question is whether the no-teacher context result generalizes to seeds 99 and 7. I am not making that change or preparing another run here, per the request to wait for further implementation instructions.
+
+## 2026-07-04 Shell Learning-Rate Plasticity Implementation
+
+Timestamp and machine: 2026-07-04 09:43:20 EDT on `rogdora43`.
+
+Goal:
+
+Test a HiBaCaML-aligned shell plasticity gradient without adding more class-teacher energy. The hard kernel should remain the most stable shell, while the inner shell, middle shell, and outer shell receive progressively larger learned-parameter updates. This changes learned shell plasticity. It does not change predictive-coding inference step size.
+
+Mechanism:
+
+- Added `--shell_lr_multipliers` to `scripts/train_cifar10_depth_spanning.py`.
+- The values are ordered as `hard_kernel,inner_shell,middle_shell,outer_shell`.
+- The default is `1,1,1,1`, which preserves the previous optimizer behavior.
+- The proposed first setting is `1,1.5,2,3`.
+- The multiplier is applied after AdamW computes its scheduled update. With base learning rate `0.005`, the effective update multipliers are `0.005`, `0.0075`, `0.010`, and `0.015` for the hard kernel, inner shell, middle shell, and outer shell.
+
+Implemented parameter coverage:
+
+- `DepthSpanningColumnNode` output-sliced matrices and biases: `K_W_out`, `K_b_out`, `L_W_out`, `L_b_out`, `B_W_out`, and `B_b_out` use the shell slice on the final output axis.
+- `DepthSpanningColumnNode` learnable shell path weights: `shell_path_scale` uses the explicit shell row.
+- `DepthSpanningColumnNode` shell evidence cascade matrices and biases use the target shell. For example, `shell_evidence_cascade_middle_shell_to_outer_shell` uses the outer-shell multiplier.
+- `DepthSpanningColumnNode` shell evidence cascade gains use the target shells `inner_shell`, `middle_shell`, and `outer_shell`.
+- Learnable shell layer-normalization vectors, when present, use the shell slice on the final feature axis.
+- `ColumnShellComposerNode` shell projection matrices and biases use the shell encoded in the parameter name, such as `W_col00_outer_shell`.
+- `ColumnShellComposerNode` component attention logits use the shell axis, so outer-shell route selection is more plastic than hard-kernel route selection.
+- Per-column `outer_shell_context` nodes use the outer-shell multiplier for all their weights and biases because their output latent is an outer-shell-width context vector.
+- Per-column full-width shell bridge nodes, when enabled in another experiment, use the shell slice on their output feature axis.
+
+Parameters intentionally left at the base update rate:
+
+- ResNet backbone parameters.
+- Stage-tap projection parameters.
+- Hidden shared K, L, and B pathway parameters before the shell-specific output projection, because those tensors are not assigned to one shell.
+- Main and auxiliary classifier heads, because the experiment is about shell representation plasticity rather than readout learning-rate changes.
+
+Files changed:
+
+- `scripts/train_cifar10_depth_spanning.py`: added shell learning-rate multiplier parsing, multiplier-tree construction, Optax update scaling, logging, and CLI support.
+- `scripts/run_codex_cifar10_depth_spanning.sh`: added positional argument 16 for shell learning-rate multipliers, plus log header and result filename recording.
+- `scripts/run_codex_shell_lr_outer_context_10col3shared_sweep.sh`: added a three-seed sweep for the current preferred outer-shell context architecture with no teacher heads.
+- `tests/test_pooled_readout_norm.py`: added tests for parsing, parameter multiplier construction, composer/context scaling, and update-tree scaling.
+
+Planned experiment:
+
+Run the current strongest architecture with shell plasticity and no teacher heads:
+
+- `num_columns=10`, `num_shared=3`, `active_nonshared=7`.
+- `combiner=shell_attention`.
+- No backbone bypass.
+- `outer_shell_context=on`.
+- `column_teacher_weight=0.0`.
+- `shell_teacher_weights=0,0,0,0`.
+- `column_shell_teacher_weights=0,0,0,0`.
+- `shell_lr_multipliers=1,1.5,2,3`.
+- Seeds 42, 99, and 7.
+
+Run command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_lr_outer_context_10col3shared_sweep.sh
+```
+
+Verification completed:
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_lr_outer_context_10col3shared_sweep.sh
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+```
+
+Result: passed, 33 tests.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_depth_spanning_column.py -q
+```
+
+Result: passed, 20 tests.
+
+```bash
+git diff --check
+```
+
+Result: passed.
+
+Expected comparison:
+
+The most direct comparison is against the outer-shell context/no-teacher seed-42 result from the previous section, which reached 26.66% test accuracy. The broader question is whether shell plasticity improves or stabilizes the no-teacher outer-context architecture across seeds 99 and 7.

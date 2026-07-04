@@ -90,6 +90,7 @@ COLUMN_TEACHER_TARGET = "column_y"
 COLUMN_TEACHER_NODE = "column_teacher_output"
 SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 COLUMN_SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
+SHELL_LR_DEFAULT_MULTIPLIERS = "1,1,1,1"
 SHELL_EVIDENCE_CASCADE_DEFAULT_SCALE = "0.05,0.05,0.05"
 SHELL_INHIBITION_DEFAULT_STRENGTHS = "0,0.35,0.22,0.10"
 
@@ -219,6 +220,15 @@ def parse_shell_teacher_weights(
     )
 
 
+def parse_shell_lr_multipliers(value: str) -> Dict[str, float]:
+    """Parse optimizer update multipliers in `SHELL_NAMES` order."""
+    return parse_shell_ordered_values(
+        value,
+        flag_name="--shell_lr_multipliers",
+        value_name="Shell learning-rate multiplier",
+    )
+
+
 def parse_shell_inhibition_strengths(value: str) -> Dict[str, float]:
     """Parse same-tier inhibition strengths in `SHELL_NAMES` order."""
     return parse_shell_ordered_values(
@@ -245,6 +255,229 @@ def parse_shell_evidence_cascade_scale(value: str) -> Tuple[float, float, float]
     if any(value < 0.0 for value in scale):
         raise ValueError("--shell_evidence_cascade_scale entries must be >= 0")
     return scale
+
+
+def _constant_multiplier_like(value: jax.Array, multiplier: float) -> jax.Array:
+    """Return an array-shaped update multiplier with one scalar value."""
+    return jnp.ones_like(value) * jnp.asarray(multiplier, dtype=value.dtype)
+
+
+def _scale_final_axis_by_shell(
+    value: jax.Array,
+    shell_slices: Dict[str, Tuple[int, int]],
+    shell_lr_multipliers: Dict[str, float],
+) -> jax.Array:
+    """Return update multipliers for shell slices on the final tensor axis."""
+    if value.ndim == 0:
+        return jnp.ones_like(value)
+
+    multipliers = jnp.ones_like(value)
+    for shell_name in SHELL_NAMES:
+        start, end = shell_slices[shell_name]
+        multipliers = multipliers.at[..., start:end].set(
+            shell_lr_multipliers[shell_name]
+        )
+    return multipliers
+
+
+def _scale_shell_axis_by_shell(
+    value: jax.Array,
+    shell_lr_multipliers: Dict[str, float],
+    shell_axis: int,
+) -> jax.Array:
+    """Return update multipliers for an explicit shell axis."""
+    if value.ndim == 0:
+        return jnp.ones_like(value)
+
+    axis = shell_axis if shell_axis >= 0 else value.ndim + shell_axis
+    if axis < 0 or axis >= value.ndim or value.shape[axis] != len(SHELL_NAMES):
+        return jnp.ones_like(value)
+
+    shell_values = jnp.asarray(
+        [shell_lr_multipliers[shell_name] for shell_name in SHELL_NAMES],
+        dtype=value.dtype,
+    )
+    broadcast_shape = [1] * value.ndim
+    broadcast_shape[axis] = len(SHELL_NAMES)
+    return jnp.ones_like(value) * shell_values.reshape(tuple(broadcast_shape))
+
+
+def _scale_evidence_cascade_gains(
+    value: jax.Array,
+    shell_lr_multipliers: Dict[str, float],
+) -> jax.Array:
+    """Return update multipliers for adjacent outward shell-cascade gains."""
+    if value.shape != (len(SHELL_NAMES) - 1,):
+        return jnp.ones_like(value)
+    target_values = jnp.asarray(
+        [shell_lr_multipliers[shell_name] for shell_name in SHELL_NAMES[1:]],
+        dtype=value.dtype,
+    )
+    return jnp.ones_like(value) * target_values
+
+
+def _cascade_target_shell(param_name: str) -> str | None:
+    """Return the target shell encoded in a shell-cascade parameter name."""
+    if not param_name.startswith("shell_evidence_cascade"):
+        return None
+    for shell_name in SHELL_NAMES[1:]:
+        if param_name.endswith(f"_to_{shell_name}"):
+            return shell_name
+    return None
+
+
+def _composer_projection_shell(param_name: str) -> str | None:
+    """Return the shell encoded in a composer projection parameter name."""
+    if not (param_name.startswith("W_col") or param_name.startswith("b_col")):
+        return None
+    for shell_name in SHELL_NAMES:
+        if param_name.endswith(f"_{shell_name}"):
+            return shell_name
+    return None
+
+
+def parameter_shell_lr_multiplier(
+    node_name: str,
+    param_name: str,
+    value: jax.Array,
+    structure: GraphStructure,
+    shell_lr_multipliers: Dict[str, float],
+) -> jax.Array:
+    """
+    Build the update multiplier for one learnable parameter tensor.
+
+    `shell_lr_multipliers` assigns one optimizer-update multiplier to each shell.
+    Sliced output matrices use the shell on their final output axis. Shell-specific
+    matrices use the shell encoded in their parameter name.
+    """
+    node = structure.nodes.get(node_name)
+    if node is None:
+        return jnp.ones_like(value)
+
+    node_info = node.node_info
+    node_class = node_info.node_class
+
+    if node_class is DepthSpanningColumnNode:
+        shell_slices = get_shell_slices(node_info.shape[-1])
+        if param_name in {
+            "K_W_out",
+            "K_b_out",
+            "L_W_out",
+            "L_b_out",
+            "B_W_out",
+            "B_b_out",
+            "ln_gamma",
+            "ln_beta",
+        }:
+            return _scale_final_axis_by_shell(
+                value,
+                shell_slices,
+                shell_lr_multipliers,
+            )
+        if param_name == "shell_path_scale":
+            return _scale_shell_axis_by_shell(
+                value,
+                shell_lr_multipliers,
+                shell_axis=0,
+            )
+        if param_name == "shell_evidence_cascade_scale":
+            return _scale_evidence_cascade_gains(value, shell_lr_multipliers)
+
+        target_shell = _cascade_target_shell(param_name)
+        if target_shell is not None:
+            return _constant_multiplier_like(
+                value,
+                shell_lr_multipliers[target_shell],
+            )
+
+    if node_class is ColumnShellComposerNode:
+        if param_name == "component_attention":
+            return _scale_shell_axis_by_shell(
+                value,
+                shell_lr_multipliers,
+                shell_axis=1,
+            )
+
+        projection_shell = _composer_projection_shell(param_name)
+        if projection_shell is not None:
+            return _constant_multiplier_like(
+                value,
+                shell_lr_multipliers[projection_shell],
+            )
+
+    if is_outer_shell_context_node(node_name):
+        return _constant_multiplier_like(value, shell_lr_multipliers["outer_shell"])
+
+    if is_column_shell_bridge_node(node_name):
+        shell_slices = get_shell_slices(node_info.shape[-1])
+        return _scale_final_axis_by_shell(
+            value,
+            shell_slices,
+            shell_lr_multipliers,
+        )
+
+    return jnp.ones_like(value)
+
+
+def build_shell_lr_multiplier_tree(
+    params: GraphParams,
+    structure: GraphStructure,
+    shell_lr_multipliers: Dict[str, float],
+) -> GraphParams:
+    """Build a parameter-shaped tree of shell-specific update multipliers."""
+    multiplier_nodes = {}
+    for node_name, node_params in params.nodes.items():
+        multiplier_nodes[node_name] = NodeParams(
+            weights={
+                param_name: parameter_shell_lr_multiplier(
+                    node_name,
+                    param_name,
+                    value,
+                    structure,
+                    shell_lr_multipliers,
+                )
+                for param_name, value in node_params.weights.items()
+            },
+            biases={
+                param_name: parameter_shell_lr_multiplier(
+                    node_name,
+                    param_name,
+                    value,
+                    structure,
+                    shell_lr_multipliers,
+                )
+                for param_name, value in node_params.biases.items()
+            },
+        )
+    return GraphParams(nodes=multiplier_nodes)
+
+
+def apply_shell_lr_multipliers(
+    updates: GraphParams,
+    shell_lr_multiplier_tree: GraphParams,
+) -> GraphParams:
+    """Scale optimizer updates by a parameter-shaped multiplier tree."""
+    return jax.tree_util.tree_map(
+        lambda update, multiplier: update * multiplier,
+        updates,
+        shell_lr_multiplier_tree,
+    )
+
+
+def scale_updates_by_shell_lr(
+    shell_lr_multiplier_tree: GraphParams,
+) -> optax.GradientTransformation:
+    """Create an Optax transform that applies shell-specific update multipliers."""
+
+    def init_fn(params):
+        del params
+        return optax.EmptyState()
+
+    def update_fn(updates, state, params=None):
+        del params
+        return apply_shell_lr_multipliers(updates, shell_lr_multiplier_tree), state
+
+    return optax.GradientTransformation(init_fn, update_fn)
 
 
 def diagnose_energy_breakdown(
@@ -2007,6 +2240,11 @@ def train_cifar10_depth_spanning(args):
     print(f"Batch size: {args.batch_size}")
     print(f"Learning rate: {args.lr}")
     print(f"Weight decay: {args.weight_decay}")
+    shell_lr_multipliers = parse_shell_lr_multipliers(args.shell_lr_multipliers)
+    shell_lr_summary = ", ".join(
+        f"{name}={shell_lr_multipliers[name]:.6g}" for name in SHELL_NAMES
+    )
+    print(f"Shell LR multipliers: {shell_lr_summary}")
     print(f"Inference steps: {args.infer_steps}")
     print(f"Inference eta: {args.eta_infer}")
     print("Column teacher head: enabled")
@@ -2119,7 +2357,16 @@ def train_cifar10_depth_spanning(args):
         decay_steps=total_steps,
         end_value=args.lr * 0.01,
     )
-    optimizer = optax.adamw(schedule, weight_decay=args.weight_decay)
+    optimizer = optax.chain(
+        optax.adamw(schedule, weight_decay=args.weight_decay),
+        scale_updates_by_shell_lr(
+            build_shell_lr_multiplier_tree(
+                params,
+                structure,
+                shell_lr_multipliers,
+            )
+        ),
+    )
     train_config = {"num_epochs": args.num_epochs}
 
     best_val_acc = -1.0
@@ -2514,6 +2761,17 @@ def parse_args():
     parser.add_argument("--num_epochs", type=float, default=2.0)
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--weight_decay", type=float, default=0.01)
+    parser.add_argument(
+        "--shell_lr_multipliers",
+        type=str,
+        default=SHELL_LR_DEFAULT_MULTIPLIERS,
+        help=(
+            "Comma-separated optimizer update multipliers for hard_kernel, "
+            "inner_shell, middle_shell, outer_shell order. These multipliers "
+            "are applied after AdamW computes its scheduled update, so they "
+            "change learned shell plasticity without changing inference eta."
+        ),
+    )
     parser.add_argument("--infer_steps", type=int, default=40)
     parser.add_argument("--eta_infer", type=float, default=0.1)
     parser.add_argument("--infer_max_norm", type=float, default=1.0)

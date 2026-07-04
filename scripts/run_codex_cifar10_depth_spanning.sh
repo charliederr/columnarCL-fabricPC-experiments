@@ -18,6 +18,7 @@ outer_shell_context_mode="${12:-off}"
 num_columns="${13:-4}"
 num_shared="${14:-2}"
 active_nonshared="${15:-2}"
+shell_lr_multipliers="${16:-1,1,1,1}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
@@ -27,6 +28,8 @@ shell_weights_label="${shell_teacher_weights//./p}"
 shell_weights_label="${shell_weights_label//,/_}"
 column_shell_weights_label="${column_shell_teacher_weights//./p}"
 column_shell_weights_label="${column_shell_weights_label//,/_}"
+shell_lr_label="${shell_lr_multipliers//./p}"
+shell_lr_label="${shell_lr_label//,/_}"
 diagnose_label="nodiag"
 extra_args=()
 readout_label="bypass"
@@ -147,7 +150,7 @@ fi
 # Capacity and context labels made the original descriptive filename exceed
 # common 255-byte filename limits. The full configuration is still written in
 # the log header; the filename keeps only compact run identifiers.
-log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -163,6 +166,7 @@ mkdir -p results
     echo "num_shared: $num_shared"
     echo "active_nonshared: $active_nonshared"
     echo "lr: $lr"
+    echo "shell_lr_multipliers: $shell_lr_multipliers"
     echo "num_epochs: $num_epochs"
     echo "diagnose: $diagnose_label"
     echo "column_teacher_head: enabled"
@@ -193,6 +197,7 @@ mkdir -p results
         --num_epochs "$num_epochs" \
         --lr "$lr" \
         --weight_decay 0.01 \
+        --shell_lr_multipliers "$shell_lr_multipliers" \
         --infer_steps 40 \
         --eta_infer 0.1 \
         --infer_max_norm 1.0 \
