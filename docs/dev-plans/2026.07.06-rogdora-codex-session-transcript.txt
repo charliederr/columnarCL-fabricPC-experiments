@@ -1,0 +1,1002 @@
+
+  - Work-log entry in columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+  Verification:
+
+  - bash -n scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh passed.
+  - git diff --check passed.
+
+  Run this on the GPU machine:
+
+  cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh
+
+
+› please analyze and record results from this latest run and then wait for more instructions after you've reported back that you're ready to proceed
+  and given your perspective on what we ought to proceed with next
+
+
+• I’ll inspect the newest three-seed sweep logs, extract the result and lesion tables, then update the work log with conclusions. I’ll stop after
+  that and report the recommendation without starting another implementation step.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The initial extraction shows the clean composer path stayed above chance across seeds, with seed 99 strongest and seed 42 weakest. I’m pulling the
+  full seed 7 block and the detailed composer lesion tables now so the work-log entry captures collapse and shell participation accurately.
+
+• Context compacted
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll pull the exact metrics out of the latest replicate logs first, then I’ll append a concise results-and-conclusions section to the active work
+  log. I’ll keep this to analysis and documentation only.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The two completed child logs have clean summaries. The seed 7 child log only exposes a final Killed marker with the first extraction, so I’m
+  checking a bounded tail of that file to see whether epoch-level validation survived before the process was terminated.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The seed 7 log contains the full progress bar output but no persisted validation lines or post-run summary. It was killed at the Python process
+  boundary before any final diagnostic/evaluation output was written, so I’m treating seed 7 as incomplete rather than inferring missing metrics.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ve confirmed the active work log already has the setup for this sweep. I’m now adding the completed analysis section to the end, with seed 7
+  marked incomplete because it did not reach summary evaluation.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The completed seeds show the same broad mechanism: hard-kernel slices remain load-bearing, middle-shell slices now matter, and outer-shell slices
+  are still not independently class-readable. I’m going to record that as the main conclusion instead of over-interpreting seed-to-seed accuracy
+  spread.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m editing only the work log now. The section will name the exact logs, record the two complete summaries, state that seed 7 was killed before
+  evaluation, and set out the next recommendation without changing code.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log is updated. I’m doing a quick check of the appended section and the local status so I can report exactly what changed and where the
+  remaining uncertainty is.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md.
+
+  Latest run summary:
+
+   Seed    Status            Best val            Test
+  ━━━━━━  ━━━━━━━━━━━━  ━━━━━━━━━━━━━━  ━━━━━━━━━━━━━━
+   42      complete            28.00%          27.14%
+  ──────  ────────────  ──────────────  ──────────────
+   99      complete            32.46%          32.36%
+  ──────  ────────────  ──────────────  ──────────────
+   7       incomplete    not recorded    not recorded
+
+  Seed 7 was killed after training progress reached the end but before final evaluation and diagnostics were written, so I did not count it as an
+  accuracy result.
+
+  My recommendation: first recover or rerun seed 7 alone with the same configuration, because losing post-training metrics after a long run is now an
+  experiment reliability problem. After that, the next architectural target should be outer_shell: the corrected composer avoids immediate collapse
+  and uses hard_kernel plus middle_shell, but outer_shell remains near chance when read out independently.
+
+  No code changes were made. I’m ready to proceed and will wait for your next direction.
+
+
+› Can you expand the number of columns from 4 to 10 please and make 3 shared instead of 2? Then run the identical sweep which didn't complete
+  correctly with seed 7, as I've rebooted now and expect all experiments to complete. Of course update work log too as you proceed.
+
+
+• I’ll inspect the runner and training script to see where column count and shared-column count are currently fixed, then I’ll make the narrow change
+  needed for a 10-column, 3-shared replicate sweep. After that I’ll update the work log before launching the run.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The base runner hardcodes --num_columns 4 --num_shared 2 --active_nonshared 2, so this needs an explicit runner change or a dedicated capacity
+  runner. I’m going to keep the prior 4-column sweep reproducible and add a clearly named 10-column, 3-shared sweep path with log names that encode
+  the capacity.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m going to use 10 total columns, 3 shared columns, and 7 active non-shared columns. The current sweep uses column_mode all_active, so
+  active_nonshared does not change the active mask there, but setting it to 7 keeps the logged capacity internally consistent if we reuse the same
+  values in sparse modes later.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The training defaults already match the previous cascade and inhibition values, but the new runner will pass them explicitly so the logs and
+  command line agree. I’ll create a separate 10-column sweep script rather than changing the completed 4-column runner.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m adding a new script now. It will run the same three seeds and model settings as the previous shell-preserving composer-only replicate, with
+  only the column capacity changed to num_columns=10, num_shared=3, and active_nonshared=7.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The script is in place. I’m making it executable, checking shell syntax, and then I’ll record the prepared sweep in the work log before launching
+  it.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Shell syntax passed. I’m appending the work-log entry with the exact capacity change and the command being launched.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now records the planned 10-column sweep. I’m launching it now and will monitor through the generated logs; this may take substantially
+  longer than the 4-column replicate.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The sweep is running in a managed shell session. I’ll locate the master log and check the first few lines so we know the launched configuration is
+  the one intended.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The launched process is seeing only CpuDevice(id=0), with CUDA_ERROR_NO_DEVICE from JAX. Since this would turn the sweep into a very slow CPU run
+  and would not match your intended setup, I’m stopping this launch and will record it as an aborted attempt rather than letting it run incorrectly.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The process stopped cleanly before any useful training result could be produced. I’ll check the log boundary, then update the work log with the
+  abort reason and give you the pasteable command to run on the host where JAX reports gpu.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The failed launch is likely a sandbox/device-visibility issue rather than a repo issue: the same venv reports only CPU from inside this tool
+  context. I’m going to request permission to run the sweep outside the sandbox so JAX can see the host CUDA device.
+
+■ Conversation interrupted - tell the model what to do differently. Something went wrong? Hit `/feedback` to report the issue.
+
+
+› I'm running the experiment outside of codex's environment. I'll let you know when it finishes and ask you to analyze then. Please stand by until
+  then.
+
+
+• Understood. I won’t run anything else from Codex.
+
+  When it finishes, tell me it’s done and I’ll analyze the generated logs, update the work log, and report the results and next recommendation.
+
+
+› While we're waiting my hope is that you can help me understand some details about the code. As each experiment begins now, there are 4 values
+  given, one for each shell's width. What units are those numbers representing with regard to hard kernel, inner, middle, and outer shell widths?
+
+
+• I’ll look at the shell-slicing helper in the training script so I can answer from the actual implementation rather than memory.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The widths are not spatial pixels or numbers of columns; they come from splitting the feature/channel axis. I’m opening the helper that computes
+  that split so I can give the exact formula.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I have the relevant helper now. The short version is that these widths are counts of feature dimensions in the column output vector, and each shell
+  owns a contiguous slice of that vector.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Those shell widths are feature dimensions on the column output vector, not pixels, examples, weights, or physical columns.
+
+  In the current run, each column emits a tensor shaped roughly:
+
+  (batch, tokens, embed_dim)
+
+  With --embed_dim 64, the last axis has 64 scalar feature slots. The four shell widths split those 64 slots into contiguous slices:
+
+  hard_kernel:  slots  0..21   width 22
+  inner_shell:  slots 22..28   width 7
+  middle_shell: slots 29..42   width 14
+  outer_shell:  slots 43..63   width 21
+
+  So the printed values:
+
+  hard_kernel=22, inner_shell=7, middle_shell=14, outer_shell=21
+
+  mean “how many scalar embedding channels each shell owns per token, per column.”
+
+  The code computes this in columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/depth_spanning_column.py:93. It uses default relative shell
+  proportions:
+
+  hard_kernel : inner_shell : middle_shell : outer_shell = 32 : 10 : 20 : 30
+
+  Then it scales those proportions to embed_dim=64 and rounds so the four widths sum exactly to 64. The training script prints them from
+  get_shell_slices(args.embed_dim) in columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py:1837.
+
+  Expanding from 4 columns to 10 columns does not change those per-column shell widths. It means there are now 10 separate column outputs, and each
+  one has the same 64-dimensional shell layout. In the shell-preserving composer, each (column, shell) component gets its own shell-local projection,
+  for example hard-kernel projections are 22 x 22, middle-shell projections are 14 x 14, and so on.
+
+
+› this experimental run has finished
+
+
+• I’ll analyze the new 10-column/3-shared sweep logs, extract the per-seed summaries and shell diagnostics, then append the results and conclusions
+  to the work log.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I found the completed sweep starting at 20260702_170009, plus the earlier aborted Codex-side launch at 165643. I’ll ignore the aborted CPU-visible
+  attempt except to mention it if needed, and analyze the completed host-run logs.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The sweep completed all three seeds on GPU. Initial summary: accuracy dropped relative to the 4-column completed seeds, but the collapse pattern
+  changed. Hard-kernel remains load-bearing, outer shell is still at chance as an independent readout, and inner shell is no longer fully chance-
+  level. I’ll pull the composer attention/projection tables next to understand how the 10 columns were actually used.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The composer attention is sparse for hard, inner, and middle shells: each seed picks one main hard-kernel column and usually one main inner/middle
+  column. Outer-shell attention remains almost uniform across columns, which matches the shell-readout result that outer shell is not learning a
+  stable class-bearing role.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The validation traces show seed 42 and seed 99 peaked early, then mostly drifted around the low 20s, while seed 7 improved later and was the best
+  of this sweep. I’m going to update the work log with the per-seed metrics, the shell ablation pattern, and a concrete recommendation.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log has been updated with the completed run. I’ll do one quick readback of the appended section and then report the outcome and
+  recommendation.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Updated the work log with the completed 10-column/3-shared sweep: columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-
+  cifar10-hibacaml.md.
+
+  All three seeds completed on GPU:
+
+   Seed    Best Val      Test
+  ━━━━━━  ━━━━━━━━━━  ━━━━━━━━
+   42        22.82%    21.53%
+  ──────  ──────────  ────────
+   99        22.06%    20.68%
+  ──────  ──────────  ────────
+   7         26.90%    25.79%
+
+  Mean test accuracy was 22.67%, which is worse than the prior completed 4-column seeds. The main mechanism finding is that more columns did not fix
+  the shell dynamics: hard_kernel remains load-bearing, inner_shell became somewhat more readable, middle_shell weakened, and outer_shell stayed
+  exactly at chance as an independent test readout in all three seeds.
+
+  My recommendation is to stop expanding column count for now and return to 4 columns while directly improving outer_shell participation. The next
+  architectural step should be a shell-local predictive objective or shell-preserving context pathway for outer_shell, still inside the predictive-
+  coding graph. I’m ready for your next direction.
+
+
+› Let's stay with 10 columns please and also try to do what you suggested: shell-local predictive objective and/or shell preserving context pathway
+  for outer_shell, inside the predictive coding graph.
+
+
+• I’ll stay on the 10-column path and look at the existing shell-teacher and shell-bridge machinery first. If there is already a predictive-coding
+  graph hook we can use for an outer-shell objective, I’ll extend that rather than adding a separate side mechanism.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The code already has a graph-native per-column shell teacher mechanism. For the first 10-column outer-shell test, I’m going to use that rather than
+  adding a new node: set only the outer_shell entry in --column_shell_teacher_weights, which creates one predictive-coding classifier head per active
+  column’s outer shell.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• There is prior evidence that global shell heads after column_pool were too weak. The relevant hook for this step is more local: per-column shell
+  heads before the combiner. I’m checking the earlier per-column teacher results so the new 10-column sweep starts with a sensible weight.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The previous heavier outer-shell teacher did not make outer_shell linearly class-readable. I’m going to add the second mechanism now: a per-column
+  outer-shell context latent. It will receive the pooled shells from one column and emit only an outer_shell-width vector to the main classifier, so
+  the context path is still shell-local at its output.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m going to implement this as an optional --outer_shell_context path. It will not replace the existing composer path; it adds a controlled
+  Gaussian latent per column so we can measure whether an outer-shell-shaped context route helps the 10-column classifier.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m going to combine the two ideas in the first 10-column test: enable the outer-shell context path and add a small per-column outer_shell teacher
+  weight. The teacher is local to each column’s outer shell, and the context latent gives that shell a route to the main classifier without requiring
+  the raw outer slice to classify alone.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ve added the naming and detection helpers for the new context nodes. Next I’m wiring those nodes into diagnostics and the readout ablations so
+  the result logs will separate column_pool evidence from the new outer-shell context evidence.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m adding context-specific lesions now. These will answer whether the new outer-shell context path depends on hard-kernel, inner-shell, middle-
+  shell, or outer-shell inputs after training.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Next I’m wiring the context node into graph construction. It will be created only when --outer_shell_context is enabled, and it will receive the
+  same per-column shell pools used by the bridge/readout machinery.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The graph now has the optional outer-shell context route. I’m adding the command-line flag, log printout, and post-run evaluation tables for that
+  route.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• That patch missed because the print section is wrapped differently than expected. I’m reading the exact nearby lines and will apply the changes in
+  smaller chunks.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The first snippet landed in graph construction because line numbers shifted after edits. I’ll locate the print and parser sections by text and
+  patch there.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I found the exact sections. I’ll patch the print, evaluation, and parser entries separately now.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll apply the missing print/evaluation/parser wiring now.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Evaluation hooks are wired. I’m adding the CLI flag next, then I’ll update tests to assert the new graph path is built correctly.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Now I’m updating the tests’ argument fixture and imports so the new flag is covered by the graph-construction tests.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll add two focused tests: one confirms the context path exists and preserves the outer-shell output width; the other confirms the context input
+  ablation masks only the selected shell inputs.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The test fixture now knows the new flag. I’m adding the graph and masking tests near the existing bridge tests.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The graph-construction test is added. I’ll add the context-input masking test now.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The training script and tests are updated. I’m also extending the generic Codex runner with an outer_shell_context argument so future run scripts
+  do not need to bypass the shared runner for this feature.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The shared runner still hardcodes 4 columns, which is now the wrong abstraction for this work. I’m parameterizing the column capacity there so the
+  new 10-column experiments can go through the same logging path.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The runner now accepts capacity parameters. I’m adding a 10-column sweep script that uses the new outer-shell context path plus a small per-column
+  outer-shell teacher.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The sweep script is added. I’m making it executable, then I’ll run syntax checks, targeted tests, and update the work log with exactly what changed
+  and what to run.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Syntax checks passed. I’m running the targeted unit tests now; these exercise the graph construction and masking paths without requiring the long
+  CIFAR training run.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The focused tests passed. I’m running the depth-spanning column tests as a second check because the new path depends on the same shell slicing and
+  column shell helpers.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The two relevant test files pass. I’ll run a diff check, then append the implementation and experiment command to the work log.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The diff check is clean and the targeted tests passed. I’m doing one broader non-CIFAR-data pytest pass so unrelated graph/test breakage is less
+  likely before I hand you the long-run command.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The broader pytest run is still in progress and has passed through about half the suite so far. I’ll wait for it to finish before updating the work
+  log.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The broader non-data test pass completed: 151 passed, 22 deselected. I’m appending the work-log entry now with the mechanism details, verification,
+  and pasteable run command.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log is updated with the implementation and run command. I’ll do a final status/tail check so the closeout includes the exact files changed
+  and no hidden failures.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the 10-column outer-shell mechanism and updated the work log: columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-
+  rogdora43-cifar10-hibacaml.md.
+
+  Changes made:
+
+  - Added --outer_shell_context in columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py.
+  - Added per-column columnXX_outer_shell_context latents. Each receives pooled shell vectors and emits only an outer_shell-width vector.
+  - Added context readout and shell-input ablations.
+  - Parameterized columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh for column count/shared count/outer-context mode.
+  - Added columnarCL-fabricPC-experiments/scripts/run_codex_outer_shell_context_10col3shared_sweep.sh.
+
+  Verification passed:
+
+  - bash -n ...
+  - py_compile
+  - tests/test_pooled_readout_norm.py: 29 passed
+  - tests/test_depth_spanning_column.py tests/test_pooled_readout_norm.py: 49 passed
+  - pytest -k 'not cifar_data': 151 passed, 22 deselected
+  - git diff --check: passed
+
+  Run this outside Codex for GPU access:
+
+  cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_outer_shell_context_10col3shared_sweep.sh
+
+  This sweep uses 10 columns, 3 shared, shell attention, no bypass, outer_shell_context=on, and a small per-column outer-shell teacher weight:
+  0,0,0,0.002.
+
+
+› This run has finished. Please analyze, record, and create a new experiment to push us forward that I can now run.
+
+
+• I’ll pull the latest outer-shell context sweep logs, extract the per-seed summaries and context ablations, then update the work log. After that
+  I’ll create the next sequential experiment script rather than launching it here.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I found the master sweep log. The child log names were produced by the shared runner with its newer naming, so I’ll read them out of the master log
+  instead of guessing the pattern.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The completed outer-context run appears to contain only the seed 42 case. I’m checking whether the sweep stopped after the first child run or
+  whether the later child logs were written under a different name.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• This was a partial sweep: the master log never reached the “Finished case” line for seed 42 and never started seed 99. I’ll still record the seed
+  42 result, and I’ll fix the next script to run the next experiment cleanly.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The reason the sweep stopped after seed 42 is now clear: the shared runner’s generated child-log filename became too long after adding capacity and
+  context labels. The child output still reached the master log, but the child tee could not create its own result file, returned nonzero, and the
+  outer sweep stopped before seeds 99 and 7. I’ll fix the shared runner’s log-name format before creating the next experiment.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m going to fix the runner filename issue at the shared runner level, not just in one new script. This adds capacity/context as supported
+  dimensions, so the log naming has to stay under the filesystem filename limit for every caller.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll create the next run as a four-case follow-up: one seed-42 no-teacher ablation to isolate the context path, one seed-42 stronger outer teacher
+  to test whether 0.002 is too weak, and seed 99/7 repeats at 0.002 to see if the modest seed-42 gain generalizes.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The follow-up script is in place. I’m checking syntax and whitespace now, then I’ll append the result analysis and the new command to the work log.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Syntax and diff checks passed. I’m updating the work log now with the partial-run result, the filename-limit failure, the shared-runner fix, and
+  the new follow-up sweep.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log is updated. I’m doing a final quick check of the new script and the shortened filename length so the next run does not hit the same
+  tee failure.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Analyzed and recorded the run in columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md.
+
+  Key result: only seed 42 completed. The sweep stopped because the shared runner generated a child log filename that was too long. The seed-42
+  result is usable from the master log:
+
+   Setting                                            Seed    Best Val      Test
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ━━━━━━  ━━━━━━━━━━  ━━━━━━━━
+   10 columns, no outer context                         42      22.82%    21.53%
+  ─────────────────────────────────────────────────  ──────  ──────────  ────────
+   10 columns, outer context + outer teacher 0.002      42      24.54%    23.04%
+
+  The context path helped modestly, but it mostly routed hard-kernel signal through an outer-shell-shaped latent. Raw column_outer_shell_only stayed
+  at 10.00%.
+
+  I fixed the shared runner filename issue in columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh by compacting child log
+  names while keeping full configuration details in the log header.
+
+  Created the next experiment script: columnarCL-fabricPC-experiments/scripts/run_codex_outer_shell_context_followup_10col3shared_sweep.sh.
+
+  Run it with:
+
+  cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_outer_shell_context_followup_10col3shared_sweep.sh
+
+  It runs four cases: seed 42 with no outer teacher, seed 42 with stronger outer teacher 0.006, then seed 99 and seed 7 with the current 0.002
+  setting. Verification passed: bash -n and git diff --check.
+
+
+› This experimental run is finished. Please record and report results, and then wait for instructions on further implementation changes after
+  summarizing.
+
+
+• I’ll inspect the follow-up sweep logs, extract the completed cases and key ablations, then append a results section to the work log. I’ll stop
+  after reporting the summary and won’t make implementation changes.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I found the completed follow-up sweep and four child logs. I’m extracting summaries and the outer-context ablations from each child log now.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The follow-up completed all four cases. The strongest result is seed 42 with the outer-shell context path and no outer-shell teacher: 26.66% test,
+  which is notably better than both the previous 10-column seed-42 baseline and the outer-teacher variants.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m pulling the teacher-head tables and composer attention now, because those explain whether the gain came from the intended outer-shell mechanism
+  or from another route through the graph.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The key pattern is clear enough to record: the outer-shell context path helps most when it has no outer-shell teacher attached. The stronger 0.006
+  teacher hurts, and the 0.002 teacher has mixed seed behavior.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now has the follow-up results and conclusion. I’ll do a quick readback and status check before the final summary.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Recorded the results in columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md.
+
+  All four cases completed on GPU:
+
+   Case                               Seed    Outer teacher    Best Val      Test
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ━━━━━━  ━━━━━━━━━━━━━━━  ━━━━━━━━━━  ━━━━━━━━
+   Outer context, no teacher            42    0                  27.48%    26.66%
+  ─────────────────────────────────  ──────  ───────────────  ──────────  ────────
+   Outer context, stronger teacher      42    0.006              23.92%    22.54%
+  ─────────────────────────────────  ──────  ───────────────  ──────────  ────────
+   Outer context, current teacher       99    0.002              26.66%    25.55%
+  ─────────────────────────────────  ──────  ───────────────  ──────────  ────────
+   Outer context, current teacher        7    0.002              24.50%    24.01%
+
+  Main conclusion: the outer-shell context path helps, but the outer-shell teacher does not. The best result was seed 42 with outer_shell_context=on
+  and no per-column outer-shell teacher. Raw column_outer_shell_only stayed at chance in all cases, so the outer shell is still not independently
+  class-readable.
+
+  My current read: the next useful question is whether the no-teacher outer-context result generalizes to seeds 99 and 7. I made no implementation
+  changes beyond updating the work log, and I’ll wait for your instructions before doing anything further.
+
+
+› How about we set the learning rate for the shells to increase as we move away from the hard kernel and see if that helps?
+
+
+• I’ll check how the training script currently builds the optimizer and how shell-specific parameters are named, so I can give you a concrete answer
+  about where this belongs in the predictive-coding training path.
+
+• Context compacted
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Yes. I think this is a good next move, and it is more aligned with the HiBaCaML direction than adding more label-teacher pressure.
+
+  Mechanism: treat the four shells as having a plasticity gradient. The hard kernel remains the most stable learned representation, while inner,
+  middle, and outer shells update more strongly as they move outward. That matches the role we want: inner shells preserve local structure, outer
+  shells adapt more to class/task context and long-range column interactions.
+
+  I would implement this as optimizer update scaling, not by changing eta_infer. eta_infer changes latent-state inference during predictive-coding
+  relaxation. What you are proposing should change learned parameter plasticity, so the right place is the parameter update after AdamW computes its
+  update.
+
+  A conservative first setting:
+
+  hard_kernel: 1.0
+  inner_shell: 1.5
+  middle_shell: 2.0
+  outer_shell: 3.0
+
+  With base --lr 0.005, that gives effective shell learning rates of:
+
+  hard_kernel: 0.005
+  inner_shell: 0.0075
+  middle_shell: 0.010
+  outer_shell: 0.015
+
+  The important implementation detail is that some parameters are shell-specific by name, but others are shared matrices whose output dimension is
+  sliced into shell regions. For example, the column node has matrices like K_W_out, L_W_out, and B_W_out; those need column-wise update scaling by
+  shell slice, not whole-parameter scaling.
+
+  My recommended next experiment after implementing would be:
+
+  10 columns
+  3 shared columns
+  outer_shell_context enabled
+  no column shell teacher
+  shell_attention combiner
+  base lr 0.005
+  20 epochs
+  seeds 42, 99, 7
+  shell_lr_multipliers 1.0,1.5,2.0,3.0
+
+  This directly tests whether the useful outer-shell context path improves when the outer shell is allowed to adapt faster, without reintroducing the
+  local teacher objective that looked misaligned in the last run.
+
+  No code changes made yet. I’m ready to implement this when you give the go-ahead.
+
+
+› Go ahead and implement your plan please, as it seems sound to me.
+
+
+• I’ll implement this as an optimizer-side plasticity multiplier so the predictive-coding dynamics stay intact and only the learned parameter updates
+  differ by shell. I’m going to read the training script, node definitions, and existing runner/logging paths first, then patch the shared path
+  rather than adding a one-off experiment workaround.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The codebase is on improve/plain-cifar10 with your latest work-log edit and the completed result logs still untracked. I’m going to avoid touching
+  those result logs, and only edit the training/runner/test/work-log files needed for shell learning-rate multipliers.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The runner already encodes the main architecture knobs positionally, so I’ll add the shell LR multipliers as the next positional argument and also
+  pass them through as a named CLI option. In the training script, I’m looking for the narrowest shared hook: parse the four shell multipliers once,
+  build a multiplier tree from the initialized graph parameters, and compose it into the Optax optimizer.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The current column node has mixed shell-sliced matrices plus named shell dynamics, so the fix has to handle both cases. I’m reading the node
+  parameter names now so the multiplier logic covers depth-spanning K/L/B paths, composer shell projections, and outer-shell context weights without
+  guessing.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I found an older TypedColBaColumnNode in the same package, but the active experiment uses DepthSpanningColumnNode and ColumnShellComposerNode. I’ll
+  scope the new scaling to the active depth-spanning path and leave the older node untouched unless tests show it is on the current graph path.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The active parameters are ordinary GraphParams -> nodes -> NodeParams(weights,biases), so the optimizer can receive a same-shaped multiplier tree.
+  I’m going to add explicit helper functions for parsing the multiplier string, deriving per-parameter multipliers from graph structure and parameter
+  names, and applying those multipliers to Optax updates.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• One design choice matters: the composer attention logits have a column axis and a shell axis. I’m going to scale their updates by shell along the
+  shell axis, because those logits are the shell-preserving route-selection parameters; leaving them fixed at base plasticity would make the outer
+  shell’s routing less plastic than its projections.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m going to patch three things now: the training script, the reusable runner, and a new three-seed sweep script. Then I’ll add focused tests for
+  the multiplier tree so we can verify shell-sliced matrices, shell-specific composer weights, and outer-shell context weights are all scaled as
+  intended.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• This change adds a new supported parameter-update shape: shell-sliced output matrices in DepthSpanningColumnNode. I’m handling adjacent shared
+  pieces at the same time, including layer-norm vectors when learnable and shell cascade gains, so the shell plasticity rule is consistent across the
+  column internals.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The multiplier helpers are in place. Next I’m wiring them into training so the default 1,1,1,1 path is behavior-preserving, while non-default
+  values multiply the AdamW update tree after AdamW computes the scheduled update.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The training script now has the CLI and optimizer transform. I’m adding the same setting to the reusable runner so every experiment log records the
+  shell LR multipliers and the result filename is still self-identifying.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The base runner is updated. I’m adding a small sweep wrapper for the exact proposed comparison: 10 columns, 3 shared, shell attention, outer-shell
+  context, no teacher heads, and shell LR multipliers 1,1.5,2,3 across seeds 42, 99, and 7.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Now I’m adding tests at the mechanism boundary rather than only checking the CLI. These will assert the actual update multiplier tensors: final-
+  axis shell slices in columns, explicit shell rows in path scales, shell-axis composer attention, and whole outer-context nodes.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The tests are patched. I’ll record the implementation direction in the work log now, then run syntax checks and focused pytest to catch path/name
+  mistakes before handing you the GPU sweep command.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The local timestamp is 2026-07-04 09:43:20 EDT on rogdora43. I’m appending a new work-log section with the exact mechanism and the planned run,
+  leaving result fields empty until the experiment is actually run.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now records the mechanism and planned comparison. I’ll run the local checks next: shell-script syntax, Python tests focused on the
+  modified surface, and a whitespace diff check.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Syntax and diff checks passed. I’m running the focused pytest file now; this should validate the multiplier tensors without starting a long CIFAR-
+  10 training run.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The focused test file passed: 33 passed. I’m going to run the existing depth-spanning column tests as a second check, since the new code touches
+  shell-sliced depth-column parameters.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Both focused and depth-spanning tests passed. I’m checking the final diff/status now so I can give you the exact files touched and the single-line
+  command to run the sweep.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The final status shows the existing untracked result logs are still untouched. I also see the new sweep script as untracked, which is expected
+  because it was just created.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The new sweep script is executable. I’m adding the verification results to the same work-log section so the file records what passed before the
+  long experiment is run.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now includes the passing checks. I’ll do one final whitespace check after that edit and then I’ll stop without launching the long GPU
+  run from Codex.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Final whitespace check passed. I’m collecting the main line references now so the summary can point to exact files and mechanisms.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the shell learning-rate plasticity path.
+
+  Changes are in:
+
+  - columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py:223: added --shell_lr_multipliers, multiplier-tree construction, and
+    Optax update scaling.
+
+  - columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh:21: added positional arg 16 for shell LR multipliers and log
+    filename/header recording.
+
+  - columnarCL-fabricPC-experiments/scripts/run_codex_shell_lr_outer_context_10col3shared_sweep.sh:1: new 3-seed sweep for 1,1.5,2,3.
+  - columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py:355: added tests for parsing, multiplier tensors, composer/context scaling, and
+    update scaling.
+
+  - columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:2901: updated with mechanism, files changed,
+    verification, and planned experiment.
+
+  Verification passed:
+
+  - bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_shell_lr_outer_context_10col3shared_sweep.sh
+  - /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py
+  - /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q → 33 passed
+  - /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_depth_spanning_column.py -q → 20 passed
+  - git diff --check
+
+  I did not run the long GPU sweep inside Codex. Pasteable command:
+
+  cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_lr_outer_context_10col3shared_sweep.sh
+
+  The existing untracked result logs were left untouched.
+
+• You have 4 usage limit resets available. Run /usage to use one.
+
+
+› One attempt was interrupted by an extended power failure forcing me to abort the experimental run. But I later managed to complete a full run of
+  these experiments. Please analyze and report all available findings and propose a next step without doing any additional implementation, waiting
+  for my input before proceeding.
+
+
+• I’ll inspect the result logs only and avoid code or doc edits. I’m looking first for the completed shell-LR sweep, any aborted partial master log,
+  and the child logs that contain validation/test summaries and ablation tables.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M results/
+    … +17 lines (ctrl + t to view transcript)
+    19.log
+    ?? results/codex_shell_lr_outer_context_10col3shared_rogdora43_20260705_154126.log
+
+• Explored
+  └ List results
+    Search shell_lr_multipliers|codex_shell_lr_outer_context|Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|master_log|completed_at|
+           Starting|Traceback|KeyboardInterrupt|aborted|Error|Exception in results
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I found two shell-LR sweep attempts: 20260704_094757 and 20260705_154126. The later one is clearly the completed rerun; I’m checking whether the
+  earlier one is partial or also has usable child summaries, since “all available findings” may include repeatability information.
+
+• Explored
+  └ Read codex_shell_lr_outer_context_10col3shared_rogdora43_20260705_154126.log,
+  codex_shell_lr_outer_context_10col3shared_rogdora43_20260704_094757.log
+
+• Ran for f in results/codex_shell_lr_outer_context_10col3shared_rogdora43_20260704_094757.log results/
+  │ codex_shell_lr_outer_context_10col3shared_rogdora43_20260705_154126.log; do echo "FILE $f"; rg -n "started_at|completed_at|Starting|master_log|
+  │ KeyboardInterrupt|Traceback|Error|Exception|Terminated|Killed|Aborted|Power|Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch"
+  │ … +1 lines
+  └ FILE results/codex_shell_lr_outer_context_10col3shared_rogdora43_20260704_094757.log
+    28:started_at: 2026-07-04 09:47:57 EDT
+    … +34 lines (ctrl + t to view transcript)
+    971:Best Val Epoch: 18
+    1012:completed_at: 2026-07-06 02:35:09 EDT
+
+• Ran for f in results/
+  │ codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_sr0_br0_oc1_nobyp_seed*_lr0p005_ep20_composer_shells_rogdora43_2026070[45]_
+  │ *.log; do echo "FILE $f"; rg -n "Training for|Epoch [0-9]+: val_acc|Training time|Results Summary|Test Accuracy|Best Val Accuracy|Best Val
+  │ … +2 lines
+  └ FILE results/
+    codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_sr0_br0_oc1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260704_0947
+    … +194 lines (ctrl + t to view transcript)
+    299:Test Outer-Shell Context Ablations
+    311:Test Shell Readout Ablations
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The interrupted attempt has two completed child summaries and a third child that finished training but was cut off during validation/evaluation, so
+  it has no test summary. The rerun completed all three seeds and has the stronger evidence; I’m now extracting the diagnostic tables that explain
+  where the accuracy is coming from.
+
+• Ran for f in results/
+  │ codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_sr0_br0_oc1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260705_15
+  │ 4126.log results/
+  │ … +4 lines
+  └ ===== results/
+    codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_sr0_br0_oc1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260705_1541
+    … +500 lines (ctrl + t to view transcript)
+      column_without_outer_shell       acc=0.1610 energy=0.0000
+      column_outer_shell_only          acc=0.1000 energy=0.0000
+
+• Ran for f in results/
+  │ codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_sr0_br0_oc1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260704_09
+  │ 4757.log results/
+  │ … +6 lines
+  └ ===== results/
+    codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_sr0_br0_oc1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260704_0947
+    … +72 lines (ctrl + t to view transcript)
+      column_without_middle_shell      acc=0.1094 energy=0.0000
+      column_middle_shell_only         acc=0.1094 energy=0.0000
+
+• Ran for f in results/
+  │ codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_sr0_br0_oc1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260703_075551.log
+  │ results/
+  │ … +12 lines
+  └ ===== results/
+    codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_sr0_br0_oc1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260703_075551.log
+    … +75 lines (ctrl + t to view transcript)
+    263:  combined                         acc=0.2579 energy=0.0000
+    264:  column_only                      acc=0.2579 energy=0.0000
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The rerun used commit 6c6244e; the interrupted attempt used 049aa5d. I’m checking whether those commits changed code or only recorded prior work,
+  because that affects whether the two attempts should be treated as strict repeats.
+
+• Ran git log --oneline --decorate -12
+  └ 6c6244e (HEAD -> improve/plain-cifar10, origin/improve/plain-cifar10) taking Gui's suggestion, i asked codex to vary the learning rate amongst
+    the shells
+    … +10 lines (ctrl + t to view transcript)
+    c04190c one more experimental run and some codex analysis has concluded
+    178a6b1 codex's next attempt to set up the experiments (which are now running)
+
+• Ran git diff --name-status 049aa5d574fb3c859fa8dc5742bff76522d53db0..6c6244ef303cd310e8dbe0287a0c2f296230715d
+  └ M    docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    A    results/
+    … +13 lines (ctrl + t to view transcript)
+    M    scripts/train_cifar10_depth_spanning.py
+    M    tests/test_pooled_readout_norm.py
+
+• Ran git diff --stat 049aa5d574fb3c859fa8dc5742bff76522d53db0..6c6244ef303cd310e8dbe0287a0c2f296230715d
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md |  189 +++
+     ...0_composer_shells_rogdora43_20260704_094757.log |   39 +
+    … +9 lines (ctrl + t to view transcript)
+     tests/test_pooled_readout_norm.py                  |  138 ++
+     12 files changed, 3594 insertions(+), 2 deletions(-)
+
+• Ran git show --stat --oneline --decorate 6c6244ef303cd310e8dbe0287a0c2f296230715d
+  └ 6c6244e (HEAD -> improve/plain-cifar10, origin/improve/plain-cifar10) taking Gui's suggestion, i asked codex to vary the learning rate amongst
+    the shells
+    … +11 lines (ctrl + t to view transcript)
+     tests/test_pooled_readout_norm.py                  |  138 ++
+     12 files changed, 3594 insertions(+), 2 deletions(-)
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The main conclusion is already visible: the completed rerun is materially better and did not collapse. I’m doing a quick aggregate calculation now
+  so the report has exact mean/range numbers rather than eyeballed comparisons.
+
+• Ran awk 'BEGIN{split("32.41 29.79 31.00",a," "); n=3; for(i=1;i<=n;i++){sum+=a[i]; if(i==1||a[i]<min)min=a[i]; if(i==1||a[i]>max)max=a[i]}
+  │ mean=sum/n; for(i=1;i<=n;i++){ss+=(a[i]-mean)^2} printf("latest_mean=%.4f latest_min=%.2f latest_max=%.2f latest_sample_sd=%.4f\n", mean, min,
+  │ max, sqrt(ss/(n-1))); split("21.53 20.68 25.79",b," "); sum=0; for(i=1;i<=n;i++)sum+=b[i]; printf("no_context_mean=%.4f diff=%.4f\n", sum/n,
+  │ … +2 lines
+  └ latest_mean=31.0667 latest_min=29.79 latest_max=32.41 latest_sample_sd=1.3113
+    no_context_mean=22.6667 diff=8.4000
+    prior_context_mixed_mean=25.4067 diff=5.6600
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I analyzed the completed rerun and the interrupted attempt. I did not change any files.
+
+  Completed Run
+  Completed master log: columnarCL-fabricPC-experiments/results/codex_shell_lr_outer_context_10col3shared_rogdora43_20260705_154126.log:22
+
+   Seed    Best val    Best epoch      Test
+  ━━━━━━  ━━━━━━━━━━  ━━━━━━━━━━━━  ━━━━━━━━
+     42      32.82%            20    32.41%
+  ──────  ──────────  ────────────  ────────
+     99      30.08%            18    29.79%
+  ──────  ──────────  ────────────  ────────
+      7      31.02%            18    31.00%
+
+  Mean test accuracy: 31.07%, range 29.79-32.41%, sample SD 1.31pp.
+
+  This is a strong improvement over the prior 10-column, 3-shared, no-context/no-teacher baseline:
+
+   Seed    Prior no-context    Shell-LR outer-context       Delta
+  ━━━━━━  ━━━━━━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━  ━━━━━━━━━━
+     42              21.53%                    32.41%    +10.88pp
+  ──────  ──────────────────  ────────────────────────  ──────────
+     99              20.68%                    29.79%     +9.11pp
+  ──────  ──────────────────  ────────────────────────  ──────────
+      7              25.79%                    31.00%     +5.21pp
+
+  Mean improvement: +8.40pp.
+
+  Interrupted Attempt
+  Interrupted master log: columnarCL-fabricPC-experiments/results/codex_shell_lr_outer_context_10col3shared_rogdora43_20260704_094757.log:28
+
+  That attempt completed seed 42 and seed 99, then was cut off during seed 7 evaluation.
+
+   Seed    Status                                         Best val               Test
+  ━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━
+     42    complete                                         27.50%             27.30%
+  ──────  ────────────────────────────  ───────────────────────────  ─────────────────
+     99    complete                                         24.48%             23.09%
+  ──────  ────────────────────────────  ───────────────────────────  ─────────────────
+      7    interrupted after training    validation reached 29.02%    no test summary
+
+  I would treat the interrupted attempt as secondary evidence because it used a dirty worktree at commit 049aa5d, while the completed rerun used
+  committed code at 6c6244e.
+
+  Mechanistic Findings
+  The shell-LR profile did what we hoped structurally: composer attention became sharply shell-specialized. Each seed routed each shell through a
+  dominant column, with attention weights near 0.99 for the selected (column, shell) route.
+
+  But the accuracy is still not coming from a simple standalone column readout:
+
+   Seed    Combined    column_only    outer_shell_context_only
+  ━━━━━━  ━━━━━━━━━━  ━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━
+     42      32.41%         13.20%                      16.51%
+  ──────  ──────────  ─────────────  ──────────────────────────
+     99      29.79%         10.00%                      12.61%
+  ──────  ──────────  ─────────────  ──────────────────────────
+      7      31.00%         12.92%                      10.00%
+
+  So the classifier needs the joint column_pool + outer_shell_context path. The column-only route is still near chance, and outer context alone is
+  weak or chance except seed 42.
+
+  Shell lesion results show the learned classifier depends strongly on shell structure. Dropping hard_kernel hurts every seed badly; dropping
+  outer_shell also hurts. In seed 7, dropping middle_shell is also catastrophic. That is encouraging because it means the shell layout is
+  behaviorally load-bearing rather than decorative.
+
+  Recommendation
+  Next, I would run an isolation sweep before changing architecture:
+
+  1. Same architecture, no teachers, outer context on.
+  2. Compare shell_lr_multipliers=1,1,1,1 against 1,1.5,2,3.
+  3. Use seeds 42, 99, and 7.
+
+  Reason: we do not yet have a clean three-seed no-teacher outer-context baseline with flat shell learning rates. The current results are very
+  promising, but to know whether the gain is from shell plasticity rather than outer context plus no teacher, we need that control. After that, I
+  would sweep gentler/stronger shell plasticity profiles.
