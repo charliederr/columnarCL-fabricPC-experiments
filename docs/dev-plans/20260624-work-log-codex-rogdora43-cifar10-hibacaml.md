@@ -2995,3 +2995,74 @@ Result: passed.
 Expected comparison:
 
 The most direct comparison is against the outer-shell context/no-teacher seed-42 result from the previous section, which reached 26.66% test accuracy. The broader question is whether shell plasticity improves or stabilizes the no-teacher outer-context architecture across seeds 99 and 7.
+
+## 2026-07-06 Shell Learning-Rate Plasticity Results and Flat-Control Plan
+
+Timestamp and machine: 2026-07-06 06:03:36 EDT on `rogdora43`.
+
+Completed graded shell learning-rate run:
+
+- Master log: `results/codex_shell_lr_outer_context_10col3shared_rogdora43_20260705_154126.log`.
+- Git commit: `6c6244ef303cd310e8dbe0287a0c2f296230715d`.
+- `shell_lr_multipliers=1,1.5,2,3`, where each value multiplies AdamW's parameter update for `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell` respectively.
+- `outer_shell_context=on`, no backbone bypass, no shell teacher heads, and no column teacher energy.
+- JAX reported `[CudaDevice(id=0)]` and backend `gpu` in the child logs.
+
+Completed graded shell learning-rate results:
+
+| Seed | Best validation accuracy | Best validation epoch | Test accuracy |
+| ---: | ---: | ---: | ---: |
+| 42 | 32.82% | 20 | 32.41% |
+| 99 | 30.08% | 18 | 29.79% |
+| 7 | 31.02% | 18 | 31.00% |
+
+Mean test accuracy was 31.07%. The test range was 29.79% to 32.41%, with sample standard deviation 1.31 percentage points.
+
+Comparison to the prior 10-column, 3-shared, no-context/no-teacher baseline:
+
+| Seed | Prior no-context test accuracy | Graded shell learning-rate test accuracy | Difference |
+| ---: | ---: | ---: | ---: |
+| 42 | 21.53% | 32.41% | +10.88 percentage points |
+| 99 | 20.68% | 29.79% | +9.11 percentage points |
+| 7 | 25.79% | 31.00% | +5.21 percentage points |
+
+Mean improvement over the no-context/no-teacher baseline was 8.40 percentage points.
+
+Mechanistic observations:
+
+- The shell composer became sharply shell-specialized. In each seed, each shell routed through a dominant column with attention near 0.99.
+- `column_pool` alone remained weak. Test `column_only` accuracy was 13.20% for seed 42, 10.00% for seed 99, and 12.92% for seed 7.
+- `outer_shell_context` alone was also weak. Test `outer_shell_context_only` accuracy was 16.51% for seed 42, 12.61% for seed 99, and 10.00% for seed 7.
+- The combined classifier required both the pooled column route and the outer-shell context route. The `column_pool_plus_outer_shell_context` ablation matched the combined test accuracy in all three seeds.
+- The hard-kernel and outer-shell feature paths were load-bearing under shell lesions. Dropping the hard-kernel slice or outer-shell slice reduced combined accuracy sharply.
+
+Interrupted earlier attempt:
+
+- Master log: `results/codex_shell_lr_outer_context_10col3shared_rogdora43_20260704_094757.log`.
+- Git commit: `049aa5d574fb3c859fa8dc5742bff76522d53db0`.
+- Seed 42 completed with 27.30% test accuracy.
+- Seed 99 completed with 23.09% test accuracy.
+- Seed 7 finished training and reached 29.02% validation accuracy, but the run was interrupted before test evaluation completed.
+- Because this attempt used an earlier dirty worktree and did not complete, it is secondary evidence only.
+
+Next experiment:
+
+Run the missing flat shell learning-rate control. This keeps the same outer-shell context architecture and sets `shell_lr_multipliers=1,1,1,1`. The control isolates whether the 31.07% three-seed mean comes from the graded shell plasticity itself or from the outer-shell context architecture with no teacher heads.
+
+Added script:
+
+- `scripts/run_codex_shell_lr_flat_outer_context_10col3shared_sweep.sh`.
+
+Planned flat-control cases:
+
+| Case | Seed | `shell_lr_multipliers` |
+| --- | ---: | --- |
+| Flat shell learning-rate outer context | 42 | `1,1,1,1` |
+| Flat shell learning-rate outer context | 99 | `1,1,1,1` |
+| Flat shell learning-rate outer context | 7 | `1,1,1,1` |
+
+Run command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_lr_flat_outer_context_10col3shared_sweep.sh
+```
