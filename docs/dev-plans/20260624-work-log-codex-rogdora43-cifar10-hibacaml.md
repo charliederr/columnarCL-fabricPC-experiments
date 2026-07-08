@@ -3296,3 +3296,86 @@ bash -n scripts/run_codex_shell_lr_profile_outer_context_10col3shared_sweep.sh
 ```
 
 Result: passed.
+
+## 2026-07-08 Outer-Shell Context Teacher Results and Next Proposal
+
+Timestamp and machine: 2026-07-08 19:51:47 EDT on `rogdora43`.
+
+Completed outer-shell context teacher sweep:
+
+- Master log: `results/codex_outer_context_teacher_10col3shared_rogdora43_20260707_212806.log`.
+- The run completed at 2026-07-08 19:29:52 EDT.
+- Shared architecture: 10 columns, 3 shared columns, 7 active non-shared columns, `combiner=shell_attention`, `outer_shell_context=on`, no backbone bypass, no column teacher energy, no shell teacher energy, no per-column shell teacher energy, `shell_lr_multipliers=1,1.5,2,3`, 20 epochs, and learning rate 0.005.
+- `w_ctx` means `outer_shell_context_teacher_weight`, the scalar multiplier on the auxiliary cross-entropy energy at `outer_shell_context_teacher_output`.
+- `outer_shell_context_teacher_output` is the context-only teacher head fed by all active `columnXX_outer_shell_context` latent nodes.
+
+Results:
+
+| `w_ctx` | Seed | Best validation accuracy | Best validation epoch | Test accuracy | `outer_shell_context_teacher_output` test | `outer_shell_context_only` test | `column_only` test |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.0005 | 42 | 28.14% | 20 | 27.47% | 26.76% | 13.46% | 10.00% |
+| 0.0005 | 99 | 31.36% | 18 | 30.30% | 29.91% | 10.00% | 10.00% |
+| 0.0005 | 7 | 24.28% | 3 | 23.75% | 22.53% | 19.08% | 16.04% |
+| 0.0010 | 42 | 30.44% | 17 | 29.89% | 30.34% | 14.86% | 10.00% |
+| 0.0010 | 99 | 28.66% | 18 | 27.49% | 26.63% | 10.00% | 16.53% |
+| 0.0010 | 7 | 25.64% | 19 | 25.57% | 26.01% | 10.00% | 10.00% |
+
+Aggregate comparison:
+
+| Setting | Mean test accuracy | Across-seed sample standard deviation |
+| --- | ---: | ---: |
+| No context teacher, `w_ctx = 0.0` | 31.07% | 1.31 percentage points |
+| Context teacher, `w_ctx = 0.0005` | 27.17% | 3.29 percentage points |
+| Context teacher, `w_ctx = 0.0010` | 27.65% | 2.16 percentage points |
+
+Per-seed comparison against the no-context-teacher baseline:
+
+| Seed | No context teacher test accuracy | `w_ctx = 0.0005` test accuracy | `w_ctx = 0.0010` test accuracy |
+| ---: | ---: | ---: | ---: |
+| 42 | 32.41% | 27.47% | 29.89% |
+| 99 | 29.79% | 30.30% | 27.49% |
+| 7 | 31.00% | 23.75% | 25.57% |
+
+Interpretation:
+
+- The context teacher learned class-readable context latents. The teacher head reached 22.53% to 30.34% test accuracy across the six runs.
+- The learned teacher signal did not transfer to the main `output` classifier. The main combined test accuracy fell below the no-context-teacher baseline in five of six runs.
+- The `outer_shell_context_only` main-output ablation stayed weak. It reached 19.08% only for seed 7 at `w_ctx = 0.0005`, while the same run's combined classifier fell to 23.75%.
+- The seed-7 `w_ctx = 0.0005` run selected epoch 3 as the best checkpoint. This is an early instability signal, not a robust improvement.
+- The result is not evidence that the context latents lack class information. The separate teacher head could decode class information from those latents. The problem is alignment: the teacher head's classifier weights are separate from the main `output` classifier's context-edge weights.
+
+Conclusion:
+
+Do not increase `w_ctx` and do not continue scalar sweeps on the separate context teacher head. The mechanism taught the auxiliary head to decode the context latents, but it did not make the main predictive-coding output use those latents better.
+
+Recommended next step:
+
+Convert the context teacher from a separate diagnostic classifier into an aligned context-evidence pathway.
+
+Mechanism to consider:
+
+- Add an `outer_shell_context_evidence` latent with shape `(10,)`, where each of the 10 dimensions corresponds to one CIFAR-10 class logit.
+- Feed all active `columnXX_outer_shell_context` latents into `outer_shell_context_evidence`.
+- Feed `outer_shell_context_evidence` into the main `output` classifier.
+- Optionally attach a small cross-entropy energy to `outer_shell_context_evidence` or to a teacher node fed by it.
+
+This differs from the completed context-teacher experiment. In the completed experiment, the class-readable teacher head was separate from the main output route. In the proposed mechanism, the class-shaped context evidence is part of the route that the main classifier receives.
+
+Alternative approaches considered:
+
+| Approach | Advantage | Reason not recommended as the next step |
+| --- | --- | --- |
+| Increase `w_ctx` above 0.001 | Simple scalar sweep. | Both tested context-teacher weights reduced mean accuracy, and the auxiliary head already learned class signal. A larger weight is likely to increase target competition. |
+| Lower `w_ctx` below 0.0005 | Tests whether a smaller auxiliary energy avoids damage. | The current issue is route alignment, not just energy scale. The teacher head learned without helping the main route. |
+| Return to shell learning-rate sweeps | No new mechanism. | The best tested profile remains `1,1.5,2,3`; neighboring profiles were worse. |
+| Re-enable per-column shell teacher heads | Local to HiBaCaML shell structure. | Previous runs showed local shell teacher heads can learn labels without improving the main route. |
+
+Proposed first experiment after implementation:
+
+- Use `shell_lr_multipliers=1,1.5,2,3`.
+- Keep `outer_shell_context=on`.
+- Add the aligned `outer_shell_context_evidence` path.
+- Test no auxiliary context evidence cross-entropy energy and a very small auxiliary cross-entropy energy, such as `0.0005`.
+- Run seeds 42, 99, and 7.
+
+The evaluation criterion should prioritize the main combined test accuracy and collapse resistance. Secondary metrics are `outer_shell_context_evidence` test accuracy, `outer_shell_context_only` test accuracy, `column_only` test accuracy, and shell lesion effects.
