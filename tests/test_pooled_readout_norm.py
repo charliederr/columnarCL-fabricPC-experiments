@@ -24,6 +24,8 @@ from columnar_cl_fabricpc.columns import (
 from scripts.train_cifar10_depth_spanning import (
     COLUMN_TEACHER_NODE,
     COLUMN_TEACHER_TARGET,
+    OUTER_SHELL_CONTEXT_TEACHER_NODE,
+    OUTER_SHELL_CONTEXT_TEACHER_TARGET,
     ColumnTeacherTargetLoader,
     active_composer_components,
     apply_shell_lr_multipliers,
@@ -325,6 +327,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         column_shell_readout=False,
         column_shell_bridge=False,
         outer_shell_context=False,
+        outer_shell_context_teacher_weight=0.0,
         shell_lr_multipliers="1,1,1,1",
         shell_evidence_cascade_scale="0.05,0.05,0.05",
         shell_inhibition_strengths="0,0.35,0.22,0.10",
@@ -857,6 +860,52 @@ def test_depth_spanning_graph_adds_outer_shell_context_edges() -> None:
             assert pool_name not in output_sources
 
 
+def test_depth_spanning_graph_adds_outer_shell_context_teacher_head() -> None:
+    """The context teacher receives all context latents through one CE node."""
+    args = _tiny_depth_spanning_args(
+        column_teacher_weight=0.0,
+        column_shell_teacher_weights="0,0,0,0",
+        column_shell_readout=False,
+        column_shell_bridge=False,
+        outer_shell_context=True,
+        outer_shell_context_teacher_weight=0.001,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+    expected_context_names = {
+        outer_shell_context_node_name(column_idx) for column_idx in active_columns
+    }
+    teacher_sources = {
+        edge.source
+        for edge in structure.edges.values()
+        if edge.target == OUTER_SHELL_CONTEXT_TEACHER_NODE and edge.slot == "in"
+    }
+
+    assert OUTER_SHELL_CONTEXT_TEACHER_TARGET in structure.task_map
+    assert (
+        structure.task_map[OUTER_SHELL_CONTEXT_TEACHER_TARGET]
+        == OUTER_SHELL_CONTEXT_TEACHER_NODE
+    )
+    assert (
+        structure.nodes[
+            OUTER_SHELL_CONTEXT_TEACHER_NODE
+        ].node_info.energy.config["weight"]
+        == 0.001
+    )
+    assert teacher_sources == expected_context_names
+
+
+def test_outer_shell_context_teacher_requires_context_path() -> None:
+    """A context-teacher weight without context nodes is invalid."""
+    args = _tiny_depth_spanning_args(
+        outer_shell_context=False,
+        outer_shell_context_teacher_weight=0.001,
+    )
+
+    with pytest.raises(ValueError, match="requires --outer_shell_context"):
+        build_depth_spanning_graph(args)
+
+
 def test_column_teacher_target_loader_duplicates_labels() -> None:
     """The training wrapper adds column_y without changing x or y."""
     x = jnp.ones((2, 4, 4, 3), dtype=jnp.float32)
@@ -875,7 +924,11 @@ def test_column_teacher_target_loader_duplicates_shell_labels() -> None:
     """The training wrapper adds labels for configured shell-local targets."""
     x = jnp.ones((2, 4, 4, 3), dtype=jnp.float32)
     y = jnp.eye(10, dtype=jnp.float32)[:2]
-    shell_targets = ("hard_kernel_y", "outer_shell_y")
+    shell_targets = (
+        "hard_kernel_y",
+        "outer_shell_y",
+        OUTER_SHELL_CONTEXT_TEACHER_TARGET,
+    )
     wrapped = ColumnTeacherTargetLoader(
         [(x, y)],
         shell_target_keys=shell_targets,

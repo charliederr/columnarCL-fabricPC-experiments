@@ -49,6 +49,120 @@ Commands run:
 
 Result: passed.
 
+## 2026-07-07 Shell Learning-Rate Profile Results and Context-Teacher Follow-Up
+
+Timestamp and machine: 2026-07-07 20:15:24 EDT on `rogdora43`.
+
+Completed shell learning-rate profile sweep:
+
+- Master log: `results/codex_shell_lr_profile_outer_context_10col3shared_rogdora43_20260706_180917.log`.
+- The run finished at 2026-07-07 16:13:01 EDT.
+- The tested architecture used 10 columns, 3 shared columns, 7 active non-shared columns, `combiner=shell_attention`, `outer_shell_context=on`, no backbone bypass, no shell teacher heads, no per-column shell teacher heads, and learning rate 0.005 for 20 epochs.
+- The baseline for comparison is the prior `shell_lr_multipliers=1,1.5,2,3` run. The shell learning-rate multiplier is the scalar applied to AdamW's parameter update for one shell-local parameter group, in `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell` order.
+
+Profile results:
+
+| Profile | `shell_lr_multipliers` | Seed | Best validation accuracy | Best validation epoch | Test accuracy |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Gentler outward schedule | `1,1.25,1.75,2.5` | 42 | 28.62% | 17 | 29.35% |
+| Gentler outward schedule | `1,1.25,1.75,2.5` | 99 | 28.56% | 18 | 28.72% |
+| Gentler outward schedule | `1,1.25,1.75,2.5` | 7 | 23.58% | 10 | 23.46% |
+| Stronger outward schedule | `1,2,3,4` | 42 | 27.30% | 20 | 27.32% |
+| Stronger outward schedule | `1,2,3,4` | 99 | 27.04% | 19 | 27.25% |
+| Stronger outward schedule | `1,2,3,4` | 7 | 24.70% | 19 | 23.77% |
+
+Aggregate comparison:
+
+| Setting | Mean test accuracy | Across-seed sample standard deviation |
+| --- | ---: | ---: |
+| Flat control, `1,1,1,1` | 28.06% | 2.03 percentage points |
+| Current baseline, `1,1.5,2,3` | 31.07% | 1.31 percentage points |
+| Gentler profile, `1,1.25,1.75,2.5` | 27.18% | 3.23 percentage points |
+| Stronger profile, `1,2,3,4` | 26.11% | 2.03 percentage points |
+
+Per-seed comparison against the current baseline:
+
+| Seed | Current baseline test accuracy | Gentler profile test accuracy | Stronger profile test accuracy |
+| ---: | ---: | ---: | ---: |
+| 42 | 32.41% | 29.35% | 27.32% |
+| 99 | 29.79% | 28.72% | 27.25% |
+| 7 | 31.00% | 23.46% | 23.77% |
+
+Interpretation:
+
+- `shell_lr_multipliers=1,1.5,2,3` remains the best tested shell plasticity profile. Both neighboring profiles reduced mean accuracy and increased collapse risk.
+- The stronger profile is not supported. Its `outer_shell_context_only` test accuracy was exactly 10.00% in all three seeds, while the combined classifier fell below the current baseline in every seed.
+- The gentler profile is also not supported. It improved seed 99 relative to the flat control but badly hurt seed 7. Its mean accuracy was below the flat control.
+- Composer attention was usually sharp in the new runs, so attention sharpness alone is not the missing mechanism.
+- The repeated failure mode is that the outer-shell context route is useful as part of the combined classifier, but it often remains weak or chance-level when evaluated by itself. This suggests that the next change should strengthen the context route directly rather than continue scalar shell learning-rate sweeps.
+
+Implemented next mechanism:
+
+- Added `OUTER_SHELL_CONTEXT_TEACHER_NODE = "outer_shell_context_teacher_output"`.
+- Added `OUTER_SHELL_CONTEXT_TEACHER_TARGET = "outer_shell_context_y"`.
+- Added `--outer_shell_context_teacher_weight`, defaulting to `0.0`.
+- When `--outer_shell_context_teacher_weight` is positive, the graph adds one context-only softmax classifier fed by all active `columnXX_outer_shell_context` nodes. The context-only classifier has a weighted cross-entropy energy and is clamped to the same CIFAR-10 label tensor as the main output during predictive-coding training.
+- The context teacher requires `--outer_shell_context`; passing a positive context-teacher weight without the context path raises an error.
+- This differs from prior per-column outer-shell teacher heads. The prior teacher heads supervised raw per-column shell pools and did not align with the main route. The new head supervises the combined route that already feeds the main classifier.
+- Updated `scripts/run_codex_cifar10_depth_spanning.sh` with a seventeenth positional argument for `outer_shell_context_teacher_weight`. Existing calls keep the default value `0.0`.
+
+Added next sweep script:
+
+- `scripts/run_codex_outer_context_teacher_10col3shared_sweep.sh`.
+
+Planned context-teacher sweep:
+
+| Case | `outer_shell_context_teacher_weight` | Seeds | Purpose |
+| --- | ---: | --- | --- |
+| Very small context teacher | 0.0005 | 42, 99, 7 | Test whether a weak route-local class target makes the context route informative without disrupting the main path. |
+| Small context teacher | 0.001 | 42, 99, 7 | Test whether a slightly stronger route-local class target improves the context route or begins to reproduce teacher-driven disruption. |
+
+Shared settings for the new sweep:
+
+- `shell_lr_multipliers=1,1.5,2,3`.
+- `outer_shell_context=on`.
+- `column_teacher_weight=0.0`.
+- `shell_teacher_weights=0,0,0,0`.
+- `column_shell_teacher_weights=0,0,0,0`.
+- `num_columns=10`, `num_shared=3`, and `active_nonshared=7`.
+- `combiner=shell_attention`.
+- No backbone bypass.
+- 20 epochs.
+- Learning rate 0.005.
+- Diagnostic mode `composer_shells`.
+
+Run command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_outer_context_teacher_10col3shared_sweep.sh
+```
+
+Verification completed:
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_outer_context_teacher_10col3shared_sweep.sh
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py
+```
+
+Result: passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+```
+
+Result: passed, 35 tests.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_depth_spanning_column.py -q
+```
+
+Result: passed, 20 tests.
+
 ```bash
 /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
 ```

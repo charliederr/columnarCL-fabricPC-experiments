@@ -1,0 +1,44 @@
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 6e2c7b57a4428fda00a6d2eb4b5e5a17e4a8f087
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+ M scripts/run_codex_cifar10_depth_spanning.sh
+ M scripts/train_cifar10_depth_spanning.py
+ M tests/test_pooled_readout_norm.py
+?? results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0005_sr0_br0_oc1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260707_212806.log
+?? results/codex_outer_context_teacher_10col3shared_rogdora43_20260707_212806.log
+?? scripts/run_codex_outer_context_teacher_10col3shared_sweep.sh
+python: /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+seed: 42
+num_columns: 10
+num_shared: 3
+active_nonshared: 7
+lr: 0.005
+shell_lr_multipliers: 1,1.5,2,3
+num_epochs: 20
+diagnose: composer_shells
+column_teacher_head: enabled
+column_teacher_weight: 0.0
+shell_teacher_weights: 0,0,0,0
+column_shell_teacher_weights: 0,0,0,0
+column_shell_readout: off
+column_shell_bridge: off
+outer_shell_context: on
+outer_shell_context_teacher_weight: 0.0005
+combiner: shell_attention
+shell_evidence_cascade: on
+shell_evidence_cascade_scale: 0.05,0.05,0.05
+shell_inhibition_strengths: 0,0.35,0.22,0.10
+readout_mode: nobypass
+[CudaDevice(id=0)]
+gpu
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1783474093.571130 1415516 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1783474093.571644 1415516 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1783474094.413258 1415516 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1783474094.413560 1415516 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+E0000 00:00:1783474094.514016 1415516 cuda_executor.cc:1737] INTERNAL: CUDA Runtime error: Failed call to cudaGetRuntimeVersion: Error loading CUDA libraries. GPU will not be used.: Error loading CUDA libraries. GPU will not be used.
+W0000 00:00:1783474094.524923 1415516 gpu_device.cc:2365] Cannot dlopen some GPU libraries. Please make sure the missing libraries mentioned above are installed properly if you would like to use GPU. Follow the guide at https://www.tensorflow.org/install/gpu for how to download and setup the required libraries for your platform.
+Skipping registering GPU devices...

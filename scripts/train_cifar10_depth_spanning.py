@@ -8,24 +8,28 @@ contains K/L/B microcolumn pathways that process multi-scale features.
 
 Architecture::
 
-    ResNet Stage 2 (32×32) ────┬─────────────────────────────────────┐
-           │                   │                                     │
-           ▼                   ▼                                     │
-    ResNet Stage 3 (16×16) ────┼───────────────────────┐             │
-           │                   │                       │             │
-           ▼                   ▼                       ▼             ▼
-    ResNet Stage 4 (8×8) ──────┼─────────────┐    stage3_tap    stage2_tap
-           │                   │             │         │             │
-           ▼                   ▼             ▼         │             │
-      stage4_tap         stage4_pool    Columns ◀──────┴─────────────┘
-           │                   │             │
-           └───────────────────┴─────────────┘
-                               │
-                               ▼
-                           Combiner
-                               │
-                               ▼
-                          Classifier
+    ResNet stage2 ───────► stage2_tap ───────┐
+    ResNet stage3 ───────► stage3_tap ───────┼──────────────┐
+    ResNet stage4 ───────► stage4_tap ───────┤              │
+           │                                  │              ▼
+           └────────────► stage4_pool ────────┘     Depth-spanning columns
+                                                         │
+                                                         │ per-column shell slices
+                                                         ▼
+      optional per-column shell readout ─────────► output classifier
+      optional per-column shell bridge ──────────► output classifier
+      optional outer-shell context ──────────────► output classifier
+                         │
+                         └──── optional context teacher
+                                                         │
+                                                         ▼
+                                                shell-aware combiner
+                                                         │
+                                                         ▼
+                                                   column_pool
+                                                         │
+                                                         ├────► output classifier
+                                                         └────► optional column teacher
 
 Usage:
     python scripts/train_cifar10_depth_spanning.py --quick
@@ -88,6 +92,8 @@ jax.config.update("jax_default_prng_impl", "threefry2x32")
 
 COLUMN_TEACHER_TARGET = "column_y"
 COLUMN_TEACHER_NODE = "column_teacher_output"
+OUTER_SHELL_CONTEXT_TEACHER_TARGET = "outer_shell_context_y"
+OUTER_SHELL_CONTEXT_TEACHER_NODE = "outer_shell_context_teacher_output"
 SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 COLUMN_SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 SHELL_LR_DEFAULT_MULTIPLIERS = "1,1,1,1"
@@ -180,6 +186,11 @@ def is_outer_shell_context_node(node_name: str) -> bool:
     return node_name.startswith("column") and node_name.endswith(
         "_outer_shell_context"
     )
+
+
+def is_outer_shell_context_teacher_node(node_name: str) -> bool:
+    """Return true for the context-only classifier head."""
+    return node_name == OUTER_SHELL_CONTEXT_TEACHER_NODE
 
 
 def parse_shell_ordered_values(
@@ -524,6 +535,7 @@ def diagnose_energy_breakdown(
             node_name in ("output", COLUMN_TEACHER_NODE)
             or node_name in shell_teacher_nodes
             or is_column_shell_teacher_node(node_name)
+            or is_outer_shell_context_teacher_node(node_name)
         ):
             categories["classifier"] += energy_sum
         elif (
@@ -595,6 +607,7 @@ def diagnose_column_outputs(
         or is_column_shell_auxiliary_node(name)
         or is_column_shell_bridge_node(name)
         or is_outer_shell_context_node(name)
+        or is_outer_shell_context_teacher_node(name)
         or name in (
             "combiner",
             "column_pool",
@@ -1706,6 +1719,28 @@ def evaluate_column_shell_teacher_heads(
     return results
 
 
+def evaluate_outer_shell_context_teacher_head(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """Evaluate the context-only classifier against CIFAR-10 labels."""
+    if OUTER_SHELL_CONTEXT_TEACHER_NODE not in structure.nodes:
+        return {}
+    return {
+        OUTER_SHELL_CONTEXT_TEACHER_NODE: evaluate_output_node(
+            params,
+            structure,
+            OUTER_SHELL_CONTEXT_TEACHER_NODE,
+            loader,
+            config,
+            rng_key,
+        )
+    }
+
+
 # Model configurations with explicit stage channel counts for stage taps
 MODEL_CONFIGS = {
     "tiny": {
@@ -2086,6 +2121,7 @@ def build_depth_spanning_graph(args):
         shell_task_map[shell_teacher_target_name(shell_name)] = shell_teacher_output
 
     column_shell_task_map = {}
+    outer_shell_context_nodes = []
     for column_idx in active_column_indices:
         column = columns[column_idx]
         column_shell_pools = []
@@ -2147,6 +2183,7 @@ def build_depth_spanning_graph(args):
                 weight_init=XavierInitializer(),
             )
             nodes.append(outer_context)
+            outer_shell_context_nodes.append(outer_context)
             for shell_pool in column_shell_pools:
                 edges.append(Edge(source=shell_pool, target=outer_context.slot("in")))
             edges.append(Edge(source=outer_context, target=output.slot("in")))
@@ -2163,6 +2200,39 @@ def build_depth_spanning_graph(args):
             for shell_pool in column_shell_pools:
                 edges.append(Edge(source=shell_pool, target=shell_bridge.slot("in")))
             edges.append(Edge(source=shell_bridge, target=output.slot("in")))
+
+    outer_shell_context_task_map = {}
+    if args.outer_shell_context_teacher_weight > 0.0:
+        if not args.outer_shell_context:
+            raise ValueError(
+                "--outer_shell_context_teacher_weight requires --outer_shell_context"
+            )
+        if not outer_shell_context_nodes:
+            raise ValueError(
+                "Outer-shell context teacher requires at least one context node"
+            )
+        outer_context_teacher = Linear(
+            shape=(10,),
+            name=OUTER_SHELL_CONTEXT_TEACHER_NODE,
+            activation=SoftmaxActivation(),
+            energy=make_classifier_energy(
+                args.label_smoothing,
+                args.outer_shell_context_teacher_weight,
+            ),
+            flatten_input=True,
+            weight_init=XavierInitializer(),
+        )
+        nodes.append(outer_context_teacher)
+        for outer_context in outer_shell_context_nodes:
+            edges.append(
+                Edge(
+                    source=outer_context,
+                    target=outer_context_teacher.slot("in"),
+                )
+            )
+        outer_shell_context_task_map[
+            OUTER_SHELL_CONTEXT_TEACHER_TARGET
+        ] = outer_context_teacher
 
     # Optional bypass: stage4 backbone features go directly to the classifier in
     # parallel with the columnar pathway, so readout ablations can separate
@@ -2186,6 +2256,7 @@ def build_depth_spanning_graph(args):
             column_y=column_teacher_output,
             **shell_task_map,
             **column_shell_task_map,
+            **outer_shell_context_task_map,
         ),
         inference=InferenceSGDNormClip(
             eta_infer=args.eta_infer,
@@ -2199,6 +2270,9 @@ def build_depth_spanning_graph(args):
 
 
 def train_cifar10_depth_spanning(args):
+    if args.outer_shell_context_teacher_weight < 0.0:
+        raise ValueError("--outer_shell_context_teacher_weight must be >= 0")
+
     print("=" * 70)
     print("CIFAR-10 Depth-Spanning Columnar Architecture")
     print("=" * 70)
@@ -2266,6 +2340,7 @@ def train_cifar10_depth_spanning(args):
     print(f"Column shell readout: {'enabled' if args.column_shell_readout else 'disabled'}")
     print(f"Column shell bridge: {'enabled' if args.column_shell_bridge else 'disabled'}")
     print(f"Outer shell context: {'enabled' if args.outer_shell_context else 'disabled'}")
+    print(f"Outer shell context teacher weight: {args.outer_shell_context_teacher_weight}")
     print()
 
     master_key = jax.random.PRNGKey(args.seed)
@@ -2569,6 +2644,18 @@ def train_cifar10_depth_spanning(args):
             "Validation Per-Column Shell Teacher Heads",
             val_column_shell_teacher_metrics,
         )
+    val_outer_shell_context_teacher_metrics = evaluate_outer_shell_context_teacher_head(
+        eval_params,
+        structure,
+        val_loader,
+        train_config,
+        ablation_key,
+    )
+    if val_outer_shell_context_teacher_metrics:
+        print_ablation_results(
+            "Validation Outer-Shell Context Teacher Head",
+            val_outer_shell_context_teacher_metrics,
+        )
     if args.diagnose_shells:
         val_shell_metrics = evaluate_shell_readout_ablations(
             eval_params, structure, val_loader, train_config, ablation_key
@@ -2648,6 +2735,13 @@ def train_cifar10_depth_spanning(args):
         train_config,
         ablation_key,
     )
+    test_outer_shell_context_teacher_metrics = evaluate_outer_shell_context_teacher_head(
+        eval_params,
+        structure,
+        test_loader,
+        train_config,
+        ablation_key,
+    )
     test_column_shell_readout_metrics = evaluate_column_shell_readout_ablations(
         eval_params,
         structure,
@@ -2700,6 +2794,11 @@ def train_cifar10_depth_spanning(args):
         print_ablation_results(
             "Test Per-Column Shell Teacher Heads",
             test_column_shell_teacher_metrics,
+        )
+    if test_outer_shell_context_teacher_metrics:
+        print_ablation_results(
+            "Test Outer-Shell Context Teacher Head",
+            test_outer_shell_context_teacher_metrics,
         )
     if test_column_shell_readout_metrics:
         print_ablation_results(
@@ -2904,6 +3003,18 @@ def parse_args():
             "Connect each active column's pooled shells through a Gaussian "
             "latent whose output width matches the outer_shell slice, then "
             "feed that outer-shell context vector to the main classifier."
+        ),
+    )
+    parser.add_argument(
+        "--outer_shell_context_teacher_weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Weight on an auxiliary context-only classifier fed by all "
+            "outer-shell context latents. A zero weight omits the head. "
+            "This keeps the auxiliary target on the route that already "
+            "feeds the main classifier instead of supervising each raw "
+            "per-column shell independently."
         ),
     )
     parser.add_argument(

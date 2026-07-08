@@ -19,6 +19,7 @@ num_columns="${13:-4}"
 num_shared="${14:-2}"
 active_nonshared="${15:-2}"
 shell_lr_multipliers="${16:-1,1,1,1}"
+outer_shell_context_teacher_weight="${17:-0.0}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
@@ -30,6 +31,7 @@ column_shell_weights_label="${column_shell_teacher_weights//./p}"
 column_shell_weights_label="${column_shell_weights_label//,/_}"
 shell_lr_label="${shell_lr_multipliers//./p}"
 shell_lr_label="${shell_lr_label//,/_}"
+outer_context_teacher_label="${outer_shell_context_teacher_weight//./p}"
 diagnose_label="nodiag"
 extra_args=()
 readout_label="bypass"
@@ -150,7 +152,7 @@ fi
 # Capacity and context labels made the original descriptive filename exceed
 # common 255-byte filename limits. The full configuration is still written in
 # the log header; the filename keeps only compact run identifiers.
-log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -176,6 +178,7 @@ mkdir -p results
     echo "column_shell_readout: $column_shell_readout_label"
     echo "column_shell_bridge: $column_shell_bridge_label"
     echo "outer_shell_context: $outer_shell_context_label"
+    echo "outer_shell_context_teacher_weight: $outer_shell_context_teacher_weight"
     echo "combiner: $combiner_mode"
     echo "shell_evidence_cascade: on"
     echo "shell_evidence_cascade_scale: 0.05,0.05,0.05"
@@ -208,6 +211,7 @@ mkdir -p results
         --column_teacher_weight "$column_teacher_weight" \
         --shell_teacher_weights "$shell_teacher_weights" \
         --column_shell_teacher_weights "$column_shell_teacher_weights" \
+        --outer_shell_context_teacher_weight "$outer_shell_context_teacher_weight" \
         "${column_shell_readout_args[@]}" \
         "${column_shell_bridge_args[@]}" \
         "${outer_shell_context_args[@]}" \
