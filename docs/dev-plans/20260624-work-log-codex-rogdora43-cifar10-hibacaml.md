@@ -3066,3 +3066,119 @@ Run command:
 ```bash
 cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_lr_flat_outer_context_10col3shared_sweep.sh
 ```
+
+## 2026-07-06 Flat Shell Learning-Rate Control Results
+
+Timestamp and machine: 2026-07-06 17:40:33 EDT on `rogdora43`.
+
+Completed flat shell learning-rate control:
+
+- Master log: `results/codex_shell_lr_flat_outer_context_10col3shared_rogdora43_20260706_061152.log`.
+- Git commit recorded in the run logs: `8b3eed64ae19be40b1bf82dd4b289c47c3ec7ba9`.
+- `shell_lr_multipliers=1,1,1,1`, where the shell learning-rate multiplier is the scalar applied to the AdamW update for the parameter subset belonging to one shell.
+- Shell order was `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell`.
+- `outer_shell_context=on`, no backbone bypass, no shell teacher heads, and no column teacher energy.
+- JAX reported `[CudaDevice(id=0)]` and backend `gpu` in the child logs.
+
+Flat shell learning-rate results:
+
+| Seed | Best validation accuracy | Best validation epoch | Test accuracy |
+| ---: | ---: | ---: | ---: |
+| 42 | 30.44% | 20 | 30.20% |
+| 99 | 26.62% | 8 | 26.17% |
+| 7 | 28.64% | 19 | 27.82% |
+
+Mean test accuracy was 28.06%. The test range was 26.17% to 30.20%, with sample standard deviation 2.03 percentage points. The sample standard deviation is the across-seed standard deviation computed from the three test accuracies.
+
+Comparison against the graded shell learning-rate run:
+
+| Seed | Flat shell learning-rate test accuracy | Graded shell learning-rate test accuracy | Difference |
+| ---: | ---: | ---: | ---: |
+| 42 | 30.20% | 32.41% | +2.21 percentage points |
+| 99 | 26.17% | 29.79% | +3.62 percentage points |
+| 7 | 27.82% | 31.00% | +3.18 percentage points |
+| Mean | 28.06% | 31.07% | +3.00 percentage points |
+
+The graded shell learning-rate run used `shell_lr_multipliers=1,1.5,2,3`, so the hard-kernel parameters received the base AdamW update, the inner-shell parameters received 1.5 times that update, the middle-shell parameters received 2 times that update, and the outer-shell parameters received 3 times that update. This improved every seed relative to the flat `1,1,1,1` control.
+
+Comparison against the prior 10-column, 3-shared, no-context/no-teacher baseline:
+
+| Seed | Prior no-context test accuracy | Flat shell learning-rate outer-context test accuracy | Difference |
+| ---: | ---: | ---: | ---: |
+| 42 | 21.53% | 30.20% | +8.67 percentage points |
+| 99 | 20.68% | 26.17% | +5.49 percentage points |
+| 7 | 25.79% | 27.82% | +2.03 percentage points |
+| Mean | 22.67% | 28.06% | +5.40 percentage points |
+
+Interpretation:
+
+- The outer-shell context architecture improved the no-context/no-teacher baseline even when all four shells used the same parameter-update scale.
+- The outward-increasing shell learning-rate schedule added a further mean gain of 3.00 percentage points over the flat control and reduced across-seed variability from 2.03 percentage points to 1.31 percentage points.
+- The flat run did not show catastrophic collapse, but seed 99 selected the best validation checkpoint at epoch 8 and finished at only 26.17% test accuracy. That is weaker and less stable than the graded run, where seed 99 selected epoch 18 and reached 29.79% test accuracy.
+- The flat seed-99 composer attention left the middle-shell and outer-shell routes diffuse. The largest middle-shell attention values were 0.460526 on column 0 and 0.383664 on column 8, and the largest outer-shell attention value was 0.160646 on column 0. The graded seed-99 run selected hard kernel, inner shell, middle shell, and outer shell sharply, with dominant attentions 0.999368, 0.998577, 0.997867, and 0.987216 respectively.
+- The combined classifier continued to require both the pooled column route and the outer-shell context route. In the flat run, `column_pool_plus_outer_shell_context` matched the combined test accuracy for all three seeds, while `column_only` stayed near chance.
+- The hard-kernel path remained load-bearing. Removing the hard-kernel slice reduced the flat combined test readout to 11.19% for seed 42, 11.11% for seed 99, and 10.00% for seed 7.
+
+Conclusion:
+
+The flat control supports the shell learning-rate idea. The mechanism is not just that `outer_shell_context` exists. The outward-increasing update schedule makes the outer shells learn more strongly while preserving the hard-kernel route, and that combination produced a consistent three-seed gain.
+
+Recommended next step:
+
+Keep `shell_lr_multipliers=1,1.5,2,3` as the current baseline. The next useful experiment is a profile sweep around that schedule, with no architecture changes yet. The two most informative profiles are:
+
+| Profile name | `shell_lr_multipliers` | Reason |
+| --- | --- | --- |
+| Gentler outward schedule | `1,1.25,1.75,2.5` | Tests whether the current gain comes from any outward bias while reducing risk of outer-shell overfitting. |
+| Stronger outward schedule | `1,2,3,4` | Tests whether the current schedule is still under-training the outer shells. |
+
+The preferred next run is a 3-seed sweep over both profiles, using seeds 42, 99, and 7. This would be six total runs with the same 10-column, 3-shared, outer-context, no-teacher configuration. It should take roughly twice as long as the flat-control sweep.
+
+## 2026-07-06 Shell Learning-Rate Profile Sweep Prepared
+
+Timestamp and machine: 2026-07-06 18:07:48 EDT on `rogdora43`.
+
+Implemented the next sweep wrapper:
+
+- Script: `scripts/run_codex_shell_lr_profile_outer_context_10col3shared_sweep.sh`.
+- Purpose: test whether the current outward-increasing shell learning-rate baseline is too weak, too strong, or close to the useful range.
+- Baseline retained for comparison: `shell_lr_multipliers=1,1.5,2,3`.
+- Flat control retained for comparison: `shell_lr_multipliers=1,1,1,1`.
+
+The shell learning-rate multiplier is the scalar applied to the AdamW parameter update for one shell-local parameter group. The shell order is `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell`.
+
+Planned sweep:
+
+| Profile | `shell_lr_multipliers` | Seeds | Mechanistic question |
+| --- | --- | --- | --- |
+| Gentler outward schedule | `1,1.25,1.75,2.5` | 42, 99, 7 | Tests whether a smaller outward plasticity gradient preserves the benefit while reducing the risk that outer-shell parameters over-specialize. |
+| Stronger outward schedule | `1,2,3,4` | 42, 99, 7 | Tests whether the current baseline still under-trains middle-shell and outer-shell parameters. |
+
+Shared configuration for all six runs:
+
+- `num_columns=10`.
+- `num_shared=3`.
+- `active_nonshared=7`.
+- `combiner=shell_attention`.
+- `outer_shell_context=on`.
+- `column_teacher_weight=0.0`.
+- `shell_teacher_weights=0,0,0,0`.
+- `column_shell_teacher_weights=0,0,0,0`.
+- No backbone bypass.
+- 20 epochs.
+- Learning rate 0.005.
+- Diagnostic mode `composer_shells`.
+
+Run command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_lr_profile_outer_context_10col3shared_sweep.sh
+```
+
+Verification completed:
+
+```bash
+bash -n scripts/run_codex_shell_lr_profile_outer_context_10col3shared_sweep.sh
+```
+
+Result: passed.
