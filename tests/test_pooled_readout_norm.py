@@ -24,6 +24,9 @@ from columnar_cl_fabricpc.columns import (
 from scripts.train_cifar10_depth_spanning import (
     COLUMN_TEACHER_NODE,
     COLUMN_TEACHER_TARGET,
+    OUTER_SHELL_CONTEXT_EVIDENCE_NODE,
+    OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE,
+    OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_TARGET,
     OUTER_SHELL_CONTEXT_TEACHER_NODE,
     OUTER_SHELL_CONTEXT_TEACHER_TARGET,
     ColumnTeacherTargetLoader,
@@ -327,6 +330,8 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         column_shell_readout=False,
         column_shell_bridge=False,
         outer_shell_context=False,
+        outer_shell_context_evidence=False,
+        outer_shell_context_evidence_teacher_weight=0.0,
         outer_shell_context_teacher_weight=0.0,
         shell_lr_multipliers="1,1,1,1",
         shell_evidence_cascade_scale="0.05,0.05,0.05",
@@ -895,6 +900,69 @@ def test_depth_spanning_graph_adds_outer_shell_context_teacher_head() -> None:
     assert teacher_sources == expected_context_names
 
 
+def test_depth_spanning_graph_adds_outer_shell_context_evidence_path() -> None:
+    """Context evidence receives context latents and reaches output."""
+    args = _tiny_depth_spanning_args(
+        column_teacher_weight=0.0,
+        column_shell_teacher_weights="0,0,0,0",
+        column_shell_readout=False,
+        column_shell_bridge=False,
+        outer_shell_context=True,
+        outer_shell_context_evidence=True,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    output_sources = output_input_edge_sources(structure)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+    expected_context_names = {
+        outer_shell_context_node_name(column_idx) for column_idx in active_columns
+    }
+    evidence_sources = {
+        edge.source
+        for edge in structure.edges.values()
+        if edge.target == OUTER_SHELL_CONTEXT_EVIDENCE_NODE and edge.slot == "in"
+    }
+
+    assert OUTER_SHELL_CONTEXT_EVIDENCE_NODE in output_sources
+    assert structure.nodes[OUTER_SHELL_CONTEXT_EVIDENCE_NODE].node_info.shape == (10,)
+    assert evidence_sources == expected_context_names
+    assert OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_TARGET not in structure.task_map
+
+
+def test_depth_spanning_graph_adds_outer_shell_context_evidence_teacher_head() -> None:
+    """The evidence teacher receives only the class-shaped evidence latent."""
+    args = _tiny_depth_spanning_args(
+        column_teacher_weight=0.0,
+        column_shell_teacher_weights="0,0,0,0",
+        column_shell_readout=False,
+        column_shell_bridge=False,
+        outer_shell_context=True,
+        outer_shell_context_evidence=True,
+        outer_shell_context_evidence_teacher_weight=0.0005,
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    teacher_sources = {
+        edge.source
+        for edge in structure.edges.values()
+        if (
+            edge.target == OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE
+            and edge.slot == "in"
+        )
+    }
+
+    assert OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_TARGET in structure.task_map
+    assert (
+        structure.task_map[OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_TARGET]
+        == OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE
+    )
+    assert (
+        structure.nodes[
+            OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE
+        ].node_info.energy.config["weight"]
+        == 0.0005
+    )
+    assert teacher_sources == {OUTER_SHELL_CONTEXT_EVIDENCE_NODE}
+
+
 def test_outer_shell_context_teacher_requires_context_path() -> None:
     """A context-teacher weight without context nodes is invalid."""
     args = _tiny_depth_spanning_args(
@@ -903,6 +971,29 @@ def test_outer_shell_context_teacher_requires_context_path() -> None:
     )
 
     with pytest.raises(ValueError, match="requires --outer_shell_context"):
+        build_depth_spanning_graph(args)
+
+
+def test_outer_shell_context_evidence_requires_context_path() -> None:
+    """Context evidence is invalid without context latents."""
+    args = _tiny_depth_spanning_args(
+        outer_shell_context=False,
+        outer_shell_context_evidence=True,
+    )
+
+    with pytest.raises(ValueError, match="requires --outer_shell_context"):
+        build_depth_spanning_graph(args)
+
+
+def test_outer_shell_context_evidence_teacher_requires_evidence_path() -> None:
+    """An evidence-teacher weight is invalid without evidence latents."""
+    args = _tiny_depth_spanning_args(
+        outer_shell_context=True,
+        outer_shell_context_evidence=False,
+        outer_shell_context_evidence_teacher_weight=0.0005,
+    )
+
+    with pytest.raises(ValueError, match="requires --outer_shell_context_evidence"):
         build_depth_spanning_graph(args)
 
 

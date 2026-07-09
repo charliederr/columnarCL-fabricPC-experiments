@@ -20,7 +20,12 @@ Architecture::
       optional per-column shell bridge ──────────► output classifier
       optional outer-shell context ──────────────► output classifier
                          │
-                         └──── optional context teacher
+                         ├──── optional context teacher
+                         │
+                         └──── optional class-shaped context evidence
+                                           │
+                                           ├────► output classifier
+                                           └──── optional evidence teacher
                                                          │
                                                          ▼
                                                 shell-aware combiner
@@ -94,6 +99,11 @@ COLUMN_TEACHER_TARGET = "column_y"
 COLUMN_TEACHER_NODE = "column_teacher_output"
 OUTER_SHELL_CONTEXT_TEACHER_TARGET = "outer_shell_context_y"
 OUTER_SHELL_CONTEXT_TEACHER_NODE = "outer_shell_context_teacher_output"
+OUTER_SHELL_CONTEXT_EVIDENCE_NODE = "outer_shell_context_evidence"
+OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_TARGET = "outer_shell_context_evidence_teacher_y"
+OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE = (
+    "outer_shell_context_evidence_teacher_output"
+)
 SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 COLUMN_SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 SHELL_LR_DEFAULT_MULTIPLIERS = "1,1,1,1"
@@ -191,6 +201,16 @@ def is_outer_shell_context_node(node_name: str) -> bool:
 def is_outer_shell_context_teacher_node(node_name: str) -> bool:
     """Return true for the context-only classifier head."""
     return node_name == OUTER_SHELL_CONTEXT_TEACHER_NODE
+
+
+def is_outer_shell_context_evidence_node(node_name: str) -> bool:
+    """Return true for the class-shaped outer-context evidence latent."""
+    return node_name == OUTER_SHELL_CONTEXT_EVIDENCE_NODE
+
+
+def is_outer_shell_context_evidence_teacher_node(node_name: str) -> bool:
+    """Return true for the classifier head fed by context evidence."""
+    return node_name == OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE
 
 
 def parse_shell_ordered_values(
@@ -536,6 +556,7 @@ def diagnose_energy_breakdown(
             or node_name in shell_teacher_nodes
             or is_column_shell_teacher_node(node_name)
             or is_outer_shell_context_teacher_node(node_name)
+            or is_outer_shell_context_evidence_teacher_node(node_name)
         ):
             categories["classifier"] += energy_sum
         elif (
@@ -543,6 +564,7 @@ def diagnose_energy_breakdown(
             or is_column_shell_auxiliary_node(node_name)
             or is_column_shell_bridge_node(node_name)
             or is_outer_shell_context_node(node_name)
+            or is_outer_shell_context_evidence_node(node_name)
         ):
             categories["columns"] += energy_sum
         elif node_name.startswith("stage") and ("tap" in node_name or "pool" in node_name):
@@ -608,6 +630,8 @@ def diagnose_column_outputs(
         or is_column_shell_bridge_node(name)
         or is_outer_shell_context_node(name)
         or is_outer_shell_context_teacher_node(name)
+        or is_outer_shell_context_evidence_node(name)
+        or is_outer_shell_context_evidence_teacher_node(name)
         or name in (
             "combiner",
             "column_pool",
@@ -1045,6 +1069,13 @@ def evaluate_readout_ablations(
     outer_shell_context_sources = tuple(
         sorted(source for source in edge_sources if is_outer_shell_context_node(source))
     )
+    outer_shell_context_evidence_sources = tuple(
+        sorted(
+            source
+            for source in edge_sources
+            if is_outer_shell_context_evidence_node(source)
+        )
+    )
     if column_source in edge_sources:
         cases.append(("column_only", (column_source,)))
     if column_shell_sources:
@@ -1073,6 +1104,27 @@ def evaluate_readout_ablations(
             (
                 "column_pool_plus_outer_shell_context",
                 (column_source, *outer_shell_context_sources),
+            )
+        )
+    if outer_shell_context_evidence_sources:
+        cases.append(
+            (
+                "outer_shell_context_evidence_only",
+                outer_shell_context_evidence_sources,
+            )
+        )
+    if column_source in edge_sources and outer_shell_context_evidence_sources:
+        cases.append(
+            (
+                "column_pool_plus_outer_shell_context_evidence",
+                (column_source, *outer_shell_context_evidence_sources),
+            )
+        )
+    if outer_shell_context_sources and outer_shell_context_evidence_sources:
+        cases.append(
+            (
+                "outer_shell_context_plus_evidence",
+                (*outer_shell_context_sources, *outer_shell_context_evidence_sources),
             )
         )
     if "bypass_pool" in edge_sources:
@@ -1425,6 +1477,84 @@ def evaluate_outer_shell_context_ablations(
     return results
 
 
+def evaluate_outer_shell_context_evidence_ablations(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Evaluate shell dependence inside the class-shaped context-evidence path.
+
+    The evidence path receives all active outer-shell context latents and feeds
+    one class-width latent into `output`. These ablations keep only that
+    evidence latent at `output`, then mask context inputs by source shell.
+    """
+    output_sources = output_input_edge_sources(structure)
+    evidence_source = OUTER_SHELL_CONTEXT_EVIDENCE_NODE
+    if evidence_source not in output_sources:
+        return {}
+
+    evidence_input_sources = tuple(
+        sorted(
+            source
+            for source in node_input_edge_sources(structure, evidence_source)
+            if is_outer_shell_context_node(source)
+        )
+    )
+    if not evidence_input_sources:
+        return {}
+
+    results = {
+        "outer_shell_context_evidence_only": evaluate_pcn(
+            mask_output_input_sources(params, structure, (evidence_source,)),
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+    }
+    for shell_name in SHELL_NAMES:
+        without_shell_params = mask_output_input_sources(
+            mask_outer_shell_context_inputs(
+                params,
+                structure,
+                evidence_input_sources,
+                shell_name,
+                keep_shell=False,
+            ),
+            structure,
+            (evidence_source,),
+        )
+        shell_only_params = mask_output_input_sources(
+            mask_outer_shell_context_inputs(
+                params,
+                structure,
+                evidence_input_sources,
+                shell_name,
+                keep_shell=True,
+            ),
+            structure,
+            (evidence_source,),
+        )
+        results[f"outer_shell_context_evidence_without_{shell_name}"] = evaluate_pcn(
+            without_shell_params,
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+        results[f"outer_shell_context_evidence_{shell_name}_only"] = evaluate_pcn(
+            shell_only_params,
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+    return results
+
+
 def mask_column_shell_path_inputs(
     params: GraphParams,
     structure: GraphStructure,
@@ -1734,6 +1864,50 @@ def evaluate_outer_shell_context_teacher_head(
             params,
             structure,
             OUTER_SHELL_CONTEXT_TEACHER_NODE,
+            loader,
+            config,
+            rng_key,
+        )
+    }
+
+
+def evaluate_outer_shell_context_evidence_node(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """Evaluate the class-width context-evidence latent against CIFAR-10 labels."""
+    if OUTER_SHELL_CONTEXT_EVIDENCE_NODE not in structure.nodes:
+        return {}
+    return {
+        OUTER_SHELL_CONTEXT_EVIDENCE_NODE: evaluate_output_node(
+            params,
+            structure,
+            OUTER_SHELL_CONTEXT_EVIDENCE_NODE,
+            loader,
+            config,
+            rng_key,
+        )
+    }
+
+
+def evaluate_outer_shell_context_evidence_teacher_head(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """Evaluate the classifier head fed by the context-evidence latent."""
+    if OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE not in structure.nodes:
+        return {}
+    return {
+        OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE: evaluate_output_node(
+            params,
+            structure,
+            OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE,
             loader,
             config,
             rng_key,
@@ -2202,6 +2376,61 @@ def build_depth_spanning_graph(args):
             edges.append(Edge(source=shell_bridge, target=output.slot("in")))
 
     outer_shell_context_task_map = {}
+    outer_shell_context_evidence = None
+    if args.outer_shell_context_evidence:
+        if not args.outer_shell_context:
+            raise ValueError(
+                "--outer_shell_context_evidence requires --outer_shell_context"
+            )
+        if not outer_shell_context_nodes:
+            raise ValueError(
+                "Outer-shell context evidence requires at least one context node"
+            )
+        outer_shell_context_evidence = Linear(
+            shape=(10,),
+            name=OUTER_SHELL_CONTEXT_EVIDENCE_NODE,
+            activation=IdentityActivation(),
+            flatten_input=True,
+            weight_init=XavierInitializer(),
+        )
+        nodes.append(outer_shell_context_evidence)
+        for outer_context in outer_shell_context_nodes:
+            edges.append(
+                Edge(
+                    source=outer_context,
+                    target=outer_shell_context_evidence.slot("in"),
+                )
+            )
+        edges.append(Edge(source=outer_shell_context_evidence, target=output.slot("in")))
+
+    if args.outer_shell_context_evidence_teacher_weight > 0.0:
+        if outer_shell_context_evidence is None:
+            raise ValueError(
+                "--outer_shell_context_evidence_teacher_weight requires "
+                "--outer_shell_context_evidence"
+            )
+        outer_context_evidence_teacher = Linear(
+            shape=(10,),
+            name=OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE,
+            activation=SoftmaxActivation(),
+            energy=make_classifier_energy(
+                args.label_smoothing,
+                args.outer_shell_context_evidence_teacher_weight,
+            ),
+            flatten_input=True,
+            weight_init=XavierInitializer(),
+        )
+        nodes.append(outer_context_evidence_teacher)
+        edges.append(
+            Edge(
+                source=outer_shell_context_evidence,
+                target=outer_context_evidence_teacher.slot("in"),
+            )
+        )
+        outer_shell_context_task_map[
+            OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_TARGET
+        ] = outer_context_evidence_teacher
+
     if args.outer_shell_context_teacher_weight > 0.0:
         if not args.outer_shell_context:
             raise ValueError(
@@ -2272,6 +2501,8 @@ def build_depth_spanning_graph(args):
 def train_cifar10_depth_spanning(args):
     if args.outer_shell_context_teacher_weight < 0.0:
         raise ValueError("--outer_shell_context_teacher_weight must be >= 0")
+    if args.outer_shell_context_evidence_teacher_weight < 0.0:
+        raise ValueError("--outer_shell_context_evidence_teacher_weight must be >= 0")
 
     print("=" * 70)
     print("CIFAR-10 Depth-Spanning Columnar Architecture")
@@ -2341,6 +2572,14 @@ def train_cifar10_depth_spanning(args):
     print(f"Column shell bridge: {'enabled' if args.column_shell_bridge else 'disabled'}")
     print(f"Outer shell context: {'enabled' if args.outer_shell_context else 'disabled'}")
     print(f"Outer shell context teacher weight: {args.outer_shell_context_teacher_weight}")
+    print(
+        "Outer shell context evidence: "
+        f"{'enabled' if args.outer_shell_context_evidence else 'disabled'}"
+    )
+    print(
+        "Outer shell context evidence teacher weight: "
+        f"{args.outer_shell_context_evidence_teacher_weight}"
+    )
     print()
 
     master_key = jax.random.PRNGKey(args.seed)
@@ -2656,6 +2895,34 @@ def train_cifar10_depth_spanning(args):
             "Validation Outer-Shell Context Teacher Head",
             val_outer_shell_context_teacher_metrics,
         )
+    val_outer_shell_context_evidence_metrics = (
+        evaluate_outer_shell_context_evidence_node(
+            eval_params,
+            structure,
+            val_loader,
+            train_config,
+            ablation_key,
+        )
+    )
+    if val_outer_shell_context_evidence_metrics:
+        print_ablation_results(
+            "Validation Outer-Shell Context Evidence",
+            val_outer_shell_context_evidence_metrics,
+        )
+    val_outer_shell_context_evidence_teacher_metrics = (
+        evaluate_outer_shell_context_evidence_teacher_head(
+            eval_params,
+            structure,
+            val_loader,
+            train_config,
+            ablation_key,
+        )
+    )
+    if val_outer_shell_context_evidence_teacher_metrics:
+        print_ablation_results(
+            "Validation Outer-Shell Context Evidence Teacher Head",
+            val_outer_shell_context_evidence_teacher_metrics,
+        )
     if args.diagnose_shells:
         val_shell_metrics = evaluate_shell_readout_ablations(
             eval_params, structure, val_loader, train_config, ablation_key
@@ -2696,6 +2963,20 @@ def train_cifar10_depth_spanning(args):
         print_ablation_results(
             "Validation Outer-Shell Context Ablations",
             val_outer_shell_context_metrics,
+        )
+    val_outer_shell_context_evidence_ablation_metrics = (
+        evaluate_outer_shell_context_evidence_ablations(
+            eval_params,
+            structure,
+            val_loader,
+            train_config,
+            ablation_key,
+        )
+    )
+    if val_outer_shell_context_evidence_ablation_metrics:
+        print_ablation_results(
+            "Validation Outer-Shell Context Evidence Ablations",
+            val_outer_shell_context_evidence_ablation_metrics,
         )
     val_column_shell_path_metrics = evaluate_column_shell_path_ablations(
         eval_params,
@@ -2742,6 +3023,24 @@ def train_cifar10_depth_spanning(args):
         train_config,
         ablation_key,
     )
+    test_outer_shell_context_evidence_metrics = (
+        evaluate_outer_shell_context_evidence_node(
+            eval_params,
+            structure,
+            test_loader,
+            train_config,
+            ablation_key,
+        )
+    )
+    test_outer_shell_context_evidence_teacher_metrics = (
+        evaluate_outer_shell_context_evidence_teacher_head(
+            eval_params,
+            structure,
+            test_loader,
+            train_config,
+            ablation_key,
+        )
+    )
     test_column_shell_readout_metrics = evaluate_column_shell_readout_ablations(
         eval_params,
         structure,
@@ -2762,6 +3061,15 @@ def train_cifar10_depth_spanning(args):
         test_loader,
         train_config,
         ablation_key,
+    )
+    test_outer_shell_context_evidence_ablation_metrics = (
+        evaluate_outer_shell_context_evidence_ablations(
+            eval_params,
+            structure,
+            test_loader,
+            train_config,
+            ablation_key,
+        )
     )
     test_column_shell_path_metrics = evaluate_column_shell_path_ablations(
         eval_params,
@@ -2800,6 +3108,16 @@ def train_cifar10_depth_spanning(args):
             "Test Outer-Shell Context Teacher Head",
             test_outer_shell_context_teacher_metrics,
         )
+    if test_outer_shell_context_evidence_metrics:
+        print_ablation_results(
+            "Test Outer-Shell Context Evidence",
+            test_outer_shell_context_evidence_metrics,
+        )
+    if test_outer_shell_context_evidence_teacher_metrics:
+        print_ablation_results(
+            "Test Outer-Shell Context Evidence Teacher Head",
+            test_outer_shell_context_evidence_teacher_metrics,
+        )
     if test_column_shell_readout_metrics:
         print_ablation_results(
             "Test Per-Column Shell Readout Ablations",
@@ -2814,6 +3132,11 @@ def train_cifar10_depth_spanning(args):
         print_ablation_results(
             "Test Outer-Shell Context Ablations",
             test_outer_shell_context_metrics,
+        )
+    if test_outer_shell_context_evidence_ablation_metrics:
+        print_ablation_results(
+            "Test Outer-Shell Context Evidence Ablations",
+            test_outer_shell_context_evidence_ablation_metrics,
         )
     if test_column_shell_path_metrics:
         print_ablation_results(
@@ -3015,6 +3338,26 @@ def parse_args():
             "This keeps the auxiliary target on the route that already "
             "feeds the main classifier instead of supervising each raw "
             "per-column shell independently."
+        ),
+    )
+    parser.add_argument(
+        "--outer_shell_context_evidence",
+        action="store_true",
+        help=(
+            "Feed all active outer-shell context latents through one "
+            "class-width Gaussian evidence latent, then feed that latent to "
+            "the main output classifier. Requires --outer_shell_context."
+        ),
+    )
+    parser.add_argument(
+        "--outer_shell_context_evidence_teacher_weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Weight on an auxiliary classifier fed by the class-width "
+            "outer_shell_context_evidence latent. A zero weight omits the "
+            "teacher head while keeping the evidence path active when "
+            "--outer_shell_context_evidence is set."
         ),
     )
     parser.add_argument(

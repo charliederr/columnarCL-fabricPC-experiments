@@ -3379,3 +3379,79 @@ Proposed first experiment after implementation:
 - Run seeds 42, 99, and 7.
 
 The evaluation criterion should prioritize the main combined test accuracy and collapse resistance. Secondary metrics are `outer_shell_context_evidence` test accuracy, `outer_shell_context_only` test accuracy, `column_only` test accuracy, and shell lesion effects.
+
+## 2026-07-08 Outer-Shell Context Evidence Implementation
+
+Timestamp and machine: 2026-07-08 20:08:41 EDT on `rogdora43`.
+
+Implemented the aligned outer-shell context evidence path.
+
+Mechanism:
+
+- `outer_shell_context_evidence` is a Gaussian predictive-coding latent with shape `(10,)`, where the 10 dimensions are class-width evidence coordinates for CIFAR-10.
+- Each active `columnXX_outer_shell_context` latent feeds `outer_shell_context_evidence`.
+- `outer_shell_context_evidence` feeds the main `output` classifier, so the class-shaped context signal is available to the route that determines the primary test accuracy.
+- `outer_shell_context_evidence_teacher_output` is an optional auxiliary CE classifier fed only by `outer_shell_context_evidence`.
+- `outer_shell_context_evidence_teacher_weight` is the scalar multiplier on that optional auxiliary CE energy. Weight `0.0` omits the teacher head while keeping the evidence path active when `--outer_shell_context_evidence` is set.
+
+Files changed:
+
+- `scripts/train_cifar10_depth_spanning.py`.
+- `scripts/run_codex_cifar10_depth_spanning.sh`.
+- `scripts/run_codex_outer_context_evidence_10col3shared_sweep.sh`.
+- `tests/test_pooled_readout_norm.py`.
+
+Graph wiring details:
+
+- `--outer_shell_context_evidence` requires `--outer_shell_context`.
+- `--outer_shell_context_evidence_teacher_weight > 0` requires `--outer_shell_context_evidence`.
+- The previous raw `columnXX_outer_shell_context -> output` edges remain in place when `--outer_shell_context` is enabled.
+- The new path adds `columnXX_outer_shell_context -> outer_shell_context_evidence -> output`.
+- If `--outer_shell_context_evidence_teacher_weight` is positive, the graph also adds `outer_shell_context_evidence -> outer_shell_context_evidence_teacher_output`.
+
+Evaluation additions:
+
+- Readout ablations now include `outer_shell_context_evidence_only`, `column_pool_plus_outer_shell_context_evidence`, and `outer_shell_context_plus_evidence`.
+- Validation and test reporting now evaluate `outer_shell_context_evidence` directly as a class-width diagnostic.
+- Validation and test reporting evaluate `outer_shell_context_evidence_teacher_output` when the optional teacher exists.
+- Shell-lesion diagnostics now include `outer_shell_context_evidence_without_{shell}` and `outer_shell_context_evidence_{shell}_only`, where `{shell}` is one of `hard_kernel`, `inner_shell`, `middle_shell`, or `outer_shell`.
+
+Verification:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_outer_context_evidence_10col3shared_sweep.sh
+git diff --check
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+```
+
+Results:
+
+- Python compile check: passed.
+- Shell syntax check: passed.
+- `git diff --check`: passed.
+- `tests/test_pooled_readout_norm.py`: 39 passed.
+- Full `pytest` run: 169 passed, 5 failed, and 9 errored. All failures/errors were in `tests/test_cifar_data.py` because the sandbox could not create `/home/ni/.local/share/columnar_cl_fabricpc`. The failure was `OSError: [Errno 30] Read-only file system`.
+
+Prepared experiment:
+
+- Script: `scripts/run_codex_outer_context_evidence_10col3shared_sweep.sh`.
+- Architecture: 10 columns, 3 shared columns, 7 active non-shared columns, `combiner=shell_attention`, `outer_shell_context=on`, `outer_shell_context_evidence=on`, no backbone bypass, no raw context teacher, no shell teacher heads, no per-column shell teacher heads.
+- Shell learning-rate multipliers: `1,1.5,2,3`.
+- Learning rate: 0.005.
+- Epochs: 20.
+- Seeds: 42, 99, and 7.
+- Evidence teacher weights: `0.0` and `0.0005`.
+
+Run command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_outer_context_evidence_10col3shared_sweep.sh
+```
+
+Expected comparison:
+
+- Compare `outer_shell_context_evidence_teacher_weight=0.0` against the current no-evidence baseline mean test accuracy of 31.07%.
+- Compare `outer_shell_context_evidence_teacher_weight=0.0005` against both the no-evidence baseline and the no-teacher evidence path.
+- Prioritize main `combined` test accuracy and collapse resistance.
+- Use `outer_shell_context_evidence_only`, `column_pool_plus_outer_shell_context_evidence`, and evidence shell lesions to determine whether the class-shaped evidence route is being used by the main classifier.
