@@ -597,6 +597,161 @@ class ColumnShellComposerNode(NodeBase):
         return jnp.sum(state.energy), state
 
 
+class ShellContextPredictionNode(NodeBase):
+    """
+    Local objective where an outer-context latent predicts one shell state.
+
+    The `target` slot receives a pooled shell vector from one column. The
+    `context` slot receives that column's outer-shell context vector. The node
+    contributes a weighted Gaussian error between the target shell vector and
+    the context-derived prediction, without exposing a class-logit path.
+    """
+
+    def __init__(
+        self,
+        shape: Tuple[int, ...],
+        name: str,
+        objective_weight: float,
+        activation=IdentityActivation(),
+        energy=GaussianEnergy(),
+        weight_init: Optional[InitializerBase] = KaimingInitializer(),
+        latent_init: Optional[InitializerBase] = NormalInitializer(std=0.02),
+    ):
+        if len(shape) != 1:
+            raise ValueError(
+                f"ShellContextPredictionNode shape must be (shell_width,), got {shape}"
+            )
+        if objective_weight < 0.0:
+            raise ValueError("objective_weight must be >= 0")
+        super().__init__(
+            shape=shape,
+            name=name,
+            activation=activation,
+            energy=energy,
+            latent_init=latent_init,
+            weight_init=weight_init,
+            objective_weight=float(objective_weight),
+        )
+
+    @staticmethod
+    def get_slots() -> Dict[str, SlotSpec]:
+        return {
+            "target": SlotSpec(name="target", is_multi_input=False),
+            "context": SlotSpec(name="context", is_multi_input=True),
+        }
+
+    @staticmethod
+    def get_weight_fan_in(source_shape: Tuple[int, ...], config: Dict[str, Any]) -> int:
+        return source_shape[-1]
+
+    @staticmethod
+    def initialize_params(
+        key: jax.Array,
+        node_shape: Tuple[int, ...],
+        input_shapes: Dict[str, Tuple[int, ...]],
+        weight_init: Optional[InitializerBase] = None,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> NodeParams:
+        if weight_init is None:
+            weight_init = KaimingInitializer()
+
+        context_edges = [
+            edge_key for edge_key in sorted(input_shapes) if edge_key.endswith(":context")
+        ]
+        target_edges = [
+            edge_key for edge_key in sorted(input_shapes) if edge_key.endswith(":target")
+        ]
+        if len(target_edges) != 1:
+            raise ValueError("ShellContextPredictionNode expects exactly one target edge")
+        if not context_edges:
+            raise ValueError("ShellContextPredictionNode expects at least one context edge")
+
+        out_features = node_shape[-1]
+        keys = jax.random.split(key, len(context_edges) + 1)
+        weights = {}
+        for edge_key, edge_key_random in zip(context_edges, keys[:-1]):
+            in_features = input_shapes[edge_key][-1]
+            weights[edge_key] = initialize(
+                edge_key_random,
+                (in_features, out_features),
+                weight_init,
+            )
+        biases = {"b": initialize(keys[-1], (out_features,), ZerosInitializer())}
+        return NodeParams(weights=weights, biases=biases)
+
+    @staticmethod
+    def forward(
+        params: NodeParams,
+        inputs: Dict[str, jnp.ndarray],
+        state: NodeState,
+        node_info: NodeInfo,
+    ) -> Tuple[jax.Array, NodeState]:
+        target_values = [
+            value for edge_key, value in inputs.items() if edge_key.endswith(":target")
+        ]
+        context_items = [
+            (edge_key, value)
+            for edge_key, value in inputs.items()
+            if edge_key.endswith(":context")
+        ]
+        if len(target_values) != 1:
+            raise ValueError("ShellContextPredictionNode expects exactly one target input")
+        if not context_items:
+            raise ValueError("ShellContextPredictionNode expects context inputs")
+
+        target = target_values[0]
+        prediction = jnp.zeros_like(target)
+        for edge_key, context in context_items:
+            prediction = prediction + jnp.matmul(context, params.weights[edge_key])
+        prediction = prediction + params.biases["b"]
+        prediction = type(node_info.activation).forward(
+            prediction,
+            node_info.activation.config,
+        )
+
+        objective_weight = float(node_info.node_config.get("objective_weight", 1.0))
+        error = target - prediction
+        axes_to_sum = tuple(range(1, error.ndim))
+        energy = 0.5 * objective_weight * jnp.sum(jnp.square(error), axis=axes_to_sum)
+        state = state._replace(
+            z_latent=target,
+            z_mu=prediction,
+            pre_activation=prediction,
+            error=error,
+            energy=energy,
+        )
+        return jnp.sum(energy), state
+
+    @staticmethod
+    def forward_and_latent_grads(
+        params: NodeParams,
+        inputs: Dict[str, jnp.ndarray],
+        state: NodeState,
+        node_info: NodeInfo,
+        is_clamped: bool,
+    ) -> Tuple[NodeState, Dict[str, jnp.ndarray], jnp.ndarray]:
+        del is_clamped
+        node_class = node_info.node_class
+
+        def energy_fn(input_args, z_latent):
+            updated_state = state._replace(z_latent=z_latent)
+            total_energy, new_state = node_class.forward(
+                params,
+                input_args,
+                updated_state,
+                node_info,
+            )
+            return total_energy, new_state
+
+        (total_energy, new_state), (input_grads, self_grad) = jax.value_and_grad(
+            energy_fn,
+            argnums=(0, 1),
+            has_aux=True,
+        )(inputs, state.z_latent)
+        del total_energy
+        return new_state, input_grads, self_grad
+
+
 class GlobalAvgPoolNormNode(NodeBase):
     """
     Globally average a token or spatial feature tensor and normalize the result.

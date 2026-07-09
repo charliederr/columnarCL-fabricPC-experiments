@@ -8,7 +8,7 @@ import pytest
 
 from fabricpc.core.inference import InferenceSGD
 from fabricpc.core.topology import Edge
-from fabricpc.core.types import NodeState
+from fabricpc.core.types import NodeParams, NodeState
 from fabricpc.graph_assembly import TaskMap, graph
 from fabricpc.graph_initialization import initialize_params
 from fabricpc.nodes import IdentityNode
@@ -18,6 +18,7 @@ from columnar_cl_fabricpc.columns import (
     FeatureSliceNode,
     GlobalAvgPoolNormNode,
     SHELL_NAMES,
+    ShellContextPredictionNode,
     WeightedLabelSmoothedCrossEntropyEnergy,
     get_shell_slices,
 )
@@ -56,6 +57,7 @@ from scripts.train_cifar10_depth_spanning import (
     parse_shell_teacher_weights,
     parse_shell_evidence_cascade_scale,
     parse_shell_inhibition_strengths,
+    shell_context_prediction_node_name,
     shell_slice_node_name,
     shell_teacher_node_name,
     shell_teacher_target_name,
@@ -307,6 +309,68 @@ def test_weighted_cross_entropy_scales_energy_and_latent_gradient() -> None:
     assert jnp.allclose(weighted_grad, 0.25 * base_grad)
 
 
+def test_shell_context_prediction_node_keeps_terminal_local_energy() -> None:
+    """The shell-context objective sends gradients to target and context inputs."""
+    target = IdentityNode(shape=(2,), name="target")
+    context = IdentityNode(shape=(2,), name="context")
+    prediction = ShellContextPredictionNode(
+        shape=(2,),
+        name="prediction",
+        objective_weight=0.5,
+    )
+    structure = graph(
+        nodes=[target, context, prediction],
+        edges=[
+            Edge(source=target, target=prediction.slot("target")),
+            Edge(source=context, target=prediction.slot("context")),
+        ],
+        task_map=TaskMap(x=target),
+        inference=InferenceSGD(),
+    )
+    target_edge = next(
+        edge_key
+        for edge_key, edge in structure.edges.items()
+        if edge.target == "prediction" and edge.slot == "target"
+    )
+    context_edge = next(
+        edge_key
+        for edge_key, edge in structure.edges.items()
+        if edge.target == "prediction" and edge.slot == "context"
+    )
+    node_info = structure.nodes["prediction"].node_info
+    params = NodeParams(
+        weights={context_edge: jnp.eye(2, dtype=jnp.float32)},
+        biases={"b": jnp.zeros((2,), dtype=jnp.float32)},
+    )
+    state = NodeState(
+        z_latent=jnp.zeros((1, 2), dtype=jnp.float32),
+        z_mu=jnp.zeros((1, 2), dtype=jnp.float32),
+        error=jnp.zeros((1, 2), dtype=jnp.float32),
+        energy=jnp.zeros((1,), dtype=jnp.float32),
+        pre_activation=jnp.zeros((1, 2), dtype=jnp.float32),
+        latent_grad=jnp.zeros((1, 2), dtype=jnp.float32),
+    )
+    inputs = {
+        target_edge: jnp.asarray([[1.0, -1.0]], dtype=jnp.float32),
+        context_edge: jnp.asarray([[0.25, 0.5]], dtype=jnp.float32),
+    }
+
+    new_state, input_grads, self_grad = (
+        ShellContextPredictionNode.forward_and_latent_grads(
+            params,
+            inputs,
+            state,
+            node_info,
+            is_clamped=False,
+        )
+    )
+
+    assert float(new_state.energy[0]) > 0.0
+    assert not jnp.allclose(input_grads[target_edge], 0.0)
+    assert not jnp.allclose(input_grads[context_edge], 0.0)
+    assert jnp.allclose(self_grad, 0.0)
+
+
 def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
     defaults = dict(
         model="tiny",
@@ -330,6 +394,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         column_shell_readout=False,
         column_shell_bridge=False,
         outer_shell_context=False,
+        outer_shell_context_shell_prediction_weight=0.0,
         outer_shell_context_evidence=False,
         outer_shell_context_evidence_teacher_weight=0.0,
         outer_shell_context_teacher_weight=0.0,
@@ -566,11 +631,12 @@ def test_shell_lr_multiplier_tree_scales_depth_column_shell_outputs() -> None:
 
 
 def test_shell_lr_multiplier_tree_scales_composer_and_context_paths() -> None:
-    """Shell composer and outer-context parameters receive shell update rates."""
+    """Composer, context, and shell predictors receive shell update rates."""
     args = _tiny_depth_spanning_args(
         combiner="shell_attention",
         bypass_columns=False,
         outer_shell_context=True,
+        outer_shell_context_shell_prediction_weight=0.001,
         shell_lr_multipliers="1,1.5,2,3",
     )
     structure, _ = build_depth_spanning_graph(args)
@@ -599,6 +665,19 @@ def test_shell_lr_multiplier_tree_scales_composer_and_context_paths() -> None:
     for value in context_multipliers.weights.values():
         assert jnp.allclose(value, 3.0)
     for value in context_multipliers.biases.values():
+        assert jnp.allclose(value, 3.0)
+
+    hard_prediction_name = shell_context_prediction_node_name(0, "hard_kernel")
+    outer_prediction_name = shell_context_prediction_node_name(0, "outer_shell")
+    hard_prediction_multipliers = multiplier_tree.nodes[hard_prediction_name]
+    outer_prediction_multipliers = multiplier_tree.nodes[outer_prediction_name]
+    for value in hard_prediction_multipliers.weights.values():
+        assert jnp.allclose(value, 1.0)
+    for value in hard_prediction_multipliers.biases.values():
+        assert jnp.allclose(value, 1.0)
+    for value in outer_prediction_multipliers.weights.values():
+        assert jnp.allclose(value, 3.0)
+    for value in outer_prediction_multipliers.biases.values():
         assert jnp.allclose(value, 3.0)
 
 
@@ -830,7 +909,7 @@ def test_depth_spanning_graph_adds_per_column_shell_bridge_edges() -> None:
 
 
 def test_depth_spanning_graph_adds_outer_shell_context_edges() -> None:
-    """Outer-shell context receives pooled shells and reaches output."""
+    """Outer-shell context receives pooled shells and reaches output by default."""
     args = _tiny_depth_spanning_args(
         column_teacher_weight=0.0,
         column_shell_teacher_weights="0,0,0,0",
@@ -863,6 +942,52 @@ def test_depth_spanning_graph_adds_outer_shell_context_edges() -> None:
         assert context_sources == expected_pool_names
         for pool_name in expected_pool_names:
             assert pool_name not in output_sources
+
+
+def test_depth_spanning_graph_adds_shell_context_prediction_objectives() -> None:
+    """Positive shell-prediction weight makes context predict shell pools."""
+    args = _tiny_depth_spanning_args(
+        column_teacher_weight=0.0,
+        column_shell_teacher_weights="0,0,0,0",
+        column_shell_readout=False,
+        column_shell_bridge=False,
+        outer_shell_context=True,
+        outer_shell_context_shell_prediction_weight=0.001,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    output_sources = output_input_edge_sources(structure)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+
+    assert active_columns == [0, 1]
+
+    for column_idx in active_columns:
+        context_name = outer_shell_context_node_name(column_idx)
+        assert context_name not in output_sources
+        for shell_name in SHELL_NAMES:
+            prediction_name = shell_context_prediction_node_name(
+                column_idx,
+                shell_name,
+            )
+            prediction_sources = {
+                (edge.source, edge.slot)
+                for edge in structure.edges.values()
+                if edge.target == prediction_name
+            }
+
+            assert (
+                structure.nodes[prediction_name].node_info.node_class
+                is ShellContextPredictionNode
+            )
+            assert (
+                structure.nodes[prediction_name].node_info.node_config[
+                    "objective_weight"
+                ]
+                == 0.001
+            )
+            assert prediction_sources == {
+                (context_name, "context"),
+                (column_shell_pool_node_name(column_idx, shell_name), "target"),
+            }
 
 
 def test_depth_spanning_graph_adds_outer_shell_context_teacher_head() -> None:
@@ -901,7 +1026,7 @@ def test_depth_spanning_graph_adds_outer_shell_context_teacher_head() -> None:
 
 
 def test_depth_spanning_graph_adds_outer_shell_context_evidence_path() -> None:
-    """Context evidence receives context latents and reaches output."""
+    """Context evidence receives context latents without reaching output."""
     args = _tiny_depth_spanning_args(
         column_teacher_weight=0.0,
         column_shell_teacher_weights="0,0,0,0",
@@ -922,7 +1047,7 @@ def test_depth_spanning_graph_adds_outer_shell_context_evidence_path() -> None:
         if edge.target == OUTER_SHELL_CONTEXT_EVIDENCE_NODE and edge.slot == "in"
     }
 
-    assert OUTER_SHELL_CONTEXT_EVIDENCE_NODE in output_sources
+    assert OUTER_SHELL_CONTEXT_EVIDENCE_NODE not in output_sources
     assert structure.nodes[OUTER_SHELL_CONTEXT_EVIDENCE_NODE].node_info.shape == (10,)
     assert evidence_sources == expected_context_names
     assert OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_TARGET not in structure.task_map
@@ -979,6 +1104,17 @@ def test_outer_shell_context_evidence_requires_context_path() -> None:
     args = _tiny_depth_spanning_args(
         outer_shell_context=False,
         outer_shell_context_evidence=True,
+    )
+
+    with pytest.raises(ValueError, match="requires --outer_shell_context"):
+        build_depth_spanning_graph(args)
+
+
+def test_shell_context_prediction_requires_context_path() -> None:
+    """A local shell prediction objective is invalid without context latents."""
+    args = _tiny_depth_spanning_args(
+        outer_shell_context=False,
+        outer_shell_context_shell_prediction_weight=0.001,
     )
 
     with pytest.raises(ValueError, match="requires --outer_shell_context"):

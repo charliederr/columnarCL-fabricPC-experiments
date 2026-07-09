@@ -18,14 +18,17 @@ Architecture::
                                                          ▼
       optional per-column shell readout ─────────► output classifier
       optional per-column shell bridge ──────────► output classifier
-      optional outer-shell context ──────────────► output classifier
+      optional outer-shell context ──────────────► optional output classifier readout
                          │
                          ├──── optional context teacher
                          │
-                         └──── optional class-shaped context evidence
+                         ├──── optional class-shaped context evidence
                                            │
-                                           ├────► output classifier
                                            └──── optional evidence teacher
+                         │
+                         └──── optional shell-local predictors
+                                           │
+                                           └──── predict pooled shell states
                                                          │
                                                          ▼
                                                 shell-aware combiner
@@ -92,6 +95,7 @@ from columnar_cl_fabricpc.columns import (
 )
 from columnar_cl_fabricpc.columns.accuracy_nodes import MaskedColumnCombinerNode
 from columnar_cl_fabricpc.columns.accuracy_nodes import ColumnShellComposerNode
+from columnar_cl_fabricpc.columns.accuracy_nodes import ShellContextPredictionNode
 
 jax.config.update("jax_default_prng_impl", "threefry2x32")
 
@@ -104,6 +108,7 @@ OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_TARGET = "outer_shell_context_evidence_teac
 OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE = (
     "outer_shell_context_evidence_teacher_output"
 )
+SHELL_CONTEXT_PREDICTION_DEFAULT_WEIGHT = 0.0
 SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 COLUMN_SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 SHELL_LR_DEFAULT_MULTIPLIERS = "1,1,1,1"
@@ -144,6 +149,11 @@ def column_shell_bridge_node_name(column_idx: int) -> str:
 def outer_shell_context_node_name(column_idx: int) -> str:
     """Return the node name for one column's outer-shell context latent."""
     return f"column{column_idx:02d}_outer_shell_context"
+
+
+def shell_context_prediction_node_name(column_idx: int, shell_name: str) -> str:
+    """Return the node name for a context-to-shell prediction objective."""
+    return f"column{column_idx:02d}_{shell_name}_context_prediction"
 
 
 def column_shell_teacher_node_name(column_idx: int, shell_name: str) -> str:
@@ -211,6 +221,21 @@ def is_outer_shell_context_evidence_node(node_name: str) -> bool:
 def is_outer_shell_context_evidence_teacher_node(node_name: str) -> bool:
     """Return true for the classifier head fed by context evidence."""
     return node_name == OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE
+
+
+def is_shell_context_prediction_node(node_name: str) -> bool:
+    """Return true for a context-to-shell local prediction objective."""
+    return node_name.startswith("column") and node_name.endswith("_context_prediction")
+
+
+def shell_context_prediction_shell(node_name: str) -> str | None:
+    """Return the target shell encoded in a context-prediction node name."""
+    if not is_shell_context_prediction_node(node_name):
+        return None
+    for shell_name in SHELL_NAMES:
+        if f"_{shell_name}_context_prediction" in node_name:
+            return shell_name
+    return None
 
 
 def parse_shell_ordered_values(
@@ -439,6 +464,13 @@ def parameter_shell_lr_multiplier(
     if is_outer_shell_context_node(node_name):
         return _constant_multiplier_like(value, shell_lr_multipliers["outer_shell"])
 
+    prediction_shell = shell_context_prediction_shell(node_name)
+    if prediction_shell is not None:
+        return _constant_multiplier_like(
+            value,
+            shell_lr_multipliers[prediction_shell],
+        )
+
     if is_column_shell_bridge_node(node_name):
         shell_slices = get_shell_slices(node_info.shape[-1])
         return _scale_final_axis_by_shell(
@@ -565,6 +597,7 @@ def diagnose_energy_breakdown(
             or is_column_shell_bridge_node(node_name)
             or is_outer_shell_context_node(node_name)
             or is_outer_shell_context_evidence_node(node_name)
+            or is_shell_context_prediction_node(node_name)
         ):
             categories["columns"] += energy_sum
         elif node_name.startswith("stage") and ("tap" in node_name or "pool" in node_name):
@@ -632,6 +665,7 @@ def diagnose_column_outputs(
         or is_outer_shell_context_teacher_node(name)
         or is_outer_shell_context_evidence_node(name)
         or is_outer_shell_context_evidence_teacher_node(name)
+        or is_shell_context_prediction_node(name)
         or name in (
             "combiner",
             "column_pool",
@@ -719,6 +753,33 @@ def diagnose_shell_norms(
             "width": float(end - start),
         }
     return stats
+
+
+def diagnose_shell_context_prediction_energies(
+    params,
+    structure,
+    batch: Dict[str, jnp.ndarray],
+    rng_key: jax.Array,
+) -> Dict[str, float]:
+    """
+    Average local context-prediction energy by target shell.
+
+    The reported value for a shell is the mean per-node energy across all active
+    columns whose outer-context latent predicts that shell's pooled state.
+    """
+    _, _, final_state = get_graph_param_gradient(params, batch, structure, rng_key)
+    node_energies = extract_node_energies(final_state)
+    shell_values: Dict[str, List[float]] = {shell_name: [] for shell_name in SHELL_NAMES}
+    for node_name, energy_arr in node_energies.items():
+        shell_name = shell_context_prediction_shell(node_name)
+        if shell_name is None:
+            continue
+        shell_values[shell_name].append(float(jnp.mean(energy_arr)))
+    return {
+        shell_name: float(sum(values) / len(values))
+        for shell_name, values in shell_values.items()
+        if values
+    }
 
 
 def diagnose_output_edge_weight_norms(
@@ -2044,6 +2105,17 @@ def build_depth_spanning_graph(args):
     tokenize each stage's output, and depth-spanning columns receive
     skip connections from all stages.
     """
+    if args.outer_shell_context_shell_prediction_weight < 0.0:
+        raise ValueError("--outer_shell_context_shell_prediction_weight must be >= 0")
+    if (
+        args.outer_shell_context_shell_prediction_weight > 0.0
+        and not args.outer_shell_context
+    ):
+        raise ValueError(
+            "--outer_shell_context_shell_prediction_weight requires "
+            "--outer_shell_context"
+        )
+
     model_config = MODEL_CONFIGS[args.model]
     weight_init = MuPCInitializer()
     activation = get_activation(args.activation)
@@ -2299,6 +2371,7 @@ def build_depth_spanning_graph(args):
     for column_idx in active_column_indices:
         column = columns[column_idx]
         column_shell_pools = []
+        column_shell_pools_by_shell = {}
         for shell_name in SHELL_NAMES:
             shell_weight = column_shell_teacher_weights[shell_name]
             needs_shell_pool = (
@@ -2336,6 +2409,7 @@ def build_depth_spanning_graph(args):
                 Edge(source=shell_slice, target=shell_pool.slot("in")),
             ])
             column_shell_pools.append(shell_pool)
+            column_shell_pools_by_shell[shell_name] = shell_pool
             if args.column_shell_readout:
                 edges.append(Edge(source=shell_pool, target=output.slot("in")))
             if shell_weight > 0.0:
@@ -2360,7 +2434,32 @@ def build_depth_spanning_graph(args):
             outer_shell_context_nodes.append(outer_context)
             for shell_pool in column_shell_pools:
                 edges.append(Edge(source=shell_pool, target=outer_context.slot("in")))
-            edges.append(Edge(source=outer_context, target=output.slot("in")))
+            if args.outer_shell_context_shell_prediction_weight <= 0.0:
+                edges.append(Edge(source=outer_context, target=output.slot("in")))
+            else:
+                for shell_name, shell_pool in column_shell_pools_by_shell.items():
+                    context_prediction = ShellContextPredictionNode(
+                        shape=shell_pool.shape,
+                        name=shell_context_prediction_node_name(
+                            column_idx,
+                            shell_name,
+                        ),
+                        objective_weight=(
+                            args.outer_shell_context_shell_prediction_weight
+                        ),
+                        weight_init=XavierInitializer(),
+                    )
+                    nodes.append(context_prediction)
+                    edges.extend([
+                        Edge(
+                            source=shell_pool,
+                            target=context_prediction.slot("target"),
+                        ),
+                        Edge(
+                            source=outer_context,
+                            target=context_prediction.slot("context"),
+                        ),
+                    ])
 
         if args.column_shell_bridge:
             shell_bridge = Linear(
@@ -2401,7 +2500,6 @@ def build_depth_spanning_graph(args):
                     target=outer_shell_context_evidence.slot("in"),
                 )
             )
-        edges.append(Edge(source=outer_shell_context_evidence, target=output.slot("in")))
 
     if args.outer_shell_context_evidence_teacher_weight > 0.0:
         if outer_shell_context_evidence is None:
@@ -2503,6 +2601,16 @@ def train_cifar10_depth_spanning(args):
         raise ValueError("--outer_shell_context_teacher_weight must be >= 0")
     if args.outer_shell_context_evidence_teacher_weight < 0.0:
         raise ValueError("--outer_shell_context_evidence_teacher_weight must be >= 0")
+    if args.outer_shell_context_shell_prediction_weight < 0.0:
+        raise ValueError("--outer_shell_context_shell_prediction_weight must be >= 0")
+    if (
+        args.outer_shell_context_shell_prediction_weight > 0.0
+        and not args.outer_shell_context
+    ):
+        raise ValueError(
+            "--outer_shell_context_shell_prediction_weight requires "
+            "--outer_shell_context"
+        )
 
     print("=" * 70)
     print("CIFAR-10 Depth-Spanning Columnar Architecture")
@@ -2571,7 +2679,17 @@ def train_cifar10_depth_spanning(args):
     print(f"Column shell readout: {'enabled' if args.column_shell_readout else 'disabled'}")
     print(f"Column shell bridge: {'enabled' if args.column_shell_bridge else 'disabled'}")
     print(f"Outer shell context: {'enabled' if args.outer_shell_context else 'disabled'}")
+    if args.outer_shell_context:
+        context_readout_enabled = args.outer_shell_context_shell_prediction_weight <= 0.0
+        print(
+            "Outer shell context direct readout: "
+            f"{'enabled' if context_readout_enabled else 'disabled'}"
+        )
     print(f"Outer shell context teacher weight: {args.outer_shell_context_teacher_weight}")
+    print(
+        "Outer shell context shell prediction weight: "
+        f"{args.outer_shell_context_shell_prediction_weight}"
+    )
     print(
         "Outer shell context evidence: "
         f"{'enabled' if args.outer_shell_context_evidence else 'disabled'}"
@@ -2659,6 +2777,15 @@ def train_cifar10_depth_spanning(args):
         print_shell_norms(
             "Shell Norms (before training)",
             diagnose_shell_norms(params, structure, diag_batch, diag_key),
+        )
+        print_scalar_diagnostics(
+            "Shell Context Prediction Energy (before training)",
+            diagnose_shell_context_prediction_energies(
+                params,
+                structure,
+                diag_batch,
+                diag_key,
+            ),
         )
 
     steps_per_epoch = len(train_loader_with_teacher)
@@ -2805,6 +2932,15 @@ def train_cifar10_depth_spanning(args):
             "Shell Norms (after training)",
             diagnose_shell_norms(final_params, structure, diag_batch, diag_key),
         )
+        print_scalar_diagnostics(
+            "Shell Context Prediction Energy (after training)",
+            diagnose_shell_context_prediction_energies(
+                final_params,
+                structure,
+                diag_batch,
+                diag_key,
+            ),
+        )
 
     eval_params = best_params if best_params is not None else final_params
     if best_params is not None:
@@ -2842,6 +2978,17 @@ def train_cifar10_depth_spanning(args):
                 "Validation Composer Component Lesions",
                 val_composer_metrics,
             )
+
+    if args.diagnose_shells and diag_batch is not None:
+        print_scalar_diagnostics(
+            "Shell Context Prediction Energy (selected params)",
+            diagnose_shell_context_prediction_energies(
+                eval_params,
+                structure,
+                diag_batch,
+                diag_key,
+            ),
+        )
 
     val_ablation_metrics = evaluate_readout_ablations(
         eval_params, structure, val_loader, train_config, ablation_key
@@ -3324,8 +3471,10 @@ def parse_args():
         action="store_true",
         help=(
             "Connect each active column's pooled shells through a Gaussian "
-            "latent whose output width matches the outer_shell slice, then "
-            "feed that outer-shell context vector to the main classifier."
+            "latent whose output width matches the outer_shell slice. With "
+            "zero shell-prediction weight, this context vector also feeds the "
+            "main classifier. With positive shell-prediction weight, it predicts "
+            "local shell states instead."
         ),
     )
     parser.add_argument(
@@ -3341,12 +3490,24 @@ def parse_args():
         ),
     )
     parser.add_argument(
+        "--outer_shell_context_shell_prediction_weight",
+        type=float,
+        default=SHELL_CONTEXT_PREDICTION_DEFAULT_WEIGHT,
+        help=(
+            "Weight on local Gaussian objectives where each active column's "
+            "outer-shell context predicts that column's pooled hard-kernel, "
+            "inner-shell, middle-shell, and outer-shell states. A positive "
+            "weight disables the direct outer-context-to-output readout."
+        ),
+    )
+    parser.add_argument(
         "--outer_shell_context_evidence",
         action="store_true",
         help=(
             "Feed all active outer-shell context latents through one "
-            "class-width Gaussian evidence latent, then feed that latent to "
-            "the main output classifier. Requires --outer_shell_context."
+            "class-width Gaussian evidence latent. This diagnostic path no "
+            "longer feeds the main output classifier. Requires "
+            "--outer_shell_context."
         ),
     )
     parser.add_argument(

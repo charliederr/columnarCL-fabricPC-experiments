@@ -3455,3 +3455,109 @@ Expected comparison:
 - Compare `outer_shell_context_evidence_teacher_weight=0.0005` against both the no-evidence baseline and the no-teacher evidence path.
 - Prioritize main `combined` test accuracy and collapse resistance.
 - Use `outer_shell_context_evidence_only`, `column_pool_plus_outer_shell_context_evidence`, and evidence shell lesions to determine whether the class-shaped evidence route is being used by the main classifier.
+
+## 2026-07-09 Outer-Context Evidence Result and Shell-Local Correction
+
+Timestamp and machine: 2026-07-09 17:34:51 EDT on `rogdora43`.
+
+The outer-context evidence sweep gave enough evidence to reject the free class-shaped evidence route.
+
+Completed configuration:
+
+- 10 columns, 3 shared columns, 7 active non-shared columns.
+- `combiner=shell_attention`.
+- `outer_shell_context=on`.
+- `outer_shell_context_evidence=on`.
+- `outer_shell_context_evidence_teacher_weight=0.0`.
+- No backbone bypass, no column teacher energy, no shell teacher energy, and no per-column shell teacher energy.
+- `shell_lr_multipliers=1,1.5,2,3`.
+- Learning rate 0.005 for 20 epochs.
+
+Completed results:
+
+| Seed | Best validation accuracy | Best validation epoch | Test accuracy | `outer_shell_context_evidence` direct test | `outer_shell_context_evidence_only` test |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 42 | 26.72% | 17 | 26.39% | 10.00% | 10.00% |
+| 99 | 28.84% | 18 | 27.77% | 10.00% | 10.00% |
+| 7 | 26.24% | 10 | 25.18% | 10.00% | 10.00% |
+
+Aggregate result:
+
+- Mean test accuracy was 26.45%.
+- Across-seed sample standard deviation was 1.30 percentage points.
+- The prior 10-column, 3-shared, no-evidence outer-context baseline mean was 31.07%.
+- The per-seed accuracy changes versus that baseline were -6.02 percentage points for seed 42, -2.02 percentage points for seed 99, and -5.82 percentage points for seed 7.
+
+The `outer_shell_context_evidence_teacher_weight=0.0005` seed-42 run was killed before final evaluation. I am not treating it as a result.
+
+Mechanistic conclusion:
+
+- The free `outer_shell_context_evidence -> output` route did not become class-readable. `outer_shell_context_evidence` direct accuracy and `outer_shell_context_evidence_only` readout accuracy stayed at chance.
+- The combined classifier learned weakly through the larger graph, but the evidence latent did not become an independently useful predictive-coding structure.
+- Completing another long teacher-weight run would mostly test whether an auxiliary classifier can decode labels from this latent. It would not address the mechanism that failed in the completed runs.
+
+Correction implemented:
+
+- Added `ShellContextPredictionNode` in `columnar_cl_fabricpc/columns/accuracy_nodes.py`.
+- Exported `ShellContextPredictionNode` from `columnar_cl_fabricpc/columns/__init__.py`.
+- Added `--outer_shell_context_shell_prediction_weight` to `scripts/train_cifar10_depth_spanning.py`.
+- Added positional argument 20 to `scripts/run_codex_cifar10_depth_spanning.sh` for `outer_shell_context_shell_prediction_weight`.
+- Added `scripts/run_codex_shell_context_prediction_10col3shared_sweep.sh`.
+- Updated `tests/test_pooled_readout_norm.py`.
+
+New mechanism:
+
+- `ShellContextPredictionNode` is a terminal local predictive objective, not a classifier head.
+- Its `target` slot receives one pooled shell state, such as `column00_hard_kernel_pool`.
+- Its `context` slot receives the same column's outer-context latent, such as `column00_outer_shell_context`.
+- It computes a learned linear prediction from the context latent to the target shell width.
+- Its energy is `0.5 * w_shell_ctx * sum((target_shell - predicted_shell)^2)`, where `w_shell_ctx` is `outer_shell_context_shell_prediction_weight`, `target_shell` is the pooled shell vector, and `predicted_shell` is the context-derived prediction of that pooled shell vector.
+- A positive `outer_shell_context_shell_prediction_weight` disables the direct `columnXX_outer_shell_context -> output` route. In that mode, outer context predicts shell states rather than feeding class logits.
+- `outer_shell_context_evidence` no longer feeds `output`. It remains available only as a diagnostic or optional teacher target.
+- `ShellContextPredictionNode.forward_and_latent_grads` overrides FabricPC's terminal-node shortcut so the local objective contributes gradients even though the node has no downstream child.
+- Shell learning-rate multipliers apply to shell-context predictor parameters according to the target shell. A hard-kernel predictor uses the hard-kernel multiplier, and an outer-shell predictor uses the outer-shell multiplier.
+
+Diagnostics added:
+
+- `diagnose_shell_context_prediction_energies` reports mean local prediction energy by target shell.
+- When `--diagnose_shells` is enabled, the script prints shell-context prediction energy before training, after training, and for the selected checkpoint.
+- Existing shell-norm and shell-readout ablations still report collapse and class-readout dependence.
+
+Prepared experiment:
+
+- Script: `scripts/run_codex_shell_context_prediction_10col3shared_sweep.sh`.
+- Default seeds: `42`.
+- Default shell-context weights: `0.00025 0.0005 0.001`.
+- Default learning rate: 0.005.
+- Default epochs: 20.
+- Default diagnostics: `composer_shells`.
+- Architecture: 10 columns, 3 shared columns, 7 active non-shared columns, `combiner=shell_attention`, `outer_shell_context=on`, `outer_shell_context_evidence=off`, no backbone bypass, no teacher heads, and `shell_lr_multipliers=1,1.5,2,3`.
+
+Run command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_context_prediction_10col3shared_sweep.sh
+```
+
+Environment overrides:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && SEEDS="42 99 7" WEIGHTS="0.0005" bash scripts/run_codex_shell_context_prediction_10col3shared_sweep.sh
+```
+
+Verification:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py columnar_cl_fabricpc/columns/accuracy_nodes.py tests/test_pooled_readout_norm.py
+bash -n scripts/run_codex_cifar10_depth_spanning.sh
+bash -n scripts/run_codex_shell_context_prediction_10col3shared_sweep.sh
+git diff --check
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+```
+
+Verification results:
+
+- Python compile check: passed.
+- Shell syntax checks: passed.
+- `git diff --check`: passed.
+- `tests/test_pooled_readout_norm.py`: 42 passed.
