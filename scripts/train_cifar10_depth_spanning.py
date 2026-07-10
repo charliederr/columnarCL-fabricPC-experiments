@@ -2434,9 +2434,8 @@ def build_depth_spanning_graph(args):
             outer_shell_context_nodes.append(outer_context)
             for shell_pool in column_shell_pools:
                 edges.append(Edge(source=shell_pool, target=outer_context.slot("in")))
-            if args.outer_shell_context_shell_prediction_weight <= 0.0:
-                edges.append(Edge(source=outer_context, target=output.slot("in")))
-            else:
+            edges.append(Edge(source=outer_context, target=output.slot("in")))
+            if args.outer_shell_context_shell_prediction_weight > 0.0:
                 for shell_name, shell_pool in column_shell_pools_by_shell.items():
                     context_prediction = ShellContextPredictionNode(
                         shape=shell_pool.shape,
@@ -2680,11 +2679,7 @@ def train_cifar10_depth_spanning(args):
     print(f"Column shell bridge: {'enabled' if args.column_shell_bridge else 'disabled'}")
     print(f"Outer shell context: {'enabled' if args.outer_shell_context else 'disabled'}")
     if args.outer_shell_context:
-        context_readout_enabled = args.outer_shell_context_shell_prediction_weight <= 0.0
-        print(
-            "Outer shell context direct readout: "
-            f"{'enabled' if context_readout_enabled else 'disabled'}"
-        )
+        print("Outer shell context direct readout: enabled")
     print(f"Outer shell context teacher weight: {args.outer_shell_context_teacher_weight}")
     print(
         "Outer shell context shell prediction weight: "
@@ -3496,8 +3491,9 @@ def parse_args():
         help=(
             "Weight on local Gaussian objectives where each active column's "
             "outer-shell context predicts that column's pooled hard-kernel, "
-            "inner-shell, middle-shell, and outer-shell states. A positive "
-            "weight disables the direct outer-context-to-output readout."
+            "inner-shell, middle-shell, and outer-shell states. This local "
+            "objective is added alongside the direct outer-context-to-output "
+            "readout."
         ),
     )
     parser.add_argument(

@@ -1,0 +1,64 @@
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 86b7b76112aede7a453144c5bc4cf05f926882fd
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+ M scripts/run_codex_shell_context_prediction_10col3shared_sweep.sh
+ M scripts/train_cifar10_depth_spanning.py
+ M tests/test_pooled_readout_norm.py
+?? results/codex_shell_context_prediction_with_readout_10col3shared_rogdora43_20260710_141925.log
+python: /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+seeds: 42
+weights: 0.0005
+lr: 0.005
+num_epochs: 20
+diagnose_mode: composer_shells
+shell_lr_multipliers: 1,1.5,2,3
+architecture: 10 columns, 3 shared, 7 active non-shared
+combiner: shell_attention
+outer_shell_context: on
+outer_shell_context direct readout: retained
+outer_shell_context shell prediction: added local objective
+outer_shell_context_evidence: off
+started_at: 2026-07-10 14:19:25 EDT
+
+======================================================================
+Starting seed=42 shell_prediction_weight=0.0005 at 2026-07-10 14:19:25 EDT
+======================================================================
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 86b7b76112aede7a453144c5bc4cf05f926882fd
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+ M scripts/run_codex_shell_context_prediction_10col3shared_sweep.sh
+ M scripts/train_cifar10_depth_spanning.py
+ M tests/test_pooled_readout_norm.py
+?? results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0005_ocet0p0_sr0_br0_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260710_141925.log
+?? results/codex_shell_context_prediction_with_readout_10col3shared_rogdora43_20260710_141925.log
+python: /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+seed: 42
+num_columns: 10
+num_shared: 3
+active_nonshared: 7
+lr: 0.005
+shell_lr_multipliers: 1,1.5,2,3
+num_epochs: 20
+diagnose: composer_shells
+column_teacher_head: enabled
+column_teacher_weight: 0.0
+shell_teacher_weights: 0,0,0,0
+column_shell_teacher_weights: 0,0,0,0
+column_shell_readout: off
+column_shell_bridge: off
+outer_shell_context: on
+outer_shell_context_teacher_weight: 0.0
+outer_shell_context_shell_prediction_weight: 0.0005
+outer_shell_context_evidence: off
+outer_shell_context_evidence_teacher_weight: 0.0
+combiner: shell_attention
+shell_evidence_cascade: on
+shell_evidence_cascade_scale: 0.05,0.05,0.05
+shell_inhibition_strengths: 0,0.35,0.22,0.10
+readout_mode: nobypass
+[CudaDevice(id=0)]
+gpu

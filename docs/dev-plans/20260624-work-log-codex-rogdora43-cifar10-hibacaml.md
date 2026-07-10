@@ -3561,3 +3561,155 @@ Verification results:
 - Shell syntax checks: passed.
 - `git diff --check`: passed.
 - `tests/test_pooled_readout_norm.py`: 42 passed.
+
+## 2026-07-10 Shell-Local Context Prediction Sweep
+
+Timestamp and machine: 2026-07-10 11:58:56 EDT on `rogdora43`.
+
+Completed run:
+
+- Master log: `results/codex_shell_context_prediction_10col3shared_rogdora43_20260709_173846.log`.
+- Child logs:
+  - `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p00025_ocet0p0_sr0_br0_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260709_173846.log`.
+  - `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0005_ocet0p0_sr0_br0_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260709_205752.log`.
+  - `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p001_ocet0p0_sr0_br0_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260710_001612.log`.
+
+Shared configuration:
+
+- Seed 42.
+- 10 columns, 3 shared columns, 7 active non-shared columns.
+- `combiner=shell_attention`.
+- `outer_shell_context=on`.
+- `outer_shell_context_evidence=off`.
+- No backbone bypass, no column teacher energy, no shell teacher energy, and no per-column shell teacher energy.
+- `shell_lr_multipliers=1,1.5,2,3`.
+- Learning rate 0.005 for 20 epochs.
+- `w_shell_ctx` means `outer_shell_context_shell_prediction_weight`, the scalar multiplier on the local Gaussian objective where each column's outer-context latent predicts that column's pooled shell states.
+
+Results:
+
+| `w_shell_ctx` | Best validation accuracy | Best validation epoch | Test accuracy | Test `column_only` | Test `column_teacher_output` |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.00025 | 21.60% | 15 | 20.05% | 20.05% | 16.01% |
+| 0.00050 | 26.46% | 20 | 26.02% | 26.02% | 12.47% |
+| 0.00100 | 26.08% | 20 | 24.66% | 24.66% | 15.88% |
+
+Direct seed-42 comparison:
+
+| Condition | Test accuracy | Test `column_only` | Test `outer_shell_context_only` | Output sources |
+| --- | ---: | ---: | ---: | --- |
+| Prior outer-context baseline, `w_shell_ctx = 0` | 32.41% | 13.20% | 16.51% | `column_pool` plus `columnXX_outer_shell_context` |
+| Shell prediction, `w_shell_ctx = 0.00025` | 20.05% | 20.05% | not present | `column_pool` only |
+| Shell prediction, `w_shell_ctx = 0.00050` | 26.02% | 26.02% | not present | `column_pool` only |
+| Shell prediction, `w_shell_ctx = 0.00100` | 24.66% | 24.66% | not present | `column_pool` only |
+
+Shell-readout diagnostics:
+
+| `w_shell_ctx` | Test without hard kernel | Test hard kernel only | Test without inner shell | Test without middle shell | Test without outer shell | Test outer shell only |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.00025 | 10.14% | 18.10% | 19.76% | 19.33% | 20.93% | 9.43% |
+| 0.00050 | 15.03% | 22.94% | 25.00% | 21.31% | 25.74% | 8.35% |
+| 0.00100 | 11.59% | 20.63% | 22.31% | 21.12% | 21.89% | 10.00% |
+
+Shell norms and local prediction energy:
+
+- Shell L2 norms remained close to the pre-training magnitudes. This run did not show an obvious shell-norm collapse.
+- The logged weighted shell-context prediction energies printed as `0.000000` after training and at the selected checkpoint for all shells. The output precision is six decimals, so this only shows that the weighted energy was below the displayed resolution.
+- The local objective changed the representation enough to improve the `column_pool` route versus the prior seed-42 `column_only` value of 13.20%, but it did not replace the missing context readout.
+
+Mechanistic interpretation:
+
+- In the prior seed-42 outer-context baseline, the main `output` classifier received both `column_pool` and all `columnXX_outer_shell_context` latents. The combined test accuracy was 32.41%, while `column_only` was 13.20%. The context path was therefore load-bearing for the combined classifier.
+- In the shell-prediction sweep, positive `w_shell_ctx` disabled the direct `columnXX_outer_shell_context -> output` edges. The only classifier input source was `column_pool`, so `combined` and `column_only` were identical in every run.
+- The local shell-prediction objective improved the class readability of `column_pool` from 13.20% to as high as 26.02% on seed 42. That is useful evidence that the local objective affects the column representation.
+- The same local objective reduced total combined accuracy because it removed the direct context evidence used by the best seed-42 baseline. The largest completed shell-prediction result, 26.02%, remained 6.39 percentage points below the 32.41% direct-context seed-42 baseline.
+- The hard-kernel slice remained load-bearing. Removing the hard-kernel slice reduced test accuracy to 10.14%, 15.03%, and 11.59% across the three shell-prediction weights.
+
+Conclusion:
+
+The shell-local context-prediction objective should not replace the outer-context readout. The result supports using it as an added local predictive objective while retaining a direct context contribution to the main classifier.
+
+Recommended next step:
+
+Modify the graph so `outer_shell_context_shell_prediction_weight > 0` does not automatically disable `columnXX_outer_shell_context -> output`. Then run the seed-42 comparison with:
+
+- `w_shell_ctx = 0.0005`.
+- `outer_shell_context=on`.
+- Direct outer-context readout still connected to `output`.
+- `outer_shell_context_evidence=off`.
+- No teacher heads.
+- Same 10-column, 3-shared, shell-attention, `shell_lr_multipliers=1,1.5,2,3`, learning-rate 0.005, 20-epoch configuration.
+
+Alternative approaches considered:
+
+| Approach | Advantage | Reason not recommended as the immediate next step |
+| --- | --- | --- |
+| Replicate `w_shell_ctx = 0.0005` across seeds with direct context disabled | Tests whether the 26.02% seed-42 result is stable. | It is already below the direct-context seed-42 baseline by 6.39 percentage points, and the mechanism has no context readout path at `output`. |
+| Increase `w_shell_ctx` above 0.001 with direct context disabled | Tests stronger local shell prediction. | The trend peaked at 0.0005 and fell at 0.001 on seed 42. A stronger weight would still leave `output` without the context path that made the baseline work. |
+| Restore only the previous direct-context baseline | Recovers the best tested seed-42 setup. | It does not use the new evidence that shell-local prediction made `column_pool` more class-readable. |
+| Keep direct context readout and add shell-local context prediction | Preserves the load-bearing context path while adding local shell structure. | This is the recommended next mechanism to test. |
+
+## 2026-07-10 Retain Context Readout With Shell Prediction
+
+Timestamp and machine: 2026-07-10 14:18:01 EDT on `rogdora43`.
+
+Implemented the recommended correction from the shell-local context prediction sweep.
+
+Scope change:
+
+- Before this change, a positive `outer_shell_context_shell_prediction_weight` replaced the direct `columnXX_outer_shell_context -> output` readout with shell-local prediction objectives.
+- After this change, a positive `outer_shell_context_shell_prediction_weight` adds shell-local prediction objectives while retaining direct `columnXX_outer_shell_context -> output` readout.
+- This makes shell-local context prediction an additional HiBaCaML-style local objective, not a substitute for the load-bearing context evidence route.
+
+Files changed:
+
+- `scripts/train_cifar10_depth_spanning.py`.
+- `tests/test_pooled_readout_norm.py`.
+- `scripts/run_codex_shell_context_prediction_10col3shared_sweep.sh`.
+- `docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md`.
+
+Graph wiring:
+
+- `columnXX_outer_shell_context` still receives that column's pooled `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell` states.
+- `columnXX_outer_shell_context` always feeds `output` when `--outer_shell_context` is enabled.
+- When `outer_shell_context_shell_prediction_weight > 0`, each `columnXX_outer_shell_context` also feeds four `ShellContextPredictionNode` objectives, one for each target shell.
+- Each `ShellContextPredictionNode` receives one target pooled shell state and the same column's outer-context latent. The weighted local energy is `0.5 * w_shell_ctx * sum((target_shell - predicted_shell)^2)`, where `w_shell_ctx` is `outer_shell_context_shell_prediction_weight`.
+
+Script update:
+
+- `scripts/run_codex_shell_context_prediction_10col3shared_sweep.sh` now defaults to `WEIGHTS=0.0005`.
+- The master log prefix is now `codex_shell_context_prediction_with_readout_10col3shared`.
+- The script header records `outer_shell_context direct readout: retained`.
+
+Next experiment:
+
+- Seed 42.
+- `w_shell_ctx = 0.0005`.
+- 10 columns, 3 shared columns, 7 active non-shared columns.
+- `combiner=shell_attention`.
+- `outer_shell_context=on`.
+- Direct outer-context readout retained.
+- `outer_shell_context_evidence=off`.
+- No teacher heads.
+- `shell_lr_multipliers=1,1.5,2,3`.
+- Learning rate 0.005 for 20 epochs.
+
+Run command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_shell_context_prediction_10col3shared_sweep.sh
+```
+
+Verification:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+bash -n scripts/run_codex_shell_context_prediction_10col3shared_sweep.sh scripts/run_codex_cifar10_depth_spanning.sh
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+```
+
+Verification results:
+
+- Python compile check: passed.
+- Shell syntax checks: passed.
+- `tests/test_pooled_readout_norm.py`: 42 passed.

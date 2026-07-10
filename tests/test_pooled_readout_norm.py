@@ -945,7 +945,7 @@ def test_depth_spanning_graph_adds_outer_shell_context_edges() -> None:
 
 
 def test_depth_spanning_graph_adds_shell_context_prediction_objectives() -> None:
-    """Positive shell-prediction weight makes context predict shell pools."""
+    """Positive shell-prediction weight adds local objectives and keeps readout."""
     args = _tiny_depth_spanning_args(
         column_teacher_weight=0.0,
         column_shell_teacher_weights="0,0,0,0",
@@ -962,7 +962,7 @@ def test_depth_spanning_graph_adds_shell_context_prediction_objectives() -> None
 
     for column_idx in active_columns:
         context_name = outer_shell_context_node_name(column_idx)
-        assert context_name not in output_sources
+        assert context_name in output_sources
         for shell_name in SHELL_NAMES:
             prediction_name = shell_context_prediction_node_name(
                 column_idx,
