@@ -3713,3 +3713,272 @@ Verification results:
 - Python compile check: passed.
 - Shell syntax checks: passed.
 - `tests/test_pooled_readout_norm.py`: 42 passed.
+
+## 2026-07-11 Retained Context Readout Shell-Prediction Result
+
+Timestamp and machine: 2026-07-11 06:45:20 EDT on `rogdora43`.
+
+Completed run:
+
+- Master log: `results/codex_shell_context_prediction_with_readout_10col3shared_rogdora43_20260710_141925.log`.
+- Child log: `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0005_ocet0p0_sr0_br0_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260710_141925.log`.
+
+Configuration:
+
+- Seed 42.
+- 10 columns, 3 shared columns, and 7 active non-shared columns.
+- `combiner=shell_attention`.
+- `outer_shell_context=on`.
+- Direct `columnXX_outer_shell_context -> output` readout retained.
+- `outer_shell_context_evidence=off`.
+- No backbone bypass, no column teacher energy, no shell teacher energy, and no per-column shell teacher energy.
+- `w_shell_ctx = 0.0005`, where `w_shell_ctx` is `outer_shell_context_shell_prediction_weight`, the scalar multiplier on the local objective where each column's outer-context latent predicts that column's pooled shell states.
+- `shell_lr_multipliers=1,1.5,2,3`, where the four values scale parameter updates for the hard-kernel, inner-shell, middle-shell, and outer-shell slices.
+- Learning rate 0.005 for 20 epochs.
+- `diagnose_mode=composer_shells`.
+
+Primary result:
+
+| Metric | Value |
+| --- | ---: |
+| Best validation accuracy | 25.88% |
+| Best validation epoch | 5 |
+| Test accuracy | 25.93% |
+| Parameter count | 3,091,524 |
+
+Validation trajectory:
+
+| Epoch | Validation accuracy |
+| ---: | ---: |
+| 1 | 10.08% |
+| 2 | 17.50% |
+| 3 | 20.76% |
+| 4 | 25.42% |
+| 5 | 25.88% |
+| 6 | 24.20% |
+| 7 | 21.04% |
+| 8 | 13.86% |
+| 9 | 18.78% |
+| 10 | 22.12% |
+| 11 | 20.78% |
+| 12 | 14.26% |
+| 13 | 22.24% |
+| 14 | 22.62% |
+| 15 | 21.52% |
+| 16 | 22.06% |
+| 17 | 24.02% |
+| 18 | 23.56% |
+| 19 | 25.64% |
+| 20 | 25.06% |
+
+Readout ablations:
+
+| Test condition | Accuracy |
+| --- | ---: |
+| Combined `output` readout | 25.93% |
+| `column_pool` only | 11.22% |
+| Outer-shell context only | 16.33% |
+| `column_pool` plus outer-shell context | 25.93% |
+| Column teacher head | 11.66% |
+
+Outer-shell context ablations:
+
+| Test condition | Accuracy |
+| --- | ---: |
+| Outer-shell context only | 16.33% |
+| Context without hard-kernel source | 16.24% |
+| Context from hard-kernel source only | 16.65% |
+| Context without inner-shell source | 16.65% |
+| Context from inner-shell source only | 15.38% |
+| Context without middle-shell source | 16.61% |
+| Context from middle-shell source only | 16.57% |
+| Context without outer-shell source | 15.47% |
+| Context from outer-shell source only | 10.00% |
+
+Shell readout ablations:
+
+| Test condition | Accuracy |
+| --- | ---: |
+| Combined without hard kernel | 21.73% |
+| Column path without hard kernel | 10.15% |
+| Column path hard kernel only | 17.84% |
+| Combined without inner shell | 25.80% |
+| Column path without inner shell | 11.04% |
+| Column path inner shell only | 10.00% |
+| Combined without middle shell | 22.68% |
+| Column path without middle shell | 18.58% |
+| Column path middle shell only | 10.30% |
+| Combined without outer shell | 22.19% |
+| Column path without outer shell | 12.29% |
+| Column path outer shell only | 10.00% |
+
+Shell norms:
+
+| Shell | Width | Mean L2 before training | Mean L2 after training | Mean L2 at selected checkpoint |
+| --- | ---: | ---: | ---: | ---: |
+| Hard kernel | 22 | 4.6834 | 4.6897 | 4.6897 |
+| Inner shell | 7 | 2.6343 | 2.6454 | 2.6454 |
+| Middle shell | 14 | 3.7262 | 3.7409 | 3.7409 |
+| Outer shell | 21 | 4.5527 | 4.5810 | 4.5810 |
+
+Composer attention at the selected checkpoint:
+
+| Shell | Dominant column | Attention weight |
+| --- | --- | ---: |
+| Hard kernel | `col_08` | 0.988349 |
+| Inner shell | `col_01` | 0.983834 |
+| Middle shell | `col_07` | 0.984583 |
+| Outer shell | `col_01` | 0.703865 |
+
+Output edge weight norms at the selected checkpoint:
+
+| Edge source | Weight norm |
+| --- | ---: |
+| `column00_outer_shell_context` | 16.857279 |
+| `column01_outer_shell_context` | 16.961300 |
+| `column02_outer_shell_context` | 17.985710 |
+| `column03_outer_shell_context` | 15.951418 |
+| `column04_outer_shell_context` | 15.154963 |
+| `column05_outer_shell_context` | 16.288431 |
+| `column06_outer_shell_context` | 17.014477 |
+| `column07_outer_shell_context` | 17.685543 |
+| `column08_outer_shell_context` | 15.571239 |
+| `column09_outer_shell_context` | 17.397055 |
+| `column_pool` | 14.395780 |
+
+Comparison to the direct-context baseline:
+
+| Condition | Test accuracy | Test `column_pool` only | Test outer-shell context only | Best validation epoch |
+| --- | ---: | ---: | ---: | ---: |
+| Direct outer-context baseline with no shell-prediction objective | 32.41% | 13.20% | 16.51% | 20 |
+| Shell-prediction objective with direct context readout disabled | 26.02% | 26.02% | not present | 20 |
+| Shell-prediction objective with direct context readout retained | 25.93% | 11.22% | 16.33% | 5 |
+
+Interpretation:
+
+- Retaining direct outer-context readout did not recover the earlier direct-context baseline. The retained-readout run reached 25.93% test accuracy, which is 6.48 percentage points below the 32.41% direct-context seed-42 baseline.
+- Retaining direct outer-context readout also did not improve over the replacement-path shell-prediction run. The retained-readout result was 25.93%, while the replacement-path result was 26.02%.
+- The shell magnitudes did not collapse. The hard-kernel, inner-shell, middle-shell, and outer-shell mean L2 norms all stayed close to their initial magnitudes.
+- The failure looks functional rather than magnitude-based. Validation accuracy peaked at epoch 5, then varied between 13.86% and 25.64% instead of climbing toward the direct-context baseline.
+- The `column_pool` route became weak in the retained-readout run. It was 11.22%, close to random chance, while the replacement-path shell-prediction run made `column_pool` reach 26.02%.
+- The outer-shell context route stayed weak but similar to the previous baseline. It was 16.33% here versus 16.51% in the direct-context baseline.
+- The hard-kernel shell stayed load-bearing. Removing it dropped the combined readout from 25.93% to 21.73%, and the hard-kernel-only column path reached 17.84%.
+- The outer shell still does not carry class-readable evidence by itself. The outer-shell-only column path and outer-shell-only context path were both 10.00%.
+- The composer chose sparse shell ownership. One column dominated the hard kernel, one dominated the inner shell, one dominated the middle shell, and one dominated most of the outer shell. This is an architectural specialization signal, but the specialized components did not combine into a robust classifier.
+
+Mechanistic concern:
+
+`ShellContextPredictionNode` currently computes `error = target - prediction`, where `target` is a pooled shell vector from one column and `prediction` is a linear projection of the same column's outer-context latent. Its `forward_and_latent_grads` method differentiates the energy with respect to the entire input dictionary. The target shell vector and the context vector therefore both receive gradients from the local prediction energy.
+
+That gradient path makes the objective a bidirectional self-consistency pressure. It trains the context pathway to predict shell states, and it also pulls the shell states toward what the current context pathway can reconstruct. Because the outer-context latent is built from the same pooled shell states that it predicts, the current mechanism can reward low-dimensional reconstructability without necessarily preserving class-discriminative shell evidence.
+
+Recommended next step:
+
+Implement a scoped semantic correction to `ShellContextPredictionNode` before another large sweep. The node should apply `jax.lax.stop_gradient` to the target shell vector inside the shell-prediction energy. The context vector, prediction weights, and outer-context pathway would still receive gradients from the local predictive objective, while the shell target would remain a measured target for that objective. Do not preserve the current target-gradient behavior behind a long-lived fallback flag. If a bidirectional shell-prediction objective is reintroduced, it should be implemented with explicit precision-controlled error routing instead of sharing this auxiliary node's measured-target semantics.
+
+This is a diagnostic step, not a final claim about the architecture. A fully bidirectional shell-prediction objective is closer to predictive-coding inference when the prediction error is properly precision-weighted and routed through explicit error units. The current graph lacks that precision control, and the retained-readout result suggests the target-shell gradient may be overpowering class-discriminative shell organization.
+
+Proposed experiment after that change:
+
+- Run the same seed-42 retained-readout configuration.
+- Keep `w_shell_ctx = 0.0005`.
+- Use the revised measured-target shell-prediction objective.
+- Keep direct outer-context readout connected to `output`.
+- Keep `outer_shell_context_evidence=off`.
+- Keep no teacher heads.
+- Keep the 10-column, 3-shared, shell-attention, `shell_lr_multipliers=1,1.5,2,3`, learning-rate 0.005, 20-epoch configuration.
+
+Decision criterion:
+
+- If the measured-target objective recovers toward the 32.41% direct-context baseline while preserving or improving context-only accuracy, then the next architecture should add a precision-controlled version of shell prediction rather than dropping shell prediction.
+- If the measured-target objective still stays near 26%, then the failure is probably not just the shell-target gradient. The next mechanism should be leave-one-shell-out context prediction, where the context for a target shell is built from the other shells instead of from the same shell state it is asked to predict.
+
+Alternative approaches considered:
+
+| Approach | Advantage | Reason not recommended as the immediate next step |
+| --- | --- | --- |
+| Sweep smaller `w_shell_ctx` values with the current bidirectional objective | Tests whether the retained-readout failure is a precision issue. | The displayed shell-prediction energy is already below six-decimal resolution, and the current gradient path still lets the auxiliary objective reshape shell targets. |
+| Replicate the retained-readout run across seeds | Tests stability. | The seed-42 result is below both relevant comparisons, so more seeds would mostly measure a mechanism that already failed the direct check. |
+| Remove shell prediction and return to the direct-context baseline | Restores the strongest seed-42 result in this family. | It gives up the HiBaCaML-style local predictive objective before testing whether the objective is failing because of gradient routing. |
+| Change shell prediction to use a measured target with `jax.lax.stop_gradient` | Separates context-prediction learning from target-shell reshaping. | This is the recommended next diagnostic because it tests the most direct mechanism implicated by the run without adding a persistent fallback mode. |
+| Build leave-one-shell-out context prediction immediately | Avoids self-prediction from a context latent that already consumed the target shell. | It is a larger architectural change. The target-gradient diagnostic should be run first because it can identify whether the present failure is caused by target-shell gradients. |
+
+## 2026-07-11 Redirect to Stronger Column-Shell Branch
+
+Timestamp and machine: 2026-07-11 07:35:40 EDT on `rogdora43`.
+
+Direction change:
+
+- The measured-target shell-prediction diagnostic above is paused.
+- The next experiment restarts from earlier, stronger no-bypass results instead of continuing from the 25.93% retained-readout shell-prediction branch.
+- The goal is to test a more productive way to combine columns and shells without adding another auxiliary prediction objective.
+
+Earlier results being used as anchors:
+
+| Branch | Configuration summary | Best relevant result | Mechanistic note |
+| --- | --- | ---: | --- |
+| 10-column outer-context baseline | 10 columns, 3 shared columns, 7 active non-shared columns, `combiner=shell_attention`, `outer_shell_context=on`, no bypass, no teacher heads, `shell_lr_multipliers=1,1.5,2,3` | 32.41% on seed 42, three-seed mean about 31.07% | The combined classifier used `column_pool` plus direct `columnXX_outer_shell_context` inputs. |
+| Per-column shell bridge and readout branch | 4 columns, shell bridge on, per-column shell readout on, no bypass, no teacher heads | 33.62% on seed 7 | `column_shell_bridge_only` reached 28.66% while `column_pool` alone stayed at 10.00%. |
+| Shell-preserving composer branch | 4 columns, shell evidence cascade on, shell inhibition on, `combiner=shell_attention`, no bypass, no bridge/readout | 32.36% on seed 99 | The composer route itself became class-readable, with `column_only` equal to combined accuracy. |
+
+Mechanistic hypothesis:
+
+The 10-column outer-context baseline is the strongest stable no-bypass family. Its weakness is that `column_pool` alone remains weak, while the direct context inputs carry useful evidence only when combined with the composer route. The earlier shell bridge branch showed a different useful route: `column_shell_bridge`, a per-column latent fed by pooled hard-kernel, inner-shell, middle-shell, and outer-shell states, can carry class evidence even when the ordinary `column_pool` route fails.
+
+The new experiment combines these two successful mechanisms. `column_pool` is the shell-attention composer route. `columnXX_outer_shell_context` is the per-column context route from the 10-column baseline. `columnXX_shell_bridge` is the per-column shell bridge route that previously carried useful no-bypass evidence. Direct per-column shell readout is also tested because it gives each pooled shell state a direct classifier error path without adding teacher heads.
+
+Implemented script:
+
+- `scripts/run_codex_outer_context_bridge_readout_10col3shared_sweep.sh`.
+
+The script runs three seed-42 cases sequentially:
+
+| Case | `column_shell_bridge` | `column_shell_readout` | Purpose |
+| --- | --- | --- | --- |
+| `bridge_only` | on | off | Test whether the shell bridge adds useful per-column evidence to the 10-column outer-context baseline. |
+| `readout_only` | off | on | Test whether direct pooled shell readout helps when paired with the 10-column outer-context route. |
+| `bridge_plus_readout` | on | on | Test whether the earlier productive bridge/readout combination transfers to the 10-column outer-context baseline. |
+
+Shared configuration:
+
+- Seed 42.
+- Learning rate 0.005 for 20 epochs.
+- `diagnose_mode=composer_shells`.
+- 10 columns, 3 shared columns, and 7 active non-shared columns.
+- `combiner=shell_attention`.
+- `outer_shell_context=on`.
+- No bypass path.
+- No column teacher energy, no shell teacher energy, and no per-column shell teacher energy.
+- `outer_shell_context_teacher_weight=0.0`.
+- `outer_shell_context_evidence=off`.
+- `outer_shell_context_shell_prediction_weight=0.0`.
+- `shell_lr_multipliers=1,1.5,2,3`, where the four values scale parameter updates for hard-kernel, inner-shell, middle-shell, and outer-shell parameters.
+
+Run command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_outer_context_bridge_readout_10col3shared_sweep.sh
+```
+
+Environment overrides:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && SEED=99 NUM_EPOCHS=20 bash scripts/run_codex_outer_context_bridge_readout_10col3shared_sweep.sh
+```
+
+Expected analysis:
+
+- Compare each case against the seed-42 10-column outer-context baseline of 32.41%.
+- Use `column_shell_bridge_only` to determine whether the bridge path remains independently useful in the 10-column architecture.
+- Use `column_shell_readout_only` to determine whether direct shell readout helps or only adds noisy classifier inputs.
+- Use shell lesion diagnostics to determine whether hard-kernel dominance decreases and whether inner-shell, middle-shell, or outer-shell evidence becomes more retained.
+- Treat collapse resistance as primary. A case that avoids chance-level `column_pool`, bridge, or context ablations is more important than a tiny combined-accuracy change.
+
+Alternatives considered:
+
+| Approach | Advantage | Reason not chosen now |
+| --- | --- | --- |
+| Continue with shell-prediction target-gradient correction | Directly addresses the latest failed mechanism. | The user correctly redirected us toward the stronger historical branches before making more changes to the weaker branch. |
+| Replicate the 10-column outer-context baseline again | Reconfirms the current best stable no-bypass family. | The three-seed baseline already exists, and the next question is how to add a productive shell/column route to it. |
+| Add teacher heads to the stronger branch | Could make local shells more class-readable. | Previous teacher-head results often created local class signal that did not align with the main route. The next test should change routing first, not add another objective. |
+| Combine outer context with shell bridge and direct shell readout | Tests two historically useful routing mechanisms together without new auxiliary losses. | This is the chosen experiment. |
