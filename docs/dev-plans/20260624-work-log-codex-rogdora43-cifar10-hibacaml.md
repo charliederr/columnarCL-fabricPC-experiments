@@ -3982,3 +3982,115 @@ Alternatives considered:
 | Replicate the 10-column outer-context baseline again | Reconfirms the current best stable no-bypass family. | The three-seed baseline already exists, and the next question is how to add a productive shell/column route to it. |
 | Add teacher heads to the stronger branch | Could make local shells more class-readable. | Previous teacher-head results often created local class signal that did not align with the main route. The next test should change routing first, not add another objective. |
 | Combine outer context with shell bridge and direct shell readout | Tests two historically useful routing mechanisms together without new auxiliary losses. | This is the chosen experiment. |
+
+## 2026-07-12 Outer-Context Bridge/Readout Sweep Result
+
+Timestamp and machine: 2026-07-12 03:24:59 EDT on `rogdora43`.
+
+Completed run:
+
+- Master log: `results/codex_outer_context_bridge_readout_10col3shared_rogdora43_20260711_074007.log`.
+- `bridge_only` child log: `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260711_074007.log`.
+- `readout_only` child log: `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr1_br0_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260711_121029.log`.
+- `bridge_plus_readout` child log: `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr1_br1_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260711_164133.log`.
+
+Shared configuration:
+
+- Seed 42.
+- 10 columns, 3 shared columns, and 7 active non-shared columns.
+- `combiner=shell_attention`.
+- `outer_shell_context=on`, where `outer_shell_context` is a per-column latent that receives pooled hard-kernel, inner-shell, middle-shell, and outer-shell states and feeds the main `output` classifier.
+- `column_shell_bridge` varied by case, where `column_shell_bridge` is a per-column latent fed by pooled shell states and connected to the main `output` classifier.
+- `column_shell_readout` varied by case, where `column_shell_readout` means direct `columnXX_{shell}_pool -> output` edges from each pooled shell state.
+- No bypass path.
+- No column teacher energy, no shell teacher energy, and no per-column shell teacher energy.
+- `outer_shell_context_teacher_weight=0.0`.
+- `outer_shell_context_evidence=off`.
+- `outer_shell_context_shell_prediction_weight=0.0`.
+- `shell_lr_multipliers=1,1.5,2,3`, where the four values scale optimizer updates for hard-kernel, inner-shell, middle-shell, and outer-shell parameters.
+- Learning rate 0.005 for 20 epochs.
+- `diagnose_mode=composer_shells`.
+
+Primary results:
+
+| Case | `column_shell_bridge` | `column_shell_readout` | Best validation accuracy | Best validation epoch | Test accuracy |
+| --- | --- | --- | ---: | ---: | ---: |
+| Prior 10-column outer-context baseline | off | off | 32.82% | 20 | 32.41% |
+| `bridge_only` | on | off | 34.30% | 20 | 33.93% |
+| `readout_only` | off | on | 26.98% | 7 | 26.68% |
+| `bridge_plus_readout` | on | on | 19.88% | 7 | 20.28% |
+
+Validation trajectory summary:
+
+| Case | Early behavior | Late behavior |
+| --- | --- | --- |
+| `bridge_only` | Reached 29.94% validation at epoch 8. | Continued improving to 34.30% at epoch 20. |
+| `readout_only` | Reached 26.98% validation at epoch 7. | Fell to 10.48% by epoch 20. |
+| `bridge_plus_readout` | Reached 19.88% validation at epoch 7. | Stayed unstable and ended at 14.00% by epoch 20. |
+
+Readout ablations on test:
+
+| Case | Combined | `column_pool` only | Shell readout only | Shell bridge only | Outer context only | `column_pool` plus outer context |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Prior 10-column outer-context baseline | 32.41% | 13.20% | not present | not present | 16.51% | 32.41% |
+| `bridge_only` | 33.93% | 10.00% | not present | 10.00% | 10.00% | 10.00% |
+| `readout_only` | 26.68% | 10.00% | 15.77% | not present | 10.00% | 19.77% |
+| `bridge_plus_readout` | 20.28% | 10.00% | 10.00% | 10.00% | 10.00% | 10.00% |
+
+Shell lesion tests on the combined readout:
+
+| Case | Without hard kernel | Without inner shell | Without middle shell | Without outer shell |
+| --- | ---: | ---: | ---: | ---: |
+| Prior 10-column outer-context baseline | 15.56% | 22.12% | 23.93% | 21.74% |
+| `bridge_only` | 22.98% | 25.08% | 23.43% | 14.95% |
+| `readout_only` | 10.16% | 25.11% | 10.01% | 10.00% |
+| `bridge_plus_readout` | 18.92% | 16.30% | 10.16% | 10.57% |
+
+Shell norms:
+
+| Case | Hard-kernel mean L2 after training | Inner-shell mean L2 after training | Middle-shell mean L2 after training | Outer-shell mean L2 after training |
+| --- | ---: | ---: | ---: | ---: |
+| `bridge_only` | 4.6884 | 2.6428 | 3.7381 | 4.5788 |
+| `readout_only` | 4.6892 | 2.6456 | 3.7416 | 4.5824 |
+| `bridge_plus_readout` | 4.6899 | 2.6454 | 3.7412 | 4.5820 |
+
+Composer attention at the selected checkpoint:
+
+| Case | Hard-kernel owner | Inner-shell owner | Middle-shell owner | Outer-shell owner |
+| --- | --- | --- | --- | --- |
+| `bridge_only` | `col_09` at 0.990800 | `col_01` at 0.996494 | `col_03` at 0.998733 | `col_04` at 0.999713 |
+| `readout_only` | `col_03` at 0.985626 | `col_07` at 0.989531 | `col_03` at 0.994776 | `col_03` at 0.998020 |
+| `bridge_plus_readout` | `col_00` at 0.919298 | `col_02` at 0.890878 | `col_03` at 0.991923 | `col_00` at 0.997665 |
+
+Interpretation:
+
+- `bridge_only` is the best seed-42 result in the current no-bypass 10-column family. It improved over the prior seed-42 10-column outer-context baseline by 1.52 percentage points, from 32.41% to 33.93%.
+- `bridge_only` did not show magnitude collapse. The shell L2 norms stayed close to the pre-training values, and validation accuracy improved through epoch 20.
+- `bridge_only` did not make the shell bridge independently class-readable. `column_shell_bridge_only`, `outer_shell_context_only`, `column_pool` only, and `column_pool` plus outer context were all at chance on test.
+- The useful signal in `bridge_only` appears to be a joint readout interaction among `column_pool`, `columnXX_outer_shell_context`, and `columnXX_shell_bridge`. The current ablations do not yet include pairwise `outer_shell_context plus shell_bridge` or "combined without one readout family" cases, so this mechanism cannot be fully localized from the existing diagnostics.
+- Direct shell readout was harmful in this 10-column outer-context setting. `readout_only` peaked at epoch 7 and collapsed toward chance by epoch 20, and `bridge_plus_readout` was worse than either `bridge_only` or `readout_only`.
+- The direct shell readout edges created some isolated shell evidence in `readout_only`: `column_shell_readout_hard_kernel_only` reached 19.55% and `column_shell_readout_inner_shell_only` reached 17.85% on test. That isolated evidence did not coordinate with the main combined classifier.
+- The outer shell is load-bearing in `bridge_only`. Removing it dropped test accuracy from 33.93% to 14.95%, while removing hard kernel, inner shell, or middle shell left 22.98%, 25.08%, and 23.43% respectively.
+- This differs from the prior 10-column outer-context baseline, where removing the hard kernel was the most damaging lesion. The bridge-only result therefore looks like a real shift toward outer-shell participation.
+
+Conclusion:
+
+The productive branch is `column_shell_bridge=on` with `column_shell_readout=off`, not direct pooled-shell readout. The result supports the idea that a per-column shell-preserving bridge can improve the 10-column outer-context architecture, but only as part of the full predictive-coding readout graph. Direct shell readout should not be added to this branch unless its classifier pressure is redesigned.
+
+Recommended next step:
+
+Run a two-seed replicate of the `bridge_only` condition using the existing wrapper, with seeds 99 and 7. This tests whether the 33.93% seed-42 gain is stable across seeds before changing code. The important metrics are combined test accuracy, validation trajectory, `column_shell_bridge_only`, `outer_shell_context_only`, `column_pool` only, and shell lesion effects.
+
+Commands:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_cifar10_depth_spanning.sh 99 0.005 composer_shells 20 0.0 0,0,0,0 nobypass 0,0,0,0 off on shell_attention on 10 3 7 1,1.5,2,3 0.0 off 0.0 0.0
+```
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_cifar10_depth_spanning.sh 7 0.005 composer_shells 20 0.0 0,0,0,0 nobypass 0,0,0,0 off on shell_attention on 10 3 7 1,1.5,2,3 0.0 off 0.0 0.0
+```
+
+Possible code change after the replicate:
+
+If `bridge_only` is stable across seeds, add readout-family lesion diagnostics rather than changing architecture first. The missing diagnostics are `combined_without_column_pool`, `combined_without_outer_shell_context`, `combined_without_column_shell_bridge`, and the pairwise combinations `column_pool_plus_shell_bridge`, `outer_shell_context_plus_shell_bridge`, and `column_pool_plus_outer_shell_context`. The goal would be to localize the joint interaction that made `bridge_only` work.
