@@ -4094,3 +4094,217 @@ cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_
 Possible code change after the replicate:
 
 If `bridge_only` is stable across seeds, add readout-family lesion diagnostics rather than changing architecture first. The missing diagnostics are `combined_without_column_pool`, `combined_without_outer_shell_context`, `combined_without_column_shell_bridge`, and the pairwise combinations `column_pool_plus_shell_bridge`, `outer_shell_context_plus_shell_bridge`, and `column_pool_plus_outer_shell_context`. The goal would be to localize the joint interaction that made `bridge_only` work.
+
+## 2026-07-12 Bridge-Only Replicate Runner
+
+Timestamp and machine: 2026-07-12 03:29:25 EDT on `rogdora43`.
+
+Prepared the approved two-seed replicate for the successful `bridge_only` condition.
+
+Script:
+
+- `scripts/run_codex_outer_context_bridge_only_10col3shared_replicate.sh`.
+
+This script does not change the training graph or model code. It runs the existing `scripts/run_codex_cifar10_depth_spanning.sh` wrapper twice, once for seed 99 and once for seed 7.
+
+Configuration:
+
+- 10 columns, 3 shared columns, and 7 active non-shared columns.
+- `combiner=shell_attention`.
+- `outer_shell_context=on`.
+- `column_shell_bridge=on`.
+- `column_shell_readout=off`.
+- No bypass path.
+- No column teacher energy, no shell teacher energy, and no per-column shell teacher energy.
+- `outer_shell_context_teacher_weight=0.0`.
+- `outer_shell_context_evidence=off`.
+- `outer_shell_context_shell_prediction_weight=0.0`.
+- `shell_lr_multipliers=1,1.5,2,3`.
+- Learning rate 0.005 for 20 epochs.
+- `diagnose_mode=composer_shells`.
+
+Run command:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_outer_context_bridge_only_10col3shared_replicate.sh
+```
+
+Optional single-seed override:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && SEEDS=99 bash scripts/run_codex_outer_context_bridge_only_10col3shared_replicate.sh
+```
+
+Expected outputs:
+
+- A master log named `results/codex_outer_context_bridge_only_10col3shared_replicate_<host>_<timestamp>.log`.
+- One child training log per seed from `scripts/run_codex_cifar10_depth_spanning.sh`.
+
+Interpretation plan after completion:
+
+- Compare seeds 99 and 7 to the seed-42 `bridge_only` result of 33.93%.
+- Check whether validation improves through late epochs or collapses after an early peak.
+- Check whether the outer-shell lesion remains large.
+- Check whether all single-route readout ablations remain chance-level, which would support the current hypothesis that the useful signal is a joint route interaction.
+
+## 2026-07-12 Bridge-Only Replicate Result
+
+Timestamp and machine: 2026-07-12 12:55 EDT on `rogdora43`.
+
+Completed logs:
+
+- Master log: `results/codex_outer_context_bridge_only_10col3shared_replicate_rogdora43_20260712_033022.log`.
+- Seed 99 child log: `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed99_lr0p005_ep20_composer_shells_rogdora43_20260712_033022.log`.
+- Seed 7 child log: `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed7_lr0p005_ep20_composer_shells_rogdora43_20260712_080455.log`.
+
+Configuration:
+
+- 10 columns, 3 shared columns, 7 active non-shared columns.
+- `combiner=shell_attention`.
+- `outer_shell_context=on`.
+- `column_shell_bridge=on`.
+- `column_shell_readout=off`.
+- No bypass path.
+- No column teacher energy, no shell teacher energy, and no per-column shell teacher energy.
+- `outer_shell_context_teacher_weight=0.0`.
+- `outer_shell_context_evidence=off`.
+- `outer_shell_context_shell_prediction_weight=0.0`.
+- `shell_lr_multipliers=1,1.5,2,3`, where the four values scale optimizer updates for hard-kernel, inner-shell, middle-shell, and outer-shell parameters.
+- Learning rate 0.005 for 20 epochs.
+
+Accuracy results:
+
+| Seed | Best validation accuracy | Best validation epoch | Test accuracy | Validation trajectory |
+| ---: | ---: | ---: | ---: | --- |
+| 42 | 34.30% | 20 | 33.93% | Improved through epoch 20. |
+| 99 | 33.96% | 20 | 33.62% | Improved through epoch 20. |
+| 7 | 30.90% | 19 | 29.91% | Weaker than seeds 42 and 99, but did not collapse to chance. |
+
+The three-seed mean test accuracy is 32.49%. The 10-column direct outer-context baseline recorded earlier had a three-seed mean of about 31.07%, so the shell bridge added about 1.42 percentage points on this matched family.
+
+Test readout ablations:
+
+| Seed | Combined | `column_pool` only | `column_shell_bridge` only | `column_pool` plus shell bridge | Outer context only | `column_pool` plus outer context |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 42 | 33.93% | 10.00% | 10.00% | not logged | 10.00% | 10.00% |
+| 99 | 33.62% | 10.00% | 10.00% | 10.00% | 10.00% | 10.00% |
+| 7 | 29.91% | 10.00% | 10.00% | 10.00% | 10.00% | 10.00% |
+
+The signal remains a full-readout interaction. None of the currently logged single-route or partially combined routes can classify CIFAR-10 above chance. The missing diagnostic pair is `outer_shell_context plus column_shell_bridge`, and the missing family-removal tests are `combined_without_column_pool`, `combined_without_outer_shell_context`, and `combined_without_column_shell_bridge`.
+
+Test shell lesion results:
+
+| Seed | Combined | Without hard kernel | Without inner shell | Without middle shell | Without outer shell |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 42 | 33.93% | 22.98% | 25.08% | 23.43% | 14.95% |
+| 99 | 33.62% | 11.65% | 17.53% | 12.55% | 23.64% |
+| 7 | 29.91% | 13.08% | 24.62% | 13.18% | 10.00% |
+
+Across the three seeds, hard kernel, middle shell, and outer shell are all load-bearing. The mean lesion accuracies are:
+
+| Lesion | Mean accuracy | Mean drop from combined mean |
+| --- | ---: | ---: |
+| Without hard kernel | 15.90% | 16.59 percentage points |
+| Without inner shell | 22.41% | 10.08 percentage points |
+| Without middle shell | 16.39% | 16.10 percentage points |
+| Without outer shell | 16.20% | 16.29 percentage points |
+
+Shell norms after training:
+
+| Seed | Hard-kernel mean L2 | Inner-shell mean L2 | Middle-shell mean L2 | Outer-shell mean L2 |
+| ---: | ---: | ---: | ---: | ---: |
+| 42 | 4.6884 | 2.6428 | 3.7381 | 4.5788 |
+| 99 | 4.6890 | 2.6438 | 3.7375 | 4.5747 |
+| 7 | 4.6883 | 2.6426 | 3.7375 | 4.5776 |
+
+The shell magnitudes are almost identical across seeds, so seed 7's weaker accuracy is not a magnitude-collapse failure.
+
+Composer attention owners:
+
+| Seed | Hard-kernel owner | Inner-shell owner | Middle-shell owner | Outer-shell owner |
+| ---: | --- | --- | --- | --- |
+| 42 | `col_09` at 0.990800 | `col_01` at 0.996494 | `col_03` at 0.998733 | `col_04` at 0.999713 |
+| 99 | `col_07` at 0.999668 | `col_04` at 0.999369 | `col_00` at 0.999331 | `col_09` at 0.993876 |
+| 7 | `col_03` at 0.999571 | `col_05` at 0.998728 | `col_01` at 0.999654 | `col_02` at 0.999994 |
+
+Interpretation:
+
+- The `bridge_only` branch replicated. Seeds 42 and 99 were almost identical, and seed 7 remained well above chance.
+- The branch is still not robust enough for the intended CIFAR-10 goal. A three-seed mean of 32.49% is an improvement over the prior no-bypass 10-column family, but it is far below the earlier bypass result and below ordinary CIFAR-10 classification quality.
+- The useful mechanism is still hidden in the full readout graph. `column_pool`, `column_shell_bridge`, and `outer_shell_context` do not classify alone or in the currently tested pairs.
+- The shell lesion results are more encouraging than the route ablations. Hard kernel, middle shell, and outer shell all matter across seeds, which means the classifier depends on the radial shell structure rather than using only one slice.
+- The composer is effectively choosing one column per shell. This is sparse in practice, but it is not the paper's top-level support controller. The selected shell owners differ by seed, which suggests the model finds different local decompositions without a support teacher or certificate channel.
+
+Conclusion:
+
+`column_shell_bridge=on`, `outer_shell_context=on`, and `column_shell_readout=off` should remain the current best no-bypass 10-column branch. The result supports continuing with shell-preserving routing, but the next change should measure the route interaction explicitly before adding new objectives or changing shell dynamics.
+
+Recommended next step:
+
+Add readout-family lesion diagnostics to `scripts/train_cifar10_depth_spanning.py`:
+
+- `combined_without_column_pool`.
+- `combined_without_outer_shell_context`.
+- `combined_without_column_shell_bridge`.
+- `outer_shell_context_plus_column_shell_bridge`.
+- Keep existing `column_pool_plus_shell_bridge` and `column_pool_plus_outer_shell_context`.
+
+This is not an architectural change. It is a measurement change that should reveal whether the class signal is carried by the pair of context and bridge routes or only by the full three-route interaction. After that diagnostic, the next architectural step can be chosen more safely.
+
+## 2026-07-12 Readout-Family Lesion Diagnostics
+
+Timestamp and machine: 2026-07-12 13:10 EDT on `rogdora43`.
+
+Implemented the recommended measurement change. No training graph, loss, optimizer, or model-path topology was changed. The implementation only expands the source sets evaluated by `evaluate_readout_ablations()` after a checkpoint has already been selected.
+
+Files changed:
+
+- `scripts/train_cifar10_depth_spanning.py`.
+- `tests/test_pooled_readout_norm.py`.
+
+Mechanism:
+
+- Added `build_readout_ablation_cases(structure)`, where `structure` is the FabricPC `GraphStructure` containing output input edges.
+- `build_readout_ablation_cases()` returns named source-node sets for the `output` classifier.
+- `evaluate_readout_ablations()` now iterates over that helper and still uses `mask_output_input_sources()` to create copied parameter trees for evaluation.
+- `mask_output_input_sources()` zeroes dropped `output` edge weights in the copied parameter tree. It does not remove nodes, remove edges, alter inference, alter training, or alter the selected checkpoint.
+
+New diagnostic cases:
+
+- `combined_without_column_pool`: keeps every `output` input except `column_pool`.
+- `combined_without_column_shell_bridge`: keeps every `output` input except all `columnXX_shell_bridge` sources.
+- `combined_without_outer_shell_context`: keeps every `output` input except all `columnXX_outer_shell_context` sources.
+- `outer_shell_context_plus_column_shell_bridge`: keeps the `columnXX_outer_shell_context` and `columnXX_shell_bridge` source families while dropping `column_pool` and any other output routes.
+
+Existing pairwise cases kept:
+
+- `column_pool_plus_shell_bridge`.
+- `column_pool_plus_outer_shell_context`.
+
+Added test:
+
+- `test_build_readout_ablation_cases_includes_family_lesions()` builds a small graph with `column_shell_bridge=on`, `outer_shell_context=on`, and `bypass_columns=False`, then verifies that each new case keeps exactly the intended source-node family.
+
+Validation:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+```
+
+Result:
+
+- 43 passed in 13.28 seconds.
+
+Recommended experiment:
+
+Run the current best diagnostic branch once with seed 42 so the new readout-family cases appear in both validation and test reports:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_cifar10_depth_spanning.sh 42 0.005 composer_shells 20 0.0 0,0,0,0 nobypass 0,0,0,0 off on shell_attention on 10 3 7 1,1.5,2,3 0.0 off 0.0 0.0
+```
+
+Interpretation target:
+
+- If `outer_shell_context_plus_column_shell_bridge` is above chance, then the useful signal can flow through the two per-column context/bridge routes without `column_pool`.
+- If only `combined` is above chance, then `column_pool`, `columnXX_outer_shell_context`, and `columnXX_shell_bridge` form a three-route interaction.
+- If `combined_without_column_pool` is strong but `outer_shell_context_plus_column_shell_bridge` is weak, then another output family is involved and the diagnostic should be expanded before changing the architecture.

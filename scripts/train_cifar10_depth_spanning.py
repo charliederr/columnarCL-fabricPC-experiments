@@ -1099,27 +1099,23 @@ def mask_output_source_feature_slice(
     return params._replace(nodes={**params.nodes, "output": masked_output})
 
 
-def evaluate_readout_ablations(
-    params: GraphParams,
+def build_readout_ablation_cases(
     structure: GraphStructure,
-    loader,
-    config: dict,
-    rng_key: jax.Array,
-) -> Dict[str, Dict[str, float]]:
+) -> List[Tuple[str, Tuple[str, ...]]]:
     """
-    Evaluate classifier readout paths by masking output input edges.
+    Build classifier readout source sets for output-edge ablations.
 
-    The `combined` case evaluates the trained parameters. `column_only` keeps
-    the pooled column readout edge. `bypass_only` keeps the direct backbone
-    bypass edge when that edge exists.
+    Each case is a tuple of `case_name` and source-node names to keep at the
+    `output` classifier. Evaluation masks all other output input edges.
     """
     edge_sources = output_input_edge_sources(structure)
     column_source = "column_pool"
     if column_source not in edge_sources:
         raise ValueError("Readout ablations require the column_pool edge")
 
+    all_sources = tuple(edge_sources.keys())
     cases: List[Tuple[str, Tuple[str, ...]]] = [
-        ("combined", tuple(edge_sources.keys())),
+        ("combined", all_sources),
     ]
     column_shell_sources = tuple(
         sorted(source for source in edge_sources if is_column_shell_pool_node(source))
@@ -1137,19 +1133,34 @@ def evaluate_readout_ablations(
             if is_outer_shell_context_evidence_node(source)
         )
     )
-    if column_source in edge_sources:
-        cases.append(("column_only", (column_source,)))
+
+    def without_sources(dropped_sources: Tuple[str, ...]) -> Tuple[str, ...]:
+        dropped = set(dropped_sources)
+        return tuple(source for source in all_sources if source not in dropped)
+
+    cases.append(("column_only", (column_source,)))
+    if len(all_sources) > 1:
+        cases.append(
+            (
+                "combined_without_column_pool",
+                without_sources((column_source,)),
+            )
+        )
     if column_shell_sources:
         cases.append(("column_shell_readout_only", column_shell_sources))
-    if column_source in edge_sources and column_shell_sources:
         cases.append(
             ("column_pool_plus_shell_readout", (column_source, *column_shell_sources))
         )
     if column_shell_bridge_sources:
         cases.append(("column_shell_bridge_only", column_shell_bridge_sources))
-    if column_source in edge_sources and column_shell_bridge_sources:
         cases.append(
             ("column_pool_plus_shell_bridge", (column_source, *column_shell_bridge_sources))
+        )
+        cases.append(
+            (
+                "combined_without_column_shell_bridge",
+                without_sources(column_shell_bridge_sources),
+            )
         )
     if column_shell_sources and column_shell_bridge_sources:
         cases.append(
@@ -1160,11 +1171,23 @@ def evaluate_readout_ablations(
         )
     if outer_shell_context_sources:
         cases.append(("outer_shell_context_only", outer_shell_context_sources))
-    if column_source in edge_sources and outer_shell_context_sources:
         cases.append(
             (
                 "column_pool_plus_outer_shell_context",
                 (column_source, *outer_shell_context_sources),
+            )
+        )
+        cases.append(
+            (
+                "combined_without_outer_shell_context",
+                without_sources(outer_shell_context_sources),
+            )
+        )
+    if column_shell_bridge_sources and outer_shell_context_sources:
+        cases.append(
+            (
+                "outer_shell_context_plus_column_shell_bridge",
+                (*outer_shell_context_sources, *column_shell_bridge_sources),
             )
         )
     if outer_shell_context_evidence_sources:
@@ -1174,7 +1197,6 @@ def evaluate_readout_ablations(
                 outer_shell_context_evidence_sources,
             )
         )
-    if column_source in edge_sources and outer_shell_context_evidence_sources:
         cases.append(
             (
                 "column_pool_plus_outer_shell_context_evidence",
@@ -1191,8 +1213,25 @@ def evaluate_readout_ablations(
     if "bypass_pool" in edge_sources:
         cases.append(("bypass_only", ("bypass_pool",)))
 
+    return cases
+
+
+def evaluate_readout_ablations(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Evaluate classifier readout paths by masking output input edges.
+
+    The `combined` case evaluates the trained parameters. `column_only` keeps
+    the pooled column readout edge. `bypass_only` keeps the direct backbone
+    bypass edge when that edge exists.
+    """
     results = {}
-    for case_name, kept_sources in cases:
+    for case_name, kept_sources in build_readout_ablation_cases(structure):
         case_params = (
             params
             if case_name == "combined"

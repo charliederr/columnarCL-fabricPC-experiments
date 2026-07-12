@@ -35,6 +35,7 @@ from scripts.train_cifar10_depth_spanning import (
     apply_shell_lr_multipliers,
     build_shell_lr_multiplier_tree,
     build_depth_spanning_graph,
+    build_readout_ablation_cases,
     column_shell_bridge_node_name,
     column_shell_pool_node_name,
     column_shell_slice_node_name,
@@ -1191,6 +1192,43 @@ def test_mask_output_input_sources_zeroes_only_dropped_edges() -> None:
     assert jnp.allclose(
         masked.nodes["output"].weights[bypass_edge],
         jnp.zeros_like(params.nodes["output"].weights[bypass_edge]),
+    )
+
+
+def test_build_readout_ablation_cases_includes_family_lesions() -> None:
+    """Readout ablation cases include bridge/context family interactions."""
+    args = _tiny_depth_spanning_args(
+        bypass_columns=False,
+        column_shell_bridge=True,
+        outer_shell_context=True,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+    output_sources = output_input_edge_sources(structure)
+    all_sources = set(output_sources)
+    bridge_sources = {
+        column_shell_bridge_node_name(column_idx) for column_idx in active_columns
+    }
+    context_sources = {
+        outer_shell_context_node_name(column_idx) for column_idx in active_columns
+    }
+    cases = dict(build_readout_ablation_cases(structure))
+
+    assert set(cases["combined_without_column_pool"]) == all_sources - {"column_pool"}
+    assert set(cases["combined_without_column_shell_bridge"]) == (
+        all_sources - bridge_sources
+    )
+    assert set(cases["combined_without_outer_shell_context"]) == (
+        all_sources - context_sources
+    )
+    assert set(cases["outer_shell_context_plus_column_shell_bridge"]) == (
+        context_sources | bridge_sources
+    )
+    assert set(cases["column_pool_plus_shell_bridge"]) == (
+        {"column_pool"} | bridge_sources
+    )
+    assert set(cases["column_pool_plus_outer_shell_context"]) == (
+        {"column_pool"} | context_sources
     )
 
 

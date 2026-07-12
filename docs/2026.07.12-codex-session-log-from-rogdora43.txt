@@ -1,0 +1,261 @@
+
+• The replicate runner is added. I’m making it executable, then I’ll update the work log with the exact command and expected outputs.
+
+• Ran chmod +x scripts/run_codex_outer_context_bridge_only_10col3shared_replicate.sh
+  └ (no output)
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Now I’ll append a short work-log entry noting that the replicate script is ready and that it does not change the training graph or architecture.
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z'
+  └ 2026-07-12 03:29:25 EDT
+
+• Ran hostname
+  └ rogdora43
+
+• Explored
+  └ Read run_codex_outer_context_bridge_only_10col3shared_replicate.sh
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The script is narrow and only runs the two approved seeds. I’m updating the log entry now.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+52 -0)
+    4096  If `bridge_only` is stable across seeds, add readout-family lesion diagnostics rather than changing architecture first. The missing diagnos
+          tics are `combined_without_column_pool`, `combined_without_outer_shell_context`, `combined_without_column_shell_bridge`, and the pairwise c
+          ombinations `column_pool_plus_shell_bridge`, `outer_shell_context_plus_shell_bridge`, and `column_pool_plus_outer_shell_context`. The goal
+          would be to localize the joint interaction that made `bridge_only` work.
+    4097 +
+    4098 +## 2026-07-12 Bridge-Only Replicate Runner
+    4099 +
+    4100 +Timestamp and machine: 2026-07-12 03:29:25 EDT on `rogdora43`.
+    4101 +
+    4102 +Prepared the approved two-seed replicate for the successful `bridge_only` condition.
+    4103 +
+    4104 +Script:
+    4105 +
+    4106 +- `scripts/run_codex_outer_context_bridge_only_10col3shared_replicate.sh`.
+    4107 +
+    4108 +This script does not change the training graph or model code. It runs the existing `scripts/run_codex_cifar10_depth_spanning.sh` wrapper tw
+          ice, once for seed 99 and once for seed 7.
+    4109 +
+    4110 +Configuration:
+    4111 +
+    4112 +- 10 columns, 3 shared columns, and 7 active non-shared columns.
+    4113 +- `combiner=shell_attention`.
+    4114 +- `outer_shell_context=on`.
+    4115 +- `column_shell_bridge=on`.
+    4116 +- `column_shell_readout=off`.
+    4117 +- No bypass path.
+    4118 +- No column teacher energy, no shell teacher energy, and no per-column shell teacher energy.
+    4119 +- `outer_shell_context_teacher_weight=0.0`.
+    4120 +- `outer_shell_context_evidence=off`.
+    4121 +- `outer_shell_context_shell_prediction_weight=0.0`.
+    4122 +- `shell_lr_multipliers=1,1.5,2,3`.
+    4123 +- Learning rate 0.005 for 20 epochs.
+    4124 +- `diagnose_mode=composer_shells`.
+    4125 +
+    4126 +Run command:
+    4127 +
+    4128 +```bash
+    4129 +cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_outer_context_bridge_only_10col3shared_replicate.sh
+    4130 +```
+    4131 +
+    4132 +Optional single-seed override:
+    4133 +
+    4134 +```bash
+    4135 +cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && SEEDS=99 bash scripts/run_codex_outer_context_bridge_only_10col3shared_replicate.s
+          h
+    4136 +```
+    4137 +
+    4138 +Expected outputs:
+    4139 +
+    4140 +- A master log named `results/codex_outer_context_bridge_only_10col3shared_replicate_<host>_<timestamp>.log`.
+    4141 +- One child training log per seed from `scripts/run_codex_cifar10_depth_spanning.sh`.
+    4142 +
+    4143 +Interpretation plan after completion:
+    4144 +
+    4145 +- Compare seeds 99 and 7 to the seed-42 `bridge_only` result of 33.93%.
+    4146 +- Check whether validation improves through late epochs or collapses after an early peak.
+    4147 +- Check whether the outer-shell lesion remains large.
+    4148 +- Check whether all single-route readout ablations remain chance-level, which would support the current hypothesis that the useful signal i
+          s a joint route interaction.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll run syntax and diff checks now. I’m not starting the multi-hour training run inside Codex, so you can run it where the GPU is visible.
+
+• Ran bash -n scripts/run_codex_outer_context_bridge_only_10col3shared_replicate.sh scripts/run_codex_cifar10_depth_spanning.sh
+  └ (no output)
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git diff --stat
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md | 52 ++++++++++++++++++++++
+     1 file changed, 52 insertions(+)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    ?? scripts/run_codex_outer_context_bridge_only_10col3shared_replicate.sh
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The checks passed. I’m grabbing line references for the new script and log entry so the final response is precise.
+
+• Explored
+  └ Search Bridge-Only Replicate Runner|Run command:|Interpretation plan after completion in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    Read run_codex_outer_context_bridge_only_10col3shared_replicate.sh
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Prepared the approved bridge-only replicate runner and updated the work log. I did not start the multi-hour training run inside Codex.
+
+  New script: columnarCL-fabricPC-experiments/scripts/run_codex_outer_context_bridge_only_10col3shared_replicate.sh:1
+
+  Work-log entry: columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:4098
+
+  Run it with:
+
+  cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_outer_context_bridge_only_10col3shared_replicate.sh
+
+  It runs seeds 99 and 7 for the successful bridge_only condition. Syntax and whitespace checks passed.
+
+─ Worked for 1m 35s ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Thank you. I've started this run. While it executes, please explain to me what is being "left out" of the algorithmic pipeline in terms of
+  specific recommendations from the guiding paper we're using on columnar coding.
+
+
+• I’ll ground this against the actual HiBaCaML PDF and the current architecture notes, then map paper mechanisms to what our training pipeline
+  currently does and does not implement. No code changes.
+
+• Ran ls -l /home/ni/repos/fpc/hibacaml_agi26.pdf && file /home/ni/repos/fpc/hibacaml_agi26.pdf
+  └ -rw-r--r--. 1 ni ni 368508 May  2 13:24 /home/ni/repos/fpc/hibacaml_agi26.pdf
+    /home/ni/repos/fpc/hibacaml_agi26.pdf: PDF document, version 1.5
+
+• Ran which pdftotext || true
+  └ /usr/bin/pdftotext
+
+• Explored
+  └ Search HiBaCaML|hibacaml|B, K, L|B/K/L|shell|column|pyramid|skip|predictive|architecture in dev-plans
+    List fpc
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I found pdftotext, so I’m extracting the PDF to temporary text and searching it directly. I’ll keep the final answer as a mechanism map: paper
+  recommendation, what we implemented, and what is still absent.
+
+• Ran pdftotext -layout /home/ni/repos/fpc/hibacaml_agi26.pdf /tmp/hibacaml_agi26.txt && wc -l /tmp/hibacaml_agi26.txt && sed -n '1,120p' /tmp/
+  │ hibacaml_agi26.txt
+  └ 694 /tmp/hibacaml_agi26.txt
+     Hierarchical Bayesian Causal Modular Learning:
+    … +117 lines (ctrl + t to view transcript)
+    with smooth tangential maps and abrupt vertical coherence.
+        It is important for the design of brain-inspired architectures that this picture,
+
+• Context compacted
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll compare the paper’s mechanisms against the current implementation rather than just listing missing features. I’m going to pull the relevant
+  paper passages and code points so the answer is grounded in the actual pipeline.
+
+• Explored
+  └ Search Split-CIFAR|CIFAR|one-swap|certificate|selector|support|hard kernel|shell|microcolumn|Rao|Bayes|posterior|entropy|sparse|controller|task|
+           context|40 columns|k_active in hibacaml_agi26.txt
+    Search class DepthSpanningColumnNode|SHELL_NAMES|shell_evidence_cascade|ColumnShellComposerNode|ShellContextPredictionNode|outer_shell_context|
+           column_shell_bridge|column_shell_readout|column_mode|select_active_columns|num_columns|one_swap|teacher|certificate|context in scripts
+    Read codex-architechture-review-2026.07.01.md
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I have the paper’s relevant passages now. I’m checking the current implementation at the node level so I can distinguish “not implemented” from
+  “implemented in a simplified form.”
+
+• Explored
+  └ Search SHELL_NAMES|shell_slices|class DepthSpanningColumnNode|class DepthSpanningColumnParams|shell_path_scale|evidence_cascade|inhibition|K|L|B|
+           forward\( in depth_spanning_column.py
+    Read hibacaml_agi26.txt
+    Search class ColumnShellComposerNode|class ShellContextPredictionNode|column_shell_bridge|outer_shell_context|column_shell_readout|forward\( in
+           accuracy_nodes.py
+    Read hibacaml_agi26.txt
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The main gap is not that the current code lacks columns or shells; it has those. The gap is that several paper mechanisms that decide which columns
+  should be used, what should be consolidated, and what should be protected are still represented only as fixed architecture or diagnostics.
+
+• Explored
+  └ Read depth_spanning_column.py, accuracy_nodes.py, train_cifar10_depth_spanning.py, hibacaml_agi26.txt
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Assuming the run is the current 10-column bridge-only path, the largest thing being left out is the paper’s controller/certificate loop. We have a
+  predictive-coding column substrate, but we do not yet have the full HiBaCaML algorithm that decides which columns should participate, which
+  internal material should be protected, and which shell content should move inward or outward.
+
+  Current Pipeline
+  The code currently does this:
+
+  image -> predictive-coding ResNet backbone -> stage taps -> fixed active columns -> K/L/B shell computation -> shell-preserving composer plus
+  bridge/context paths -> CIFAR-10 output
+
+  The implemented column mechanics are real: hard_kernel, inner_shell, middle_shell, and outer_shell slices are defined in columnarCL-fabricPC-
+  experiments/columnar_cl_fabricpc/columns/depth_spanning_column.py:77, and each column has K, L, and B pathways in columnarCL-fabricPC-experiments/
+  columnar_cl_fabricpc/columns/depth_spanning_column.py:264. The shell-preserving composer is in columnarCL-fabricPC-experiments/
+  columnar_cl_fabricpc/columns/accuracy_nodes.py:428. The outer-shell context and shell bridge readout paths are wired in columnarCL-fabricPC-
+  experiments/scripts/train_cifar10_depth_spanning.py:2371.
+
+  What Is Left Out
+
+  1. Top-level probabilistic controller.
+     The paper’s Psi is the top-level controller that selects the active support S_t, meaning the subset of columns used for context or task t. We
+     currently use a fixed support mask from command-line settings. The composer masks and attends over whatever columns are already active; it does
+     not choose a support by evidence, context, or certificates.
+
+  2. Teacher-first one-swap support search.
+     The paper’s teacher T is a counterfactual evaluator: it tries swaps such as “remove active column a_out, add inactive column a_in,” measures an
+     audited objective, and accepts the swap only if it improves. Our “teacher” heads are auxiliary class losses, not counterfactual support
+     teachers.
+
+  3. Internal certificates.
+     The paper wants each column to emit certificate values such as shared-abstraction mass, specificity load, saturation pressure, demotion
+     pressure, and similarity signatures. We log shell norms, lesions, attention weights, and route ablations, but those diagnostics are not emitted
+     as a certificate vector and are not used by a controller.
+
+  4. True hard-kernel protection.
+     We have a hard_kernel feature slice. We do not yet make it non-prunable, freeze it after consolidation, protect it with posterior precision, or
+     require stronger evidence before it changes. It is still trainable ordinary model state.
+
+  5. Promotion, demotion, and pruning.
+     The paper’s radial shell semantics require outer-to-inner promotion when content becomes reusable, inner-to-outer demotion when content becomes
+     task-local or stale, and outside-in pruning. We have same-tier inhibition and outward evidence cascade, but no audited shell movement or
+     pruning.
+
+  6. Full Bayesian two-level state.
+     FabricPC gives us predictive-coding latent inference, but we do not yet have the paper’s two-level Bayesian structure: a posterior over column
+     supports plus internal probabilistic states estimating reuse, specificity, and uncertainty inside each column.
+
+  7. CIFAR-scale sparse column regime.
+     The paper recommends Ncol = 40, Nshared = 4, and knonshared = 5, giving 9 active columns per example. We are currently testing 10 columns with
+     all columns active. That helps diagnose capacity, but it does not test sparse support selection.
+
+  8. Shallow CIFAR stem.
+     The paper recommends a shallow shared visual stem before columns. Our current pipeline uses a deeper ResNet-style predictive-coding backbone and
+     taps stages into columns. That gives better visual features, but it shifts more representational burden into the backbone than the paper’s
+     proposed CIFAR architecture.
+
+  9. Hierarchical auxiliary targets.
+     The paper suggests fine-scale patch tokens with quadrant and global auxiliary targets tied by consistency losses. We have stage taps and a
+     global pool, but not explicit quadrant/global consistency objectives.
+
+  10. Continual-learning retention objective.
+     By design, we are currently doing plain CIFAR-10. So we do not yet have task contexts, task-local heads, worst-old-task retention, support churn
+     penalties, or Split-CIFAR forgetting measurements.
+
+  The practical summary is: we have built much of the column body, but not yet the full columnar control system. The next faithful step after this
+  run is probably to add a small controller/certificate/audit loop on plain CIFAR-10, before moving to Split-CIFAR.
