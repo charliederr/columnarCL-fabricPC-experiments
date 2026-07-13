@@ -4308,3 +4308,115 @@ Interpretation target:
 - If `outer_shell_context_plus_column_shell_bridge` is above chance, then the useful signal can flow through the two per-column context/bridge routes without `column_pool`.
 - If only `combined` is above chance, then `column_pool`, `columnXX_outer_shell_context`, and `columnXX_shell_bridge` form a three-route interaction.
 - If `combined_without_column_pool` is strong but `outer_shell_context_plus_column_shell_bridge` is weak, then another output family is involved and the diagnostic should be expanded before changing the architecture.
+
+## 2026-07-13 Readout-Family Lesion Diagnostic Result
+
+Timestamp and machine: 2026-07-13 00:28 EDT on `rogdora43`.
+
+Completed log:
+
+- `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260712_181700.log`.
+
+Configuration:
+
+- 10 columns, 3 shared columns, 7 active non-shared columns.
+- `combiner=shell_attention`.
+- `outer_shell_context=on`.
+- `column_shell_bridge=on`.
+- `column_shell_readout=off`.
+- No bypass path.
+- No column teacher energy, no shell teacher energy, and no per-column shell teacher energy.
+- `outer_shell_context_teacher_weight=0.0`.
+- `outer_shell_context_evidence=off`.
+- `outer_shell_context_shell_prediction_weight=0.0`.
+- `shell_lr_multipliers=1,1.5,2,3`.
+- Learning rate 0.005 for 20 epochs.
+
+Main result:
+
+| Metric | Value |
+| --- | ---: |
+| Best validation accuracy | 28.70% |
+| Best validation epoch | 8 |
+| Test accuracy at best validation checkpoint | 28.99% |
+
+This rerun underperformed the earlier seed-42 `bridge_only` run, which reached 34.30% validation and 33.93% test. The command-line configuration matched, and the diagnostic code should only affect post-training evaluation. The lower score should therefore be treated as training instability or version/state variance rather than evidence that the readout-family diagnostics changed the trained architecture.
+
+Validation trajectory:
+
+| Epoch | Validation accuracy |
+| ---: | ---: |
+| 1 | 16.28% |
+| 4 | 23.58% |
+| 8 | 28.70% |
+| 12 | 27.56% |
+| 15 | 17.14% |
+| 20 | 25.14% |
+
+The run did not collapse to chance, but it also did not improve through epoch 20 as the stronger seed-42 and seed-99 runs did.
+
+New readout-family diagnostics:
+
+| Test readout case | Accuracy | Interpretation |
+| --- | ---: | --- |
+| `combined` | 28.99% | Full `column_pool` plus outer-context plus shell-bridge route. |
+| `column_only` | 10.00% | The shell-attention composer route alone is chance. |
+| `combined_without_column_pool` | 18.46% | Outer-context plus shell-bridge carries partial class signal without the composer route. |
+| `column_shell_bridge_only` | 10.00% | Shell bridge alone is chance. |
+| `column_pool_plus_shell_bridge` | 10.00% | Composer plus shell bridge is chance without outer context. |
+| `combined_without_column_shell_bridge` | 10.00% | Composer plus outer context is chance without shell bridge. |
+| `outer_shell_context_only` | 10.00% | Outer context alone is chance. |
+| `column_pool_plus_outer_shell_context` | 10.00% | Composer plus outer context is chance without shell bridge. |
+| `combined_without_outer_shell_context` | 10.00% | Composer plus shell bridge is chance without outer context. |
+| `outer_shell_context_plus_column_shell_bridge` | 18.46% | Same source family as `combined_without_column_pool`; partial class signal exists in the context/bridge pair. |
+
+Shell lesion diagnostics:
+
+| Test case | Accuracy |
+| --- | ---: |
+| `combined_without_hard_kernel` | 22.52% |
+| `combined_without_inner_shell` | 20.69% |
+| `combined_without_middle_shell` | 16.71% |
+| `combined_without_outer_shell` | 19.64% |
+
+Every shell lesion damaged the combined classifier. The middle shell was the largest lesion in this run, dropping test accuracy from 28.99% to 16.71%. The hard-kernel, inner-shell, and outer-shell lesions also remained meaningful.
+
+Shell norms after training:
+
+| Shell | Mean L2 |
+| --- | ---: |
+| Hard kernel | 4.6883 |
+| Inner shell | 2.6423 |
+| Middle shell | 3.7401 |
+| Outer shell | 4.5812 |
+
+The shell magnitudes remained stable, so the weaker score is not a magnitude-collapse result.
+
+Composer attention owners:
+
+| Shell | Owner |
+| --- | --- |
+| Hard kernel | `col_09` at 0.987025 |
+| Inner shell | `col_01` at 0.986865 |
+| Middle shell | `col_07` at 0.993859 |
+| Outer shell | `col_03` at 0.997998 |
+
+Interpretation:
+
+- The diagnostic result rules out the simplest "only full three-route interaction works" explanation. The pair `columnXX_outer_shell_context` plus `columnXX_shell_bridge` carries partial class signal without `column_pool`.
+- The diagnostic also shows that `column_pool` is still useful: adding it to the context/bridge pair raised test accuracy from 18.46% to 28.99% in this run.
+- The individual routes and the pairs involving `column_pool` were chance-level. The route interaction is asymmetric: outer context and shell bridge form the minimum useful pair, and the composer route improves that pair only when both are already present.
+- This supports treating shell bridge and outer context as a coupled per-column mechanism rather than separate auxiliary routes.
+- The underperformance relative to the earlier seed-42 run means we should avoid overfitting the next architectural step to this single rerun's lower accuracy.
+
+Recommended next step:
+
+Add a coupled `outer_shell_context -> column_shell_bridge` pathway and test it against the current best branch. The mechanism should keep the same output families but make the bridge explicitly conditioned on the outer-context latent before the classifier. This is still aligned with the columnar interpretation: the outer shell carries exploratory/contextual residue, and the shell bridge integrates cross-shell column state. The current diagnostic says those two routes are the first pair to become class-informative together.
+
+Implementation constraint:
+
+- Keep `column_shell_readout=off`.
+- Keep teacher heads off.
+- Do not add a direct bypass.
+- Do not change the upstream FabricPC code.
+- Make the new pathway optional with a command-line flag so the existing branch remains available for matched ablations.
