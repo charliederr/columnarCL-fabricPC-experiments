@@ -45,6 +45,7 @@ from scripts.train_cifar10_depth_spanning import (
     diagnose_composer_projection_norms,
     diagnose_output_edge_weight_norms,
     has_shell_composer,
+    mask_column_shell_bridge_inputs,
     mask_column_shell_path_inputs,
     mask_composer_components,
     mask_outer_shell_context_inputs,
@@ -395,6 +396,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         column_shell_readout=False,
         column_shell_bridge=False,
         outer_shell_context=False,
+        outer_shell_context_to_bridge=False,
         outer_shell_context_shell_prediction_weight=0.0,
         outer_shell_context_evidence=False,
         outer_shell_context_evidence_teacher_weight=0.0,
@@ -909,6 +911,40 @@ def test_depth_spanning_graph_adds_per_column_shell_bridge_edges() -> None:
             assert pool_name not in output_sources
 
 
+def test_depth_spanning_graph_adds_outer_context_to_shell_bridge_edges() -> None:
+    """Optional context-to-bridge edges condition each column's bridge latent."""
+    args = _tiny_depth_spanning_args(
+        column_teacher_weight=0.0,
+        column_shell_teacher_weights="0,0,0,0",
+        column_shell_readout=False,
+        column_shell_bridge=True,
+        outer_shell_context=True,
+        outer_shell_context_to_bridge=True,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    output_sources = output_input_edge_sources(structure)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+
+    assert active_columns == [0, 1]
+
+    for column_idx in active_columns:
+        bridge_name = column_shell_bridge_node_name(column_idx)
+        context_name = outer_shell_context_node_name(column_idx)
+        expected_pool_names = {
+            column_shell_pool_node_name(column_idx, shell_name)
+            for shell_name in SHELL_NAMES
+        }
+        bridge_sources = {
+            edge.source
+            for edge in structure.edges.values()
+            if edge.target == bridge_name and edge.slot == "in"
+        }
+
+        assert bridge_name in output_sources
+        assert context_name in output_sources
+        assert bridge_sources == expected_pool_names | {context_name}
+
+
 def test_depth_spanning_graph_adds_outer_shell_context_edges() -> None:
     """Outer-shell context receives pooled shells and reaches output by default."""
     args = _tiny_depth_spanning_args(
@@ -1122,6 +1158,30 @@ def test_shell_context_prediction_requires_context_path() -> None:
         build_depth_spanning_graph(args)
 
 
+def test_outer_shell_context_to_bridge_requires_context_path() -> None:
+    """Bridge conditioning is invalid without an outer-context latent."""
+    args = _tiny_depth_spanning_args(
+        column_shell_bridge=True,
+        outer_shell_context=False,
+        outer_shell_context_to_bridge=True,
+    )
+
+    with pytest.raises(ValueError, match="requires --outer_shell_context"):
+        build_depth_spanning_graph(args)
+
+
+def test_outer_shell_context_to_bridge_requires_shell_bridge() -> None:
+    """Bridge conditioning is invalid without the bridge latent."""
+    args = _tiny_depth_spanning_args(
+        column_shell_bridge=False,
+        outer_shell_context=True,
+        outer_shell_context_to_bridge=True,
+    )
+
+    with pytest.raises(ValueError, match="requires --column_shell_bridge"):
+        build_depth_spanning_graph(args)
+
+
 def test_outer_shell_context_evidence_teacher_requires_evidence_path() -> None:
     """An evidence-teacher weight is invalid without evidence latents."""
     args = _tiny_depth_spanning_args(
@@ -1305,7 +1365,57 @@ def test_mask_outer_shell_context_inputs_masks_selected_shell() -> None:
         if source_name == column_shell_pool_node_name(0, "outer_shell"):
             assert jnp.allclose(after, before)
         else:
-            assert jnp.allclose(after, jnp.zeros_like(before))
+                assert jnp.allclose(after, jnp.zeros_like(before))
+
+
+def test_mask_column_shell_bridge_inputs_masks_context_conditioning() -> None:
+    """Bridge shell masks also mask the context route feeding the bridge."""
+    args = _tiny_depth_spanning_args(
+        column_shell_bridge=True,
+        outer_shell_context=True,
+        outer_shell_context_to_bridge=True,
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    bridge_name = column_shell_bridge_node_name(0)
+    context_name = outer_shell_context_node_name(0)
+    bridge_sources = node_input_edge_sources(structure, bridge_name)
+    context_sources = node_input_edge_sources(structure, context_name)
+
+    masked = mask_column_shell_bridge_inputs(
+        params,
+        structure,
+        (bridge_name,),
+        "outer_shell",
+        keep_shell=False,
+    )
+
+    assert jnp.allclose(
+        masked.nodes[bridge_name].weights[bridge_sources[context_name]],
+        params.nodes[bridge_name].weights[bridge_sources[context_name]],
+    )
+    for shell_name in SHELL_NAMES:
+        pool_name = column_shell_pool_node_name(0, shell_name)
+        direct_bridge_edge = bridge_sources[pool_name]
+        context_edge = context_sources[pool_name]
+        if shell_name == "outer_shell":
+            assert jnp.allclose(
+                masked.nodes[bridge_name].weights[direct_bridge_edge],
+                jnp.zeros_like(params.nodes[bridge_name].weights[direct_bridge_edge]),
+            )
+            assert jnp.allclose(
+                masked.nodes[context_name].weights[context_edge],
+                jnp.zeros_like(params.nodes[context_name].weights[context_edge]),
+            )
+        else:
+            assert jnp.allclose(
+                masked.nodes[bridge_name].weights[direct_bridge_edge],
+                params.nodes[bridge_name].weights[direct_bridge_edge],
+            )
+            assert jnp.allclose(
+                masked.nodes[context_name].weights[context_edge],
+                params.nodes[context_name].weights[context_edge],
+            )
 
 
 def test_mask_column_shell_path_inputs_masks_direct_and_bridge_routes() -> None:

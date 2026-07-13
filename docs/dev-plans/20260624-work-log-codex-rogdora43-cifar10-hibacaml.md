@@ -4420,3 +4420,214 @@ Implementation constraint:
 - Do not add a direct bypass.
 - Do not change the upstream FabricPC code.
 - Make the new pathway optional with a command-line flag so the existing branch remains available for matched ablations.
+
+## 2026-07-13 Outer-Context-to-Bridge Conditioning Implementation
+
+Timestamp and machine: 2026-07-13 00:55 EDT on `rogdora43`.
+
+Implemented the recommended optional pathway. This changes only `columnarCL-fabricPC-experiments`; upstream FabricPC was not modified.
+
+Files changed:
+
+- `scripts/train_cifar10_depth_spanning.py`.
+- `scripts/run_codex_cifar10_depth_spanning.sh`.
+- `tests/test_pooled_readout_norm.py`.
+
+Mechanism:
+
+- Added `--outer_shell_context_to_bridge`.
+- The flag requires both `--outer_shell_context` and `--column_shell_bridge`.
+- When enabled, each active column gets an additional edge from its outer-context latent into its shell bridge latent:
+  - `columnXX_outer_shell_context -> columnXX_shell_bridge:in`.
+- The existing direct output edges remain:
+  - `columnXX_outer_shell_context -> output`.
+  - `columnXX_shell_bridge -> output`.
+  - `column_pool -> output`.
+- The path is optional and defaults to off, so previous experiments keep the same graph unless the flag is set.
+
+Architectural intent:
+
+- `columnXX_outer_shell_context` is the outer-shell-width latent that summarizes a column's pooled hard-kernel, inner-shell, middle-shell, and outer-shell states.
+- `columnXX_shell_bridge` is the full-width latent that integrates the same column's pooled shell states before reaching the classifier.
+- The new edge lets the bridge condition its full-width shell-integrating state on the context latent before classifier readout.
+- This directly tests the diagnostic finding that `outer_shell_context_plus_column_shell_bridge` was the first above-chance readout pair.
+
+Diagnostic masking update:
+
+- Updated `mask_column_shell_bridge_inputs()` so shell lesions also mask shell inputs inside any `columnXX_outer_shell_context` node that feeds the bridge.
+- Without this fix, a bridge shell lesion could remove a direct pooled-shell input while letting the same shell still reach the bridge through `outer_shell_context`.
+- The updated helper keeps the context source connected to the bridge, but masks the context node's own shell inputs according to the same lesion.
+
+Runner change:
+
+- `scripts/run_codex_cifar10_depth_spanning.sh` now accepts positional argument 21 for `outer_shell_context_to_bridge_mode`.
+- Accepted values:
+  - On: `on`, `true`, `outerbridge`.
+  - Off: `off`, `false`, `noouterbridge`.
+- The log header records `outer_shell_context_to_bridge`.
+- The child log filename includes `ocb1` or `ocb0`.
+
+Tests added:
+
+- `test_depth_spanning_graph_adds_outer_context_to_shell_bridge_edges()`.
+- `test_outer_shell_context_to_bridge_requires_context_path()`.
+- `test_outer_shell_context_to_bridge_requires_shell_bridge()`.
+- `test_mask_column_shell_bridge_inputs_masks_context_conditioning()`.
+
+Validation:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+```
+
+Result:
+
+- Passed.
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash -n scripts/run_codex_cifar10_depth_spanning.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+```
+
+Result:
+
+- 47 passed in 12.89 seconds.
+
+Recommended experiment:
+
+Run a seed-42 comparison with the new conditioning edge enabled:
+
+```bash
+cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash scripts/run_codex_cifar10_depth_spanning.sh 42 0.005 composer_shells 20 0.0 0,0,0,0 nobypass 0,0,0,0 off on shell_attention on 10 3 7 1,1.5,2,3 0.0 off 0.0 0.0 on
+```
+
+Interpretation target:
+
+- Compare the result to the best previous `bridge_only` seed-42 test result of 33.93%.
+- Check whether `outer_shell_context_plus_column_shell_bridge` improves above the previous 18.46% diagnostic result.
+- Check whether `combined_without_column_pool` improves, which would mean the coupled context/bridge mechanism is carrying more class signal without relying on the composer route.
+- Check shell lesions to confirm the new context-to-bridge pathway does not bypass the shell structure.
+
+## 2026-07-13 Outer-Context-to-Bridge Conditioning Result
+
+Recorded on 2026-07-13 13:36 EDT on `rogdora43`.
+
+Run log:
+
+- `results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260713_063611.log`
+
+Configuration:
+
+- Seed: 42.
+- Columns: 10 total, with 3 shared columns and 7 active non-shared columns.
+- Learning rate: 0.005.
+- Epochs: 20.
+- Readout mode: no bypass.
+- Combiner: `shell_attention`.
+- Shell learning-rate multipliers: hard kernel 1.0, inner shell 1.5, middle shell 2.0, outer shell 3.0.
+- Column shell bridge: enabled.
+- Direct pooled-shell readout: disabled.
+- Outer-shell context: enabled.
+- Outer-shell context to shell bridge: enabled.
+- Shell evidence cascade: enabled.
+- Same-tier shell inhibition strengths: hard kernel 0.0, inner shell 0.35, middle shell 0.22, outer shell 0.10.
+
+Top-line result:
+
+| Metric | Value |
+| --- | ---: |
+| Best validation accuracy | 27.46% |
+| Best validation epoch | 20 |
+| Test accuracy at best validation checkpoint | 26.29% |
+
+Validation trajectory:
+
+| Epoch | Validation accuracy |
+| ---: | ---: |
+| 1 | 16.24% |
+| 2 | 18.98% |
+| 3 | 22.16% |
+| 4 | 17.14% |
+| 5 | 22.36% |
+| 6 | 19.38% |
+| 7 | 22.34% |
+| 8 | 22.20% |
+| 9 | 18.70% |
+| 10 | 21.62% |
+| 11 | 17.58% |
+| 12 | 9.88% |
+| 13 | 13.68% |
+| 14 | 19.64% |
+| 15 | 19.52% |
+| 16 | 24.24% |
+| 17 | 23.66% |
+| 18 | 18.10% |
+| 19 | 27.22% |
+| 20 | 27.46% |
+
+Readout-family ablations on the test set:
+
+| Readout family | Test accuracy |
+| --- | ---: |
+| `combined` | 26.29% |
+| `column_only` | 10.00% |
+| `combined_without_column_pool` | 10.00% |
+| `column_shell_bridge_only` | 10.00% |
+| `column_pool_plus_shell_bridge` | 10.00% |
+| `combined_without_column_shell_bridge` | 10.00% |
+| `outer_shell_context_only` | 10.00% |
+| `column_pool_plus_outer_shell_context` | 10.00% |
+| `combined_without_outer_shell_context` | 10.00% |
+| `outer_shell_context_plus_column_shell_bridge` | 10.00% |
+
+Shell lesion ablations on the test set:
+
+| Lesion condition | Test accuracy |
+| --- | ---: |
+| `combined_without_hard_kernel` | 18.80% |
+| `combined_without_inner_shell` | 24.79% |
+| `combined_without_middle_shell` | 16.97% |
+| `combined_without_outer_shell` | 10.79% |
+
+Shell state norms after training:
+
+| Shell | Width | Mean L2 norm |
+| --- | ---: | ---: |
+| Hard kernel | 22 | 4.6888 |
+| Inner shell | 7 | 2.6440 |
+| Middle shell | 14 | 3.7383 |
+| Outer shell | 21 | 4.5793 |
+
+Interpretation:
+
+- The direct `columnXX_outer_shell_context -> columnXX_shell_bridge:in` edge did not improve the target mechanism.
+- The previous diagnostic run without this edge had `outer_shell_context_plus_column_shell_bridge` at 18.46% test accuracy. With the new conditioning edge enabled, the same readout family dropped to 10.00%.
+- The full classifier also fell from the earlier best seed-42 bridge-only result of 33.93% test accuracy to 26.29%.
+- The outer shell remains load-bearing inside the combined classifier. Removing outer-shell inputs drops test accuracy from 26.29% to 10.79%.
+- The shell state norms did not collapse. The hard-kernel, middle-shell, and outer-shell states all retained substantial L2 norm after training.
+- The failure is therefore not simple activation disappearance. The more likely mechanism is that direct context-to-bridge coupling entangles the bridge route with the context route in a way that destroys the class-readable two-route signal observed in the no-conditioning diagnostic.
+
+Conclusion:
+
+The direct context-to-bridge edge should not be the next accuracy path. It is useful to keep it as a controlled flag because it produced a clear negative result, but it should stay off in the next productive experiments.
+
+Recommended next direction:
+
+Replace the direct full-strength context-to-bridge edge with a controlled modulatory version before testing this idea again. A faithful predictive-coding version would let `columnXX_outer_shell_context` influence `columnXX_shell_bridge` through a small residual or precision-like gate rather than as an unconstrained same-strength input.
+
+Concrete implementation candidate:
+
+- Add an optional `--outer_shell_context_bridge_scale` value.
+- Keep the direct context-to-bridge path disabled by default.
+- When enabled, send the context latent into the bridge through a learned or fixed scale initialized near zero.
+- Test fixed scales such as 0.025, 0.05, and 0.10 against the no-conditioning bridge-only baseline.
+- Keep the shell lesion diagnostics and readout-family diagnostics unchanged so the mechanism can be compared against the 33.93% bridge-only seed-42 result and the 18.46% no-conditioning context-plus-bridge diagnostic.
+
+This preserves the HiBaCaML-motivated idea that outer context should modulate shell integration, but avoids letting the context latent become an uncontrolled peer input to the shell bridge.

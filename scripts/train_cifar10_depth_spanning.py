@@ -17,14 +17,18 @@ Architecture::
                                                          │ per-column shell slices
                                                          ▼
       optional per-column shell readout ─────────► output classifier
-      optional per-column shell bridge ──────────► output classifier
       optional outer-shell context ──────────────► optional output classifier readout
+                         │
+                         ├──── optional shell-bridge conditioning
+                         │              │
+                         │              ▼
+      optional per-column shell bridge ──────────► output classifier
                          │
                          ├──── optional context teacher
                          │
                          ├──── optional class-shaped context evidence
-                                           │
-                                           └──── optional evidence teacher
+                         │                 │
+                         │                 └──── optional evidence teacher
                          │
                          └──── optional shell-local predictors
                                            │
@@ -1388,10 +1392,26 @@ def mask_column_shell_bridge_inputs(
     masked = params
     for bridge_source in bridge_sources:
         bridge_input_sources = node_input_edge_sources(structure, bridge_source)
+        context_sources = tuple(
+            source
+            for source in bridge_input_sources
+            if is_outer_shell_context_node(source)
+        )
+        if context_sources:
+            masked = mask_outer_shell_context_inputs(
+                masked,
+                structure,
+                context_sources,
+                shell_name,
+                keep_shell=keep_shell,
+            )
         kept_sources = tuple(
             source
             for source in bridge_input_sources
-            if is_column_shell_pool_for_shell(source, shell_name) == keep_shell
+            if (
+                is_column_shell_pool_for_shell(source, shell_name) == keep_shell
+                or is_outer_shell_context_node(source)
+            )
         )
         masked = mask_node_input_sources(
             masked,
@@ -2154,6 +2174,10 @@ def build_depth_spanning_graph(args):
             "--outer_shell_context_shell_prediction_weight requires "
             "--outer_shell_context"
         )
+    if args.outer_shell_context_to_bridge and not args.outer_shell_context:
+        raise ValueError("--outer_shell_context_to_bridge requires --outer_shell_context")
+    if args.outer_shell_context_to_bridge and not args.column_shell_bridge:
+        raise ValueError("--outer_shell_context_to_bridge requires --column_shell_bridge")
 
     model_config = MODEL_CONFIGS[args.model]
     weight_init = MuPCInitializer()
@@ -2411,6 +2435,7 @@ def build_depth_spanning_graph(args):
         column = columns[column_idx]
         column_shell_pools = []
         column_shell_pools_by_shell = {}
+        outer_context = None
         for shell_name in SHELL_NAMES:
             shell_weight = column_shell_teacher_weights[shell_name]
             needs_shell_pool = (
@@ -2510,6 +2535,13 @@ def build_depth_spanning_graph(args):
             nodes.append(shell_bridge)
             for shell_pool in column_shell_pools:
                 edges.append(Edge(source=shell_pool, target=shell_bridge.slot("in")))
+            if args.outer_shell_context_to_bridge:
+                if outer_context is None:
+                    raise ValueError(
+                        "--outer_shell_context_to_bridge requires an outer context "
+                        f"node for column {column_idx}"
+                    )
+                edges.append(Edge(source=outer_context, target=shell_bridge.slot("in")))
             edges.append(Edge(source=shell_bridge, target=output.slot("in")))
 
     outer_shell_context_task_map = {}
@@ -2649,6 +2681,10 @@ def train_cifar10_depth_spanning(args):
             "--outer_shell_context_shell_prediction_weight requires "
             "--outer_shell_context"
         )
+    if args.outer_shell_context_to_bridge and not args.outer_shell_context:
+        raise ValueError("--outer_shell_context_to_bridge requires --outer_shell_context")
+    if args.outer_shell_context_to_bridge and not args.column_shell_bridge:
+        raise ValueError("--outer_shell_context_to_bridge requires --column_shell_bridge")
 
     print("=" * 70)
     print("CIFAR-10 Depth-Spanning Columnar Architecture")
@@ -2719,6 +2755,10 @@ def train_cifar10_depth_spanning(args):
     print(f"Outer shell context: {'enabled' if args.outer_shell_context else 'disabled'}")
     if args.outer_shell_context:
         print("Outer shell context direct readout: enabled")
+    print(
+        "Outer shell context to shell bridge: "
+        f"{'enabled' if args.outer_shell_context_to_bridge else 'disabled'}"
+    )
     print(f"Outer shell context teacher weight: {args.outer_shell_context_teacher_weight}")
     print(
         "Outer shell context shell prediction weight: "
@@ -3509,6 +3549,15 @@ def parse_args():
             "zero shell-prediction weight, this context vector also feeds the "
             "main classifier. With positive shell-prediction weight, it predicts "
             "local shell states instead."
+        ),
+    )
+    parser.add_argument(
+        "--outer_shell_context_to_bridge",
+        action="store_true",
+        help=(
+            "Feed each active column's outer-shell context latent into that "
+            "column's shell bridge latent. Requires --outer_shell_context and "
+            "--column_shell_bridge."
         ),
     )
     parser.add_argument(
