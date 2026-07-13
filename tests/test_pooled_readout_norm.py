@@ -19,6 +19,7 @@ from columnar_cl_fabricpc.columns import (
     GlobalAvgPoolNormNode,
     SHELL_NAMES,
     ShellContextPredictionNode,
+    StageTapTokenizer,
     WeightedLabelSmoothedCrossEntropyEnergy,
     get_shell_slices,
 )
@@ -140,6 +141,16 @@ def test_global_avg_pool_norm_forward_pools_and_normalizes() -> None:
     assert jnp.allclose(jnp.mean(state.z_mu, axis=-1), 0.0, atol=1e-6)
     assert jnp.allclose(jnp.var(state.z_mu, axis=-1), 1.0, atol=1e-4)
     assert not jnp.allclose(state.z_mu, pooled)
+
+
+def test_stage_tap_tokenizer_resizes_smaller_grid_to_target() -> None:
+    """Stage taps can map a deeper smaller stage onto an earlier token grid."""
+    x = 7.0 * jnp.ones((2, 4, 4, 3), dtype=jnp.float32)
+
+    resized = StageTapTokenizer._adaptive_avg_pool_2d(x, 8, 8)
+
+    assert resized.shape == (2, 8, 8, 3)
+    assert jnp.allclose(resized, 7.0)
 
 
 def test_feature_slice_node_exposes_contiguous_feature_axis() -> None:
@@ -383,6 +394,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         active_nonshared=1,
         column_mode="all_active",
         combiner="sum",
+        column_grid="stage4",
         embed_dim=16,
         microcolumn_dim=8,
         seed=7,
@@ -513,6 +525,36 @@ def test_depth_spanning_graph_uses_shell_composer_combiner_mode() -> None:
             shell_width,
         )
         assert params.nodes["combiner"].biases[bias_name].shape == (shell_width,)
+
+
+def test_depth_spanning_graph_can_use_resnet18_stage3_column_grid() -> None:
+    """ResNet-18 columns can run on the 8x8 stage3 grid with 96-wide features."""
+    args = _tiny_depth_spanning_args(
+        model="resnet18",
+        combiner="shell_attention",
+        bypass_columns=False,
+        column_grid="stage3",
+        embed_dim=96,
+        microcolumn_dim=32,
+        column_teacher_weight=0.0,
+        column_shell_bridge=True,
+        outer_shell_context=True,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+
+    assert support_mask == (1.0, 1.0)
+    assert structure.nodes["stage2_tap"].node_info.shape == (64, 96)
+    assert structure.nodes["stage3_tap"].node_info.shape == (64, 96)
+    assert structure.nodes["stage4_tap"].node_info.shape == (64, 96)
+    assert structure.nodes["col_00"].node_info.shape == (64, 96)
+    assert structure.nodes["combiner"].node_info.shape == (64, 96)
+    assert structure.nodes["stage2_tap"].node_info.node_config["target_grid"] == (8, 8)
+    assert structure.nodes["stage4_tap"].node_info.node_config["target_grid"] == (8, 8)
+
+    shell_widths = [
+        end - start for start, end in get_shell_slices(args.embed_dim).values()
+    ]
+    assert shell_widths == [33, 11, 21, 31]
 
 
 def test_shell_composer_diagnostics_report_active_components() -> None:

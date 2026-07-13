@@ -46,6 +46,10 @@ Architecture::
 Usage:
     python scripts/train_cifar10_depth_spanning.py --quick
     python scripts/train_cifar10_depth_spanning.py --model resnet18 --num_epochs 2
+
+`--column_grid stage3` makes all stage taps emit tokens on the intermediate
+stage grid. For ResNet-18 on CIFAR-10, this gives 8 by 8 = 64 column tokens
+instead of the stage4 default of 4 by 4 = 16 tokens.
 """
 
 import argparse
@@ -118,6 +122,7 @@ COLUMN_SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 SHELL_LR_DEFAULT_MULTIPLIERS = "1,1,1,1"
 SHELL_EVIDENCE_CASCADE_DEFAULT_SCALE = "0.05,0.05,0.05"
 SHELL_INHIBITION_DEFAULT_STRENGTHS = "0,0.35,0.22,0.10"
+COLUMN_GRID_CHOICES = ("stage4", "stage3", "stage2")
 
 
 def shell_slice_node_name(shell_name: str) -> str:
@@ -2156,6 +2161,26 @@ def build_support_mask(
     return tuple(mask)
 
 
+def resolve_column_target_grid(
+    column_grid: str,
+    stage2_shape: Tuple[int, int, int],
+    stage3_shape: Tuple[int, int, int],
+    stage4_shape: Tuple[int, int, int],
+) -> Tuple[int, int]:
+    """Return the token grid selected for depth-spanning column inputs."""
+    stage_grids = {
+        "stage2": stage2_shape[:2],
+        "stage3": stage3_shape[:2],
+        "stage4": stage4_shape[:2],
+    }
+    if column_grid not in stage_grids:
+        raise ValueError(
+            f"Unknown column_grid {column_grid!r}; expected one of "
+            f"{', '.join(COLUMN_GRID_CHOICES)}"
+        )
+    return tuple(int(value) for value in stage_grids[column_grid])
+
+
 def build_depth_spanning_graph(args):
     """
     Build a PC graph with depth-spanning columns.
@@ -2257,12 +2282,17 @@ def build_depth_spanning_graph(args):
     stage3_channels = stage_channels[-2]
     stage4_channels = stage_channels[-1]
 
-    # Determine target grid from final stage
-    final_h, final_w, _ = stage4_out.shape
-    target_grid = (final_h, final_w)
-    num_tokens = final_h * final_w
+    # Determine the shared token grid used by every stage tap and column.
+    target_grid = resolve_column_target_grid(
+        args.column_grid,
+        stage2_out.shape,
+        stage3_out.shape,
+        stage4_out.shape,
+    )
+    num_tokens = target_grid[0] * target_grid[1]
 
     print(f"Stage outputs: stage2={stage2_out.shape}, stage3={stage3_out.shape}, stage4={stage4_out.shape}")
+    print(f"Column grid source: {args.column_grid}")
     print(f"Target grid: {target_grid}, tokens: {num_tokens}")
 
     # Create stage taps (tokenizers)
@@ -2697,6 +2727,7 @@ def train_cifar10_depth_spanning(args):
     print(f"Shared columns: {args.num_shared}")
     print(f"Active non-shared: {args.active_nonshared}")
     print(f"Combiner: {args.combiner}")
+    print(f"Column grid: {args.column_grid}")
     print(f"Embed dim: {args.embed_dim}")
     print(f"Microcolumn dim: {args.microcolumn_dim}")
     shell_slices = get_shell_slices(args.embed_dim)
@@ -3397,6 +3428,17 @@ def parse_args():
         "--combiner",
         choices=["attention", "sum", "shell_attention"],
         default="sum",
+    )
+    parser.add_argument(
+        "--column_grid",
+        choices=COLUMN_GRID_CHOICES,
+        default="stage4",
+        help=(
+            "Backbone stage whose spatial grid defines the token grid used by "
+            "all stage taps and depth-spanning columns. The default stage4 "
+            "keeps the historical 4x4 ResNet-18 setting; stage3 gives 8x8 "
+            "tokens on CIFAR-10 ResNet-18."
+        ),
     )
     parser.add_argument("--embed_dim", type=int, default=64)
     parser.add_argument("--microcolumn_dim", type=int, default=32)

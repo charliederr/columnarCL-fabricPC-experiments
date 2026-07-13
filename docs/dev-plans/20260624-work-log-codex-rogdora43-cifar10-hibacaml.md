@@ -4631,3 +4631,101 @@ Concrete implementation candidate:
 - Keep the shell lesion diagnostics and readout-family diagnostics unchanged so the mechanism can be compared against the 33.93% bridge-only seed-42 result and the 18.46% no-conditioning context-plus-bridge diagnostic.
 
 This preserves the HiBaCaML-motivated idea that outer context should modulate shell integration, but avoids letting the context latent become an uncontrolled peer input to the shell bridge.
+
+## 2026-07-13 Stage3 Column-Grid / 96-Width Implementation
+
+Recorded on 2026-07-13 13:50 EDT on `rogdora43`.
+
+Direction:
+
+- The latest direct `outer_shell_context -> column_shell_bridge` result is treated as a negative result, not as the next branch to refine.
+- The implementation returns to the strongest no-bypass branch:
+  - 10 columns.
+  - 3 shared columns.
+  - 7 active non-shared columns.
+  - `outer_shell_context=on`.
+  - `column_shell_bridge=on`.
+  - `column_shell_readout=off`.
+  - `outer_shell_context_to_bridge=off`.
+  - `combiner=shell_attention`.
+  - `shell_lr_multipliers=1,1.5,2,3`.
+- The new change aligns that branch more closely with the HiBaCaML CIFAR guidance by giving the columns a larger token grid and a wider shell substrate before adding more local objectives.
+
+Implemented changes:
+
+- Added `--column_grid` to `scripts/train_cifar10_depth_spanning.py`.
+- `column_grid` names the backbone stage whose spatial grid defines the shared token grid for all stage taps and all depth-spanning columns.
+- The default is `stage4`, which preserves the historical ResNet-18 CIFAR-10 setting of 4 by 4 tokens.
+- The new recommended setting is `stage3`, which gives 8 by 8 tokens on ResNet-18 CIFAR-10.
+- Added `resolve_column_target_grid()` in `scripts/train_cifar10_depth_spanning.py`.
+- Updated the graph header to print `Column grid`, `Column grid source`, `Target grid`, and token count.
+- Updated `columnar_cl_fabricpc/columns/stage_taps.py` so `StageTapTokenizer` supports both exact average-pooling down and linear resizing up.
+- This shared tokenizer fix is necessary because `stage4_tap` must map a 4 by 4 source feature map onto the selected 8 by 8 `stage3` token grid.
+- Updated `scripts/run_codex_cifar10_depth_spanning.sh` to accept three new trailing arguments:
+  - argument 22: `column_grid`.
+  - argument 23: `embed_dim`.
+  - argument 24: `microcolumn_dim`.
+- Added `scripts/run_codex_stage3_96_bridge_best.sh`, a short wrapper for the recommended branch.
+
+Exact shell widths under the recommended diagnostic:
+
+- `embed_dim=96` means the column output feature width is 96.
+- The current proportional slicer uses the existing `32:10:20:30` hard-kernel / inner-shell / middle-shell / outer-shell proportions.
+- With total width 96, the realized shell widths are:
+  - hard kernel: 33.
+  - inner shell: 11.
+  - middle shell: 21.
+  - outer shell: 31.
+- This is close to the HiBaCaML CIFAR sketch. If we later want the exact `32,10,20,30` shell widths, the clean implementation should add explicit shell-width control rather than changing the global proportional slicer implicitly.
+
+Validation:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py columnar_cl_fabricpc/columns/stage_taps.py
+```
+
+Result:
+
+- Passed.
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+bash -n scripts/run_codex_stage3_96_bridge_best.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+```
+
+Result:
+
+- 49 passed in 13.57 seconds.
+
+Recommended diagnostic run:
+
+```bash
+bash scripts/run_codex_stage3_96_bridge_best.sh 42 10
+```
+
+Argument meanings:
+
+- `42` is the seed.
+- `10` is the number of epochs.
+- The wrapper defaults to learning rate `0.005` and `diagnose_mode=composer_shells`.
+
+Interpretation target:
+
+- The first check is whether the wider 64-token column grid avoids early collapse and improves above the 10-column bridge-only family by epoch 10.
+- If the validation trajectory is still improving at epoch 10, rerun the same script with 20 epochs.
+- Compare against the earlier 10-column bridge-only seed-42 result of 33.93% test accuracy and the three-seed mean of 32.49%.

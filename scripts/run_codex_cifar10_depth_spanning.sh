@@ -24,6 +24,9 @@ outer_shell_context_evidence_mode="${18:-off}"
 outer_shell_context_evidence_teacher_weight="${19:-0.0}"
 outer_shell_context_shell_prediction_weight="${20:-0.0}"
 outer_shell_context_to_bridge_mode="${21:-off}"
+column_grid="${22:-stage4}"
+embed_dim="${23:-64}"
+microcolumn_dim="${24:-32}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
@@ -157,6 +160,14 @@ case "$combiner_mode" in
         ;;
 esac
 
+if [[ "$column_grid" != "stage4" && "$column_grid" != "stage3" && "$column_grid" != "stage2" ]]; then
+    echo "Unknown column grid: $column_grid" >&2
+    echo "Use 'stage4', 'stage3', or 'stage2'." >&2
+    exit 2
+fi
+
+column_grid_label="${column_grid}"
+
 if [[ "$readout_label" == "bypass" ]]; then
     readout_short="byp"
 else
@@ -196,7 +207,7 @@ fi
 # Capacity and context labels made the original descriptive filename exceed
 # common 255-byte filename limits. The full configuration is still written in
 # the log header; the filename keeps only compact run identifiers.
-log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_ocet${outer_context_evidence_teacher_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolumn_dim}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_ocet${outer_context_evidence_teacher_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -212,6 +223,9 @@ mkdir -p results
     echo "num_shared: $num_shared"
     echo "active_nonshared: $active_nonshared"
     echo "lr: $lr"
+    echo "column_grid: $column_grid"
+    echo "embed_dim: $embed_dim"
+    echo "microcolumn_dim: $microcolumn_dim"
     echo "shell_lr_multipliers: $shell_lr_multipliers"
     echo "num_epochs: $num_epochs"
     echo "diagnose: $diagnose_label"
@@ -242,8 +256,9 @@ mkdir -p results
         --active_nonshared "$active_nonshared" \
         --column_mode all_active \
         --combiner "$combiner_mode" \
-        --embed_dim 64 \
-        --microcolumn_dim 32 \
+        --column_grid "$column_grid" \
+        --embed_dim "$embed_dim" \
+        --microcolumn_dim "$microcolumn_dim" \
         --batch_size 128 \
         --num_epochs "$num_epochs" \
         --lr "$lr" \

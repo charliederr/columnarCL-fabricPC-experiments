@@ -1,9 +1,11 @@
 """
 Stage-tapping infrastructure for depth-spanning columnar architecture.
 
-These nodes convert ResNet stage outputs (at different spatial resolutions) into
+These nodes convert ResNet stage outputs at different spatial resolutions into
 a common token format suitable for depth-spanning columns. Each column receives
-inputs from multiple stages via skip connections.
+inputs from multiple stages via skip connections. The common token grid can be
+chosen from an intermediate backbone stage, so taps support both average-pooling
+larger feature maps and resizing smaller feature maps.
 
 Architecture::
 
@@ -12,7 +14,7 @@ Architecture::
            ▼                            ▼                            ▼
     ┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
     │ StageTapTokenizer│        │ StageTapTokenizer│        │ StageTapTokenizer│
-    │ pool to 8×8      │        │ pool to 8×8      │        │ direct (8×8)     │
+    │ pool/resize      │        │ pool/resize      │        │ pool/resize      │
     │ project → embed  │        │ project → embed  │        │ project → embed  │
     └────────┬────────┘         └────────┬────────┘         └────────┬────────┘
              │                           │                           │
@@ -66,10 +68,8 @@ class StageTapTokenizer(NodeBase):
     """
     Convert a ResNet stage's spatial features into tokens at a target resolution.
 
-    Handles spatial mismatch via adaptive average pooling:
-    - Stage 2 (32×32) → pool to target_grid (e.g., 8×8) → 64 tokens
-    - Stage 3 (16×16) → pool to target_grid (e.g., 8×8) → 64 tokens
-    - Stage 4 (8×8)   → direct (no pooling needed)      → 64 tokens
+    Handles spatial mismatch with average pooling for exact downsampling and
+    interpolation for upsampling or non-divisible resizing.
 
     Input: (batch, H, W, C) spatial features from a ResNet stage
     Output: (batch, tokens, embed_dim) tokenized representation
@@ -80,8 +80,7 @@ class StageTapTokenizer(NodeBase):
                │
                ▼
         ┌─────────────────┐
-        │ Adaptive Pool   │  H×W → target_h × target_w
-        │ (if H > target) │
+        │ Pool or Resize  │  H×W → target_h × target_w
         └────────┬────────┘
                  │
                  ▼
@@ -235,7 +234,11 @@ class StageTapTokenizer(NodeBase):
         target_w: int,
     ) -> jnp.ndarray:
         """
-        Adaptive average pooling to target spatial size.
+        Convert a spatial feature map to the target spatial size.
+
+        Exact integer downsampling uses average pooling. Upsampling and
+        non-divisible resizing use linear interpolation so a target grid from an
+        earlier backbone stage can still receive deeper stage evidence.
 
         Args:
             x: Input tensor (batch, H, W, C)
@@ -243,33 +246,28 @@ class StageTapTokenizer(NodeBase):
             target_w: Target width
 
         Returns:
-            Pooled tensor (batch, target_h, target_w, C)
+            Tensor with shape (batch, target_h, target_w, C).
         """
         batch, h, w, c = x.shape
 
         if h == target_h and w == target_w:
             return x
 
-        if h % target_h != 0 or w % target_w != 0:
-            # Use reshape-based pooling when dimensions divide evenly
-            # For non-divisible cases, use strided slicing with averaging
+        if target_h <= 0 or target_w <= 0:
+            raise ValueError("target spatial dimensions must be positive")
+
+        if h >= target_h and w >= target_w and h % target_h == 0 and w % target_w == 0:
             pool_h = h // target_h
             pool_w = w // target_w
-            # Crop to divisible size
-            crop_h = pool_h * target_h
-            crop_w = pool_w * target_w
-            x = x[:, :crop_h, :crop_w, :]
-            h, w = crop_h, crop_w
 
-        pool_h = h // target_h
-        pool_w = w // target_w
+            x = x.reshape(batch, target_h, pool_h, target_w, pool_w, c)
+            return jnp.mean(x, axis=(2, 4))
 
-        # Reshape to (batch, target_h, pool_h, target_w, pool_w, C)
-        x = x.reshape(batch, target_h, pool_h, target_w, pool_w, c)
-        # Average over pooling windows
-        x = jnp.mean(x, axis=(2, 4))
-
-        return x
+        return jax.image.resize(
+            x,
+            shape=(batch, target_h, target_w, c),
+            method="linear",
+        )
 
     @staticmethod
     def forward(
@@ -282,7 +280,7 @@ class StageTapTokenizer(NodeBase):
         Forward pass: pool, reshape to tokens, project, add position embedding.
 
         Steps:
-        1. Adaptive pool to target grid size
+        1. Pool or resize to target grid size
         2. Reshape spatial to token sequence
         3. Project to embedding dimension
         4. Add position embeddings
@@ -306,7 +304,7 @@ class StageTapTokenizer(NodeBase):
 
         batch_size = x.shape[0]
 
-        # Adaptive pool to target grid
+        # Convert the source feature map to the target token grid.
         x = StageTapTokenizer._adaptive_avg_pool_2d(x, target_h, target_w)
 
         # Reshape to tokens: (batch, target_h, target_w, C) → (batch, tokens, C)
