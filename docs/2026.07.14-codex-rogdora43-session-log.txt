@@ -1,0 +1,1016 @@
+  4724 +- `10` is the number of epochs.
+    4725 +- The wrapper defaults to learning rate `0.005` and `diagnose_mode=composer_shells`.
+    4726 +
+    4727 +Interpretation target:
+    4728 +
+    4729 +- The first check is whether the wider 64-token column grid avoids early collapse and improves above the 10-column bridge-only family by epoch 10.
+    4730 +- If the validation trajectory is still improving at epoch 10, rerun the same script with 20 epochs.
+    4731 +- Compare against the earlier 10-column bridge-only seed-42 result of 33.93% test accuracy and the three-seed mean of 32.49%.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log is updated. I’m doing one final status and diff check so I can report exactly what changed and the test status.
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10 [ahead 1]
+     M columnar_cl_fabricpc/columns/stage_taps.py
+    … +3 lines (ctrl + t to view transcript)
+     M tests/test_pooled_readout_norm.py
+    ?? scripts/run_codex_stage3_96_bridge_best.sh
+
+• Ran git diff --stat
+  └  columnar_cl_fabricpc/columns/stage_taps.py         | 56 ++++++-------
+     ...24-work-log-codex-rogdora43-cifar10-hibacaml.md | 98 ++++++++++++++++++++++
+    … +2 lines (ctrl + t to view transcript)
+     tests/test_pooled_readout_norm.py                  | 42 ++++++++++
+     5 files changed, 231 insertions(+), 36 deletions(-)
+
+• Explored
+  └ Search Stage3 Column-Grid|Recommended diagnostic run|49 passed|column_grid in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the stage3/96-width path and recorded it in columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:4635.
+
+  Changes made:
+
+  - Added --column_grid to columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py:3433.
+  - Extended StageTapTokenizer so stage4 can resize up to a stage3 token grid.
+  - Updated run_codex_cifar10_depth_spanning.sh to accept column_grid, embed_dim, and microcolumn_dim.
+  - Added columnarCL-fabricPC-experiments/scripts/run_codex_stage3_96_bridge_best.sh:1 as the short wrapper for this branch.
+  - Added tests for tokenizer resizing and ResNet-18 stage3 grid graph construction.
+
+  Validation passed:
+
+  - py_compile for touched Python files.
+  - bash -n for both run scripts.
+  - pytest tests/test_pooled_readout_norm.py: 49 passed.
+
+  Run this from the repo:
+
+  bash scripts/run_codex_stage3_96_bridge_best.sh 42 10
+
+  That runs the 10-column, 3-shared, outer-context plus shell-bridge branch with column_grid=stage3, embed_dim=96, microcolumn_dim=32, seed 42, 10 epochs, and logs
+  directly into results/.
+
+─ Worked for 6m 27s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› this latest experimental run has finished
+
+
+• I’ll inspect the newest result log, extract the top-line accuracy and ablations, then update the work log with the outcome and a next-step recommendation.
+
+• Ran ls -t results/codex_dspan_* 2>/dev/null | head -8
+  └ results/
+    codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_composer_sh
+    … +20 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_2026071
+    1_074007.log
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+    ?? results/
+    codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_composer_sh
+    ells_rogdora43_20260713_135318.log
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I found the new stage3/96 log. The repo changes are already clean aside from that untracked result log, so I’ll focus on extracting the run metrics and diagnostics.
+
+• Explored
+  └ Read
+  codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_composer_s
+         hells_rogdora43_20260713_135318.log
+    Search git_commit|git_status|seed:|num_columns|column_grid|embed_dim|microcolumn_dim|Column grid|Target grid|Shell widths|Graph:|Parameters:|Epoch [0-9]+: val_acc|
+    Results
+           Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|Readout Ablations|Column Teacher|Per-Column Shell Bridge|Outer-Shell Context|Combined Column Shell Path|
+           Shell
+           Readout|Shell Norms|Composer Attention|Output Edge Weight Norms in
+
+           codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_comp
+           oser
+           _shells_rogdora43_20260713_135318.log
+    Read
+    codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_composer_s
+         hells_rogdora43_20260713_135318.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The stage3/96 run did not improve the branch. It peaked at validation epoch 7 and reached 22.19% test, so I’m checking whether the failure was collapse, a route-local
+  issue, or simply too little training.
+
+• Explored
+  └ Read
+  codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_composer_s
+         hells_rogdora43_20260713_135318.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The diagnostics point to a precision/energy-balance issue more than a structural collapse: shell norms stayed healthy, but the expanded grid made the route signals weak
+  and the outer shell much less load-bearing than in the best branch. I’m going to record that distinction in the work log.
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z' && hostname
+  └ 2026-07-13 20:16:53 EDT
+    rogdora43
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m adding a concise result section now, including the recommendation not to simply extend this exact run to 20 epochs.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+110 -0)
+    4731  - Compare against the earlier 10-column bridge-only seed-42 result of 33.93% test accuracy and the three-seed mean of 32.49%.
+    4732 +
+    4733 +## 2026-07-13 Stage3 Column-Grid / 96-Width Diagnostic Result
+    4734 +
+    4735 +Recorded on 2026-07-13 20:16 EDT on `rogdora43`.
+    4736 +
+    4737 +Run log:
+    4738 +
+    4739 +- `results/codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005
+          _ep10_composer_shells_rogdora43_20260713_135318.log`
+    4740 +
+    4741 +Configuration:
+    4742 +
+    4743 +- Seed: 42.
+    4744 +- Columns: 10 total, with 3 shared columns and 7 active non-shared columns.
+    4745 +- Column grid: `stage3`.
+    4746 +- Target grid: 8 by 8, for 64 column tokens.
+    4747 +- Column feature width: 96.
+    4748 +- Microcolumn hidden width: 32.
+    4749 +- Realized shell widths: hard kernel 33, inner shell 11, middle shell 21, outer shell 31.
+    4750 +- Learning rate: 0.005.
+    4751 +- Epochs: 10.
+    4752 +- Readout mode: no bypass.
+    4753 +- Combiner: `shell_attention`.
+    4754 +- Column shell bridge: enabled.
+    4755 +- Direct pooled-shell readout: disabled.
+    4756 +- Outer-shell context: enabled.
+    4757 +- Outer-shell context to shell bridge: disabled.
+    4758 +- Shell learning-rate multipliers: hard kernel 1.0, inner shell 1.5, middle shell 2.0, outer shell 3.0.
+    4759 +
+    4760 +Top-line result:
+    4761 +
+    4762 +| Metric | Value |
+    4763 +| --- | ---: |
+    4764 +| Best validation accuracy | 21.96% |
+    4765 +| Best validation epoch | 7 |
+    4766 +| Test accuracy at best validation checkpoint | 22.19% |
+    4767 +
+    4768 +Validation trajectory:
+    4769 +
+    4770 +| Epoch | Validation accuracy |
+    4771 +| ---: | ---: |
+    4772 +| 1 | 14.60% |
+    4773 +| 2 | 16.50% |
+    4774 +| 3 | 12.78% |
+    4775 +| 4 | 19.82% |
+    4776 +| 5 | 18.34% |
+    4777 +| 6 | 19.78% |
+    4778 +| 7 | 21.96% |
+    4779 +| 8 | 18.36% |
+    4780 +| 9 | 19.98% |
+    4781 +| 10 | 19.72% |
+    4782 +
+    4783 +Readout-family ablations on the test set:
+    4784 +
+    4785 +| Readout family | Test accuracy |
+    4786 +| --- | ---: |
+    4787 +| `combined` | 22.19% |
+    4788 +| `column_only` | 10.00% |
+    4789 +| `combined_without_column_pool` | 15.01% |
+    4790 +| `column_shell_bridge_only` | 10.00% |
+    4791 +| `column_pool_plus_shell_bridge` | 10.00% |
+    4792 +| `combined_without_column_shell_bridge` | 16.49% |
+    4793 +| `outer_shell_context_only` | 12.51% |
+    4794 +| `column_pool_plus_outer_shell_context` | 16.49% |
+    4795 +| `combined_without_outer_shell_context` | 10.00% |
+    4796 +| `outer_shell_context_plus_column_shell_bridge` | 15.01% |
+    4797 +
+    4798 +Shell lesion ablations on the test set:
+    4799 +
+    4800 +| Lesion condition | Test accuracy |
+    4801 +| --- | ---: |
+    4802 +| `combined_without_hard_kernel` | 16.48% |
+    4803 +| `combined_without_inner_shell` | 22.27% |
+    4804 +| `combined_without_middle_shell` | 18.62% |
+    4805 +| `combined_without_outer_shell` | 20.33% |
+    4806 +
+    4807 +Shell state norms:
+    4808 +
+    4809 +| Shell | Before training mean L2 | After training mean L2 |
+    4810 +| --- | ---: | ---: |
+    4811 +| Hard kernel | 5.7322 | 5.7424 |
+    4812 +| Inner shell | 3.3015 | 3.3149 |
+    4813 +| Middle shell | 4.5587 | 4.5805 |
+    4814 +| Outer shell | 5.5252 | 5.5647 |
+    4815 +
+    4816 +Interpretation:
+    4817 +
+    4818 +- This run underperformed the current best no-bypass 10-column bridge-only branch. The earlier seed-42 bridge-only branch reached 33.93% test accuracy, while thi
+          s stage3-grid, 96-width diagnostic reached 22.19%.
+    4819 +- The validation curve peaked at epoch 7 and then declined, so simply extending this exact configuration to 20 epochs is not the best next use of compute.
+    4820 +- This was not a magnitude collapse. All four shell state norms remained stable or increased slightly.
+    4821 +- The full classifier still required the outer-shell context route. Removing outer-shell context dropped test accuracy from 22.19% to 10.00%.
+    4822 +- The outer shell itself became weakly load-bearing. Removing the outer shell dropped test accuracy only from 22.19% to 20.33%. In the stronger 33.93% branch, re
+          moving the outer shell dropped test accuracy to 14.95%.
+    4823 +- The hard kernel became the most important shell lesion in this run. Removing it dropped test accuracy from 22.19% to 16.48%.
+    4824 +- The shell bridge did not become independently class-readable. `column_shell_bridge_only` and all bridge shell lesions remained at chance.
+    4825 +
+    4826 +Mechanistic conclusion:
+    4827 +
+    4828 +The stage3 token grid and 96-wide shell substrate are still plausible HiBaCaML-aligned ingredients, but they changed the predictive-coding energy balance. The lo
+          cal Gaussian consistency terms now cover many more latent dimensions than in the stage4, 64-width graph: 64 tokens times 96 features instead of 16 tokens times 6
+          4 features. The classifier cross-entropy target still has 10 class dimensions. The expanded local graph therefore gives much more unnormalized precision to laten
+          t consistency than to class-discriminative pressure.
+    4829 +
+    4830 +Recommended next direction:
+    4831 +
+    4832 +Do not run a 20-epoch repeat of this exact stage3/96 configuration yet. First, add an explicit local precision normalization for the expanded columnar graph. The
+           target is not plain backprop. The target is predictive coding with precision-scaled local errors, so increasing token count and feature width does not silently
+          increase the influence of local Gaussian error terms.
+    4833 +
+    4834 +Concrete implementation candidate:
+    4835 +
+    4836 +- Add a local normalized Gaussian energy for columnar stage taps, depth-spanning columns, the shell-aware combiner, per-column shell bridges, and outer-shell con
+          text nodes.
+    4837 +- Normalize each node's Gaussian energy per sample by its non-batch latent size, or add an explicit `--column_gaussian_precision` control whose default preserves
+           existing behavior.
+    4838 +- Use the normalized setting for `column_grid=stage3` and `embed_dim=96`, while preserving the historical default for stage4 experiments unless explicitly change
+          d.
+    4839 +- Rerun the same 10-epoch seed-42 stage3/96 diagnostic after the precision correction.
+    4840 +
+    4841 +This is a shared-mechanism fix. It treats the move from 16 tokens to 64 tokens as a predictive-coding precision change, not just a capacity change.
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    ?? results/
+    codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_composer_sh
+    ells_rogdora43_20260713_135318.log
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:4734.
+
+  Result: the stage3/96 run underperformed. Best validation was 21.96% at epoch 7, with 22.19% test. The validation curve declined after epoch 7, so I do not recommend
+  simply extending this exact configuration to 20 epochs.
+
+  Mechanistically, this was not a shell magnitude collapse. Shell norms stayed stable. The more likely issue is predictive-coding energy balance: moving from 16 tokens by
+  64 features to 64 tokens by 96 features greatly increases local Gaussian consistency terms, while the classifier target remains 10-dimensional. That likely weakened
+  class-discriminative pressure.
+
+  My recommended next step is to implement explicit local precision normalization for the expanded columnar graph, then rerun the same stage3/96 diagnostic. This keeps us
+  within predictive coding rather than switching to plain backprop.
+
+─ Worked for 2m 03s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Proceed please
+
+
+• I’ll implement this as a shared predictive-coding energy fix rather than a one-off patch for the stage3 run. First I’m going to inspect how FabricPC defines Gaussian
+  energy and how our local column nodes accept energy objects, then I’ll wire normalized local precision through the columnar graph and tests.
+
+• Explored
+  └ Search class .*Gaussian|GaussianEnergy|energy_functional|make_classifier_energy|energy= in fabricpc
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    ?? results/
+    codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_composer_sh
+    ells_rogdora43_20260713_135318.log
+
+• Explored
+  └ Read energy.py, label_smoothed_ce.py, base.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The relevant FabricPC Gaussian energy sums squared error over every non-batch dimension. For the new stage3/96 graph, that makes a 64×96 latent six times larger than the
+  old 16×64 latent before any learning signal changes. I’m going to add a local normalized Gaussian energy in this repo and route the columnar graph through it when
+  requested, keeping upstream FabricPC untouched.
+
+• Explored
+  └ Read accuracy_nodes.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m adding a MeanSquaredGaussianEnergy class with the same Gaussian prediction-error semantics, but the per-sample energy is divided by the latent size. That makes
+  precision explicit at the node level instead of letting token count multiply local error pressure.
+
+• Added columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/normalized_gaussian.py (+63 -0)
+     1 +"""
+     2 +Shape-normalized Gaussian energy for columnar predictive-coding nodes.
+     3 +
+     4 +FabricPC's default Gaussian energy sums squared prediction error over every
+     5 +non-batch latent dimension. That is appropriate when latent sizes are fixed, but
+     6 +it changes local precision when an experiment changes token count or feature
+     7 +width. This local energy keeps predictive-coding Gaussian errors while measuring
+     8 +mean squared error per latent element.
+     9 +"""
+    10 +
+    11 +from __future__ import annotations
+    12 +
+    13 +from typing import Any, Dict
+    14 +
+    15 +import jax.numpy as jnp
+    16 +
+    17 +from fabricpc.core.energy import EnergyFunctional
+    18 +
+    19 +
+    20 +def _latent_size(x: jnp.ndarray) -> float:
+    21 +    """Return the number of non-batch latent elements as a Python float."""
+    22 +    size = 1
+    23 +    for dim in x.shape[1:]:
+    24 +        size *= int(dim)
+    25 +    return float(max(size, 1))
+    26 +
+    27 +
+    28 +class MeanSquaredGaussianEnergy(EnergyFunctional):
+    29 +    """
+    30 +    Gaussian prediction-error energy normalized by latent size.
+    31 +
+    32 +    `precision` is the scalar Gaussian precision after latent-size
+    33 +    normalization. For an error tensor `e = z_latent - z_mu`, the per-sample
+    34 +    energy is `0.5 * precision * sum(e**2) / D`, where `D` is the number of
+    35 +    non-batch latent elements in the node.
+    36 +    """
+    37 +
+    38 +    def __init__(self, precision: float = 1.0):
+    39 +        if precision < 0.0:
+    40 +            raise ValueError(f"precision must be >= 0, got {precision}")
+    41 +        super().__init__(precision=precision)
+    42 +
+    43 +    @staticmethod
+    44 +    def energy(
+    45 +        z_latent: jnp.ndarray,
+    46 +        z_mu: jnp.ndarray,
+    47 +        config: Dict[str, Any] = None,
+    48 +    ) -> jnp.ndarray:
+    49 +        precision = config.get("precision", 1.0) if config else 1.0
+    50 +        diff = z_latent - z_mu
+    51 +        axes_to_sum = tuple(range(1, len(diff.shape)))
+    52 +        return 0.5 * precision * jnp.sum(diff**2, axis=axes_to_sum) / _latent_size(
+    53 +            diff
+    54 +        )
+    55 +
+    56 +    @staticmethod
+    57 +    def grad_latent(
+    58 +        z_latent: jnp.ndarray,
+    59 +        z_mu: jnp.ndarray,
+    60 +        config: Dict[str, Any] = None,
+    61 +    ) -> jnp.ndarray:
+    62 +        precision = config.get("precision", 1.0) if config else 1.0
+    63 +        return precision * (z_latent - z_mu) / _latent_size(z_latent)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The energy class is in place. I’m exporting it through the local column package and then wiring the training graph so all columnar local Gaussian nodes can share the
+  same normalized precision setting.
+
+• Edited columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/__init__.py (+4 -0)
+    46  )
+    47 +from columnar_cl_fabricpc.columns.normalized_gaussian import (
+    48 +    MeanSquaredGaussianEnergy,
+    49 +)
+    50  from columnar_cl_fabricpc.columns.accuracy_nodes import (
+       ⋮
+    63      "LabelSmoothedCrossEntropyEnergy",
+    64 +    "MeanSquaredGaussianEnergy",
+    65      "WeightedLabelSmoothedCrossEntropyEnergy",
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m going to add one experimental flag for this because the historical stage4 results need to remain comparable. The flag will be enabled in the stage3/96 wrapper, and
+  the implementation will apply consistently across the columnar nodes instead of only one path.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+2 -0)
+    72  from fabricpc.core.inference import InferenceSGDNormClip
+    73 +from fabricpc.core.energy import GaussianEnergy
+    74  from fabricpc.graph_initialization import initialize_params
+       ⋮
+    97      FeatureSliceNode,
+    98 +    MeanSquaredGaussianEnergy,
+    99      WeightedLabelSmoothedCrossEntropyEnergy,
+
+• Explored
+  └ Read train_cifar10_depth_spanning.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The helper will produce either FabricPC’s summed Gaussian energy or the normalized local version. I’m routing that one object through stage taps, global context,
+  columns, combiner, shell slices, shell pools, shell bridges, and outer context.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+14 -0)
+    1854
+    1855 +def make_column_gaussian_energy(args):
+    1856 +    """
+    1857 +    Create the local Gaussian energy used by columnar predictive-coding nodes.
+    1858 +
+    1859 +    `normalize_column_gaussian_energy` switches those local errors from summed
+    1860 +    squared error to mean squared error per latent element. This keeps the
+    1861 +    Gaussian predictive-coding mechanism while making token-grid and feature
+    1862 +    width changes explicit precision choices.
+    1863 +    """
+    1864 +    if args.normalize_column_gaussian_energy:
+    1865 +        return MeanSquaredGaussianEnergy(precision=args.column_gaussian_precision)
+    1866 +    return GaussianEnergy(precision=args.column_gaussian_precision)
+    1867 +
+    1868 +
+    1869  def batch_to_task_dict(batch_data: Any) -> Dict[str, jnp.ndarray]:
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The stage-tap factory currently did not expose its energy parameter even though the underlying node supports it. Since this is shared columnar infrastructure, I’m
+  extending the factory instead of bypassing it locally.
+
+• Edited columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/stage_taps.py (+8 -0)
+    565      fix_ln_gamma: bool = False,
+    566 +    energy: Optional[EnergyFunctional] = None,
+    567  ) -> StageTapTokenizer:
+        ⋮
+    579              scalar 1.0 / 0.0
+    580 +        energy: Predictive-coding energy functional. If omitted, the node uses
+    581 +            its default Gaussian energy.
+    582
+        ⋮
+    594          fix_ln_gamma=fix_ln_gamma,
+    595 +        energy=energy or GaussianEnergy(),
+    596      )
+        ⋮
+    604      fix_ln_gamma: bool = False,
+    605 +    energy: Optional[EnergyFunctional] = None,
+    606  ) -> GlobalPoolNode:
+        ⋮
+    616              scalar 1.0 / 0.0
+    617 +        energy: Predictive-coding energy functional. If omitted, the node uses
+    618 +            its default Gaussian energy.
+    619
+        ⋮
+    628          fix_ln_gamma=fix_ln_gamma,
+    629 +        energy=energy or GaussianEnergy(),
+    630      )
+
+• Explored
+  └ Read depth_spanning_column.py, pooling.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• create_depth_spanning_column() also hid the energy argument, so I’m extending that factory too and migrating the pool helper. That keeps future callers from having to
+  bypass shared constructors.
+
+• Edited columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/depth_spanning_column.py (+8 -0)
+    765      fix_ln_gamma: bool = False,
+    766 +    energy: Optional[EnergyFunctional] = None,
+    767  ) -> DepthSpanningColumnNode:
+        ⋮
+    785              scalar 1.0 / 0.0
+    786 +        energy: Predictive-coding energy functional. If omitted, the node uses
+    787 +            its default Gaussian energy.
+    788
+        ⋮
+    804          fix_ln_gamma=fix_ln_gamma,
+    805 +        energy=energy or GaussianEnergy(),
+    806      )
+        ⋮
+    823      name_prefix: str = "col",
+    824 +    energy: Optional[EnergyFunctional] = None,
+    825  ) -> Dict[str, DepthSpanningColumnNode]:
+        ⋮
+    841          name_prefix: Prefix for column names
+    842 +        energy: Predictive-coding energy functional. If omitted, each node uses
+    843 +            its default Gaussian energy.
+    844
+        ⋮
+    860              shell_inhibition_strengths=shell_inhibition_strengths,
+    861 +            energy=energy,
+    862          )
+
+• Explored
+  └ Search class AvgPool|global_pool|def __init__ in pooling.py
+    Read pooling.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m wiring the normalized energy through the graph builder now. This will affect the added columnar pathway nodes when the flag is enabled, while leaving classifier
+  cross-entropy and upstream FabricPC backbone nodes unchanged.
+
+• Explored
+  └ Read train_cifar10_depth_spanning.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The large patch missed because nearby code had shifted. I’m applying the energy wiring in smaller patches so I can keep each constructor change precise.
+
+• Explored
+  └ Read train_cifar10_depth_spanning.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I have the exact constructor sites now. I’m applying the graph energy object consistently to the columnar additions and adding validation around the new precision
+  setting.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+8 -0)
+    2221          raise ValueError("--outer_shell_context_to_bridge requires --column_shell_bridge")
+    2222 +    if args.column_gaussian_precision < 0.0:
+    2223 +        raise ValueError("--column_gaussian_precision must be >= 0")
+    2224
+         ⋮
+    2241      )
+    2242 +    column_gaussian_energy = make_column_gaussian_energy(args)
+    2243
+         ⋮
+    2325          fix_ln_gamma=args.fix_ln_gamma,
+    2326 +        energy=column_gaussian_energy,
+    2327      )
+         ⋮
+    2335          fix_ln_gamma=args.fix_ln_gamma,
+    2336 +        energy=column_gaussian_energy,
+    2337      )
+         ⋮
+    2345          fix_ln_gamma=args.fix_ln_gamma,
+    2346 +        energy=column_gaussian_energy,
+    2347      )
+         ⋮
+    2353          fix_ln_gamma=args.fix_ln_gamma,
+    2354 +        energy=column_gaussian_energy,
+    2355      )
+         ⋮
+    2378              fix_ln_gamma=args.fix_ln_gamma,
+    2379 +            energy=column_gaussian_energy,
+    2380          )
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The stage taps and depth-spanning columns are wired. I’m applying the same energy to combiner, pools, shell slices, bridges, and context latents.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+9 -0)
+    2412              support_mask=support_mask,
+    2413 +            energy=column_gaussian_energy,
+    2414          )
+         ⋮
+    2421              combination=args.combiner,
+    2422 +            energy=column_gaussian_energy,
+    2423          )
+         ⋮
+    2433          global_pool=True,
+    2434 +        energy=column_gaussian_energy,
+    2435      )
+         ⋮
+    2472              end=end,
+    2473 +            energy=column_gaussian_energy,
+    2474          )
+         ⋮
+    2513                  end=end,
+    2514 +                energy=column_gaussian_energy,
+    2515              )
+         ⋮
+    2519                  global_pool=True,
+    2520 +                energy=column_gaussian_energy,
+    2521              )
+         ⋮
+    2555                  weight_init=XavierInitializer(),
+    2556 +                energy=column_gaussian_energy,
+    2557              )
+         ⋮
+    2594                  weight_init=XavierInitializer(),
+    2595 +                energy=column_gaussian_energy,
+    2596              )
+         ⋮
+    2625              weight_init=XavierInitializer(),
+    2626 +            energy=column_gaussian_energy,
+    2627          )
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The graph builder is wired. I’m adding the new command-line flags and log output so result files show whether local Gaussian precision used summed or mean-normalized
+  errors.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+20 -0)
+    3495      parser.add_argument("--infer_max_norm", type=float, default=1.0)
+    3496 +    parser.add_argument(
+    3497 +        "--normalize_column_gaussian_energy",
+    3498 +        action="store_true",
+    3499 +        help=(
+    3500 +            "Use mean squared Gaussian prediction error for local columnar "
+    3501 +            "nodes instead of summed squared error. This keeps local "
+    3502 +            "predictive-coding precision stable when token count or feature "
+    3503 +            "width changes."
+    3504 +        ),
+    3505 +    )
+    3506 +    parser.add_argument(
+    3507 +        "--column_gaussian_precision",
+    3508 +        type=float,
+    3509 +        default=1.0,
+    3510 +        help=(
+    3511 +            "Scalar precision applied to local Gaussian energies in the "
+    3512 +            "columnar path. With --normalize_column_gaussian_energy, this is "
+    3513 +            "the precision after dividing by latent size."
+    3514 +        ),
+    3515 +    )
+    3516      parser.add_argument("--eval_every", type=int, default=1)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m adding the same validation in the training entry point, since both tests and real training can call the graph builder through different paths.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+7 -0)
+    2750          raise ValueError("--outer_shell_context_to_bridge requires --column_shell_bridge")
+    2751 +    if args.column_gaussian_precision < 0.0:
+    2752 +        raise ValueError("--column_gaussian_precision must be >= 0")
+    2753
+         ⋮
+    2802      print(f"Inference eta: {args.eta_infer}")
+    2803 +    print(
+    2804 +        "Column Gaussian energy: "
+    2805 +        f"{'mean-normalized' if args.normalize_column_gaussian_energy else 'summed'}"
+    2806 +    )
+    2807 +    print(f"Column Gaussian precision: {args.column_gaussian_precision}")
+    2808      print("Column teacher head: enabled")
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The CLI is in the training script. I’m updating the run wrapper so the stage3/96 helper turns normalized local Gaussian energy on by default, while older wrapper calls
+  remain backward-compatible.
+
+• Edited columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh (+27 -1)
+     29  microcolumn_dim="${24:-32}"
+     30 +normalize_column_gaussian_mode="${25:-off}"
+     31 +column_gaussian_precision="${26:-1.0}"
+     32  hostname_value="$(hostname)"
+        ⋮
+     59  outer_shell_context_evidence_args=()
+     60 +normalize_column_gaussian_label="off"
+     61 +normalize_column_gaussian_args=()
+     62
+        ⋮
+    174
+    175 +if [[ "$normalize_column_gaussian_mode" == "on" || "$normalize_column_gaussian_mode" == "true" || "$normalize_column_gaussian_mode" == "mean" ]]; then
+    176 +    normalize_column_gaussian_label="on"
+    177 +    normalize_column_gaussian_args+=(--normalize_column_gaussian_energy)
+    178 +elif [[ "$normalize_column_gaussian_mode" == "off" || "$normalize_column_gaussian_mode" == "false" || "$normalize_column_gaussian_mode" == "sum" ]]; then
+    179 +    normalize_column_gaussian_label="off"
+    180 +else
+    181 +    echo "Unknown normalize column Gaussian mode: $normalize_column_gaussian_mode" >&2
+    182 +    echo "Use 'on' or 'off'." >&2
+    183 +    exit 2
+    184 +fi
+    185 +
+    186 +if [[ "$normalize_column_gaussian_label" == "on" ]]; then
+    187 +    normalize_column_gaussian_short="ng1"
+    188 +else
+    189 +    normalize_column_gaussian_short="ng0"
+    190 +fi
+    191 +column_gaussian_precision_label="${column_gaussian_precision//./p}"
+    192 +
+    193  if [[ "$readout_label" == "bypass" ]]; then
+        ⋮
+    231  # the log header; the filename keeps only compact run identifiers.
+    210 -log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolu
+         mn_dim}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_con
+         text_shell_prediction_label}_ocet${outer_context_evidence_teacher_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_$
+         {outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostn
+         ame_value}_${timestamp}.log"
+    232 +log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolu
+         mn_dim}_${normalize_column_gaussian_short}_gp${column_gaussian_precision_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label
+         }_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_ocet${outer_context_evidence_teacher_label}_${column_shell_re
+         adout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_shor
+         t}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+    233
+        ⋮
+    250      echo "microcolumn_dim: $microcolumn_dim"
+    251 +    echo "normalize_column_gaussian_energy: $normalize_column_gaussian_label"
+    252 +    echo "column_gaussian_precision: $column_gaussian_precision"
+    253      echo "shell_lr_multipliers: $shell_lr_multipliers"
+        ⋮
+    293          --infer_max_norm 1.0 \
+    294 +        --column_gaussian_precision "$column_gaussian_precision" \
+    295          --eval_every 1 \
+        ⋮
+    309          "${outer_shell_context_evidence_args[@]}" \
+    310 +        "${normalize_column_gaussian_args[@]}" \
+    311          "${readout_args[@]}" \
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Now I’m switching the dedicated stage3/96 wrapper to pass the normalized Gaussian mode. The positional interface stays hidden behind the short wrapper.
+
+• Edited columnarCL-fabricPC-experiments/scripts/run_codex_stage3_96_bridge_best.sh (+3 -1)
+    34      "96" \
+    35 -    "32"
+    35 +    "32" \
+    36 +    "on" \
+    37 +    "1.0"
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m adding tests for the energy math and for graph wiring, including a default case that verifies historical graph construction still uses FabricPC’s summed Gaussian
+  energy unless the normalized mode is explicitly requested.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+25 -0)
+      8
+      9 +from fabricpc.core.energy import GaussianEnergy
+     10  from fabricpc.core.inference import InferenceSGD
+        ⋮
+     20      GlobalAvgPoolNormNode,
+     21 +    MeanSquaredGaussianEnergy,
+     22      SHELL_NAMES,
+        ⋮
+    326
+    327 +def test_mean_squared_gaussian_energy_normalizes_by_latent_size() -> None:
+    328 +    """Normalized Gaussian energy preserves PC errors while scaling by shape."""
+    329 +    z_latent = jnp.ones((2, 3, 4), dtype=jnp.float32)
+    330 +    z_mu = jnp.zeros((2, 3, 4), dtype=jnp.float32)
+    331 +    energy = MeanSquaredGaussianEnergy(precision=2.0)
+    332 +
+    333 +    per_sample_energy = MeanSquaredGaussianEnergy.energy(
+    334 +        z_latent,
+    335 +        z_mu,
+    336 +        energy.config,
+    337 +    )
+    338 +    latent_grad = MeanSquaredGaussianEnergy.grad_latent(
+    339 +        z_latent,
+    340 +        z_mu,
+    341 +        energy.config,
+    342 +    )
+    343 +
+    344 +    assert jnp.allclose(per_sample_energy, jnp.ones((2,), dtype=jnp.float32))
+    345 +    assert jnp.allclose(latent_grad, jnp.ones_like(z_latent) / 6.0)
+    346 +
+    347 +
+    348  def test_shell_context_prediction_node_keeps_terminal_local_energy() -> None:
+        ⋮
+    438          outer_shell_context_teacher_weight=0.0,
+    439 +        normalize_column_gaussian_energy=False,
+    440 +        column_gaussian_precision=1.0,
+    441          shell_lr_multipliers="1,1,1,1",
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+41 -0)
+    523
+    524 +def test_depth_spanning_graph_defaults_to_summed_gaussian_energy() -> None:
+    525 +    """Historical graph construction keeps FabricPC's summed Gaussian energy."""
+    526 +    structure, _ = build_depth_spanning_graph(_tiny_depth_spanning_args())
+    527 +
+    528 +    assert type(structure.nodes["stage2_tap"].node_info.energy) is GaussianEnergy
+    529 +    assert type(structure.nodes["col_00"].node_info.energy) is GaussianEnergy
+    530 +    assert type(structure.nodes["combiner"].node_info.energy) is GaussianEnergy
+    531 +    assert type(structure.nodes["column_pool"].node_info.energy) is GaussianEnergy
+    532 +
+    533 +
+    534 +def test_depth_spanning_graph_can_normalize_column_gaussian_energy() -> None:
+    535 +    """Columnar local Gaussian nodes can use latent-size-normalized precision."""
+    536 +    args = _tiny_depth_spanning_args(
+    537 +        combiner="shell_attention",
+    538 +        bypass_columns=False,
+    539 +        column_shell_bridge=True,
+    540 +        outer_shell_context=True,
+    541 +        normalize_column_gaussian_energy=True,
+    542 +        column_gaussian_precision=0.5,
+    543 +    )
+    544 +    structure, _ = build_depth_spanning_graph(args)
+    545 +    normalized_nodes = [
+    546 +        "stage2_tap",
+    547 +        "stage3_tap",
+    548 +        "stage4_tap",
+    549 +        "stage4_pool",
+    550 +        "col_00",
+    551 +        "combiner",
+    552 +        "column_pool",
+    553 +        column_shell_slice_node_name(0, "hard_kernel"),
+    554 +        column_shell_pool_node_name(0, "hard_kernel"),
+    555 +        column_shell_bridge_node_name(0),
+    556 +        outer_shell_context_node_name(0),
+    557 +    ]
+    558 +
+    559 +    for node_name in normalized_nodes:
+    560 +        energy = structure.nodes[node_name].node_info.energy
+    561 +        assert type(energy) is MeanSquaredGaussianEnergy
+    562 +        assert energy.config["precision"] == 0.5
+    563 +
+    564 +
+    565  def test_depth_spanning_graph_uses_shell_composer_combiner_mode() -> None:
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The tests now cover both the default summed-energy path and the normalized path. I’m running static checks and the targeted pytest file.
+
+• Ran bash -n scripts/run_codex_stage3_96_bridge_best.sh
+  └ (no output)
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh
+  └ (no output)
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py columnar_cl_fabricpc/
+  │ columns/stage_taps.py columnar_cl_fabricpc/columns/depth_spanning_column.py columnar_cl_fabricpc/columns/normalized_gaussian.py columnar_cl_fabricpc/columns/
+  │ __init__.py
+  └ (no output)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Static checks passed. I’m running the targeted test suite now.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +7 lines (ctrl + t to view transcript)
+
+    ============================= 52 passed in 13.65s ==============================
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The targeted tests passed: 52 tests. I’m doing a final diff/status check, then I’ll update the work log with the implementation notes and the next run command.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M columnar_cl_fabricpc/columns/__init__.py
+    … +9 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_composer_sh
+    ells_rogdora43_20260713_135318.log
+
+• Ran git diff --stat
+  └  columnar_cl_fabricpc/columns/__init__.py           |   4 +
+     .../columns/depth_spanning_column.py               |   8 ++
+    … +5 lines (ctrl + t to view transcript)
+     tests/test_pooled_readout_norm.py                  |  66 +++++++++++++
+     8 files changed, 286 insertions(+), 2 deletions(-)
+
+• Explored
+  └ Search MeanSquaredGaussianEnergy|normalize_column_gaussian|column_gaussian_precision|normalize_column_gaussian_energy|Column Gaussian in
+  train_cifar10_depth_spanning.py
+    List run_codex_stage3_96_bridge_best.sh
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Everything is wired and tested. I’m appending the implementation record to the work log now, including the exact command to run the normalized stage3/96 diagnostic.
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z' && hostname
+  └ 2026-07-13 20:58:54 EDT
+    rogdora43
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+104 -0)
+    4841  This is a shared-mechanism fix. It treats the move from 16 tokens to 64 tokens as a predictive-coding precision change, not just a capacity change.
+    4842 +
+    4843 +## 2026-07-13 Columnar Gaussian Precision Normalization Implementation
+    4844 +
+    4845 +Recorded on 2026-07-13 20:58 EDT on `rogdora43`.
+    4846 +
+    4847 +Direction:
+    4848 +
+    4849 +- Implemented the shared precision correction proposed after the failed stage3/96 diagnostic.
+    4850 +- Upstream FabricPC was not modified.
+    4851 +- Historical summed-Gaussian behavior remains the default so prior stage4 results remain comparable.
+    4852 +- The stage3/96 wrapper now enables the normalized local precision mode by default.
+    4853 +
+    4854 +Mechanism:
+    4855 +
+    4856 +- Added `MeanSquaredGaussianEnergy` in `columnar_cl_fabricpc/columns/normalized_gaussian.py`.
+    4857 +- For `e = z_latent - z_mu`, where `z_latent` is the inferred predictive-coding latent and `z_mu` is the node prediction, the new energy computes:
+    4858 +  - `E = 0.5 * precision * sum(e**2) / D`.
+    4859 +  - `D` is the number of non-batch latent elements in that node.
+    4860 +- The corresponding explicit latent gradient helper computes:
+    4861 +  - `dE/dz_latent = precision * e / D`.
+    4862 +- This keeps the local Gaussian predictive-coding objective but prevents larger token grids and wider feature axes from silently increasing local error precision
+          .
+    4863 +
+    4864 +Graph wiring:
+    4865 +
+    4866 +- Added `--normalize_column_gaussian_energy`.
+    4867 +- Added `--column_gaussian_precision`.
+    4868 +- Added `make_column_gaussian_energy()` in `scripts/train_cifar10_depth_spanning.py`.
+    4869 +- When normalized mode is enabled, the graph uses `MeanSquaredGaussianEnergy`.
+    4870 +- When normalized mode is disabled, the graph uses FabricPC's `GaussianEnergy`.
+    4871 +- The selected local Gaussian energy is applied to:
+    4872 +  - `stage2_tap`, `stage3_tap`, and `stage4_tap`.
+    4873 +  - `stage4_pool`.
+    4874 +  - every `DepthSpanningColumnNode`.
+    4875 +  - `combiner`, including `ColumnShellComposerNode`.
+    4876 +  - `column_pool`.
+    4877 +  - global shell teacher slice nodes when present.
+    4878 +  - per-column shell slice nodes and shell pools.
+    4879 +  - per-column outer-shell context latents.
+    4880 +  - per-column shell bridge latents.
+    4881 +  - the optional class-shaped outer-shell context evidence latent.
+    4882 +- Classifier heads still use cross-entropy energy. The backbone convolution and skip nodes still use their existing FabricPC Gaussian energy.
+    4883 +
+    4884 +Shared constructor updates:
+    4885 +
+    4886 +- `create_stage_tap()` now accepts an optional `energy` argument.
+    4887 +- `create_global_pool()` now accepts an optional `energy` argument.
+    4888 +- `create_depth_spanning_column()` now accepts an optional `energy` argument.
+    4889 +- `create_depth_spanning_column_pool()` now forwards that optional `energy` argument.
+    4890 +
+    4891 +Runner updates:
+    4892 +
+    4893 +- `scripts/run_codex_cifar10_depth_spanning.sh` now accepts two new trailing arguments:
+    4894 +  - argument 25: normalized column Gaussian mode, with `on`, `true`, or `mean` enabling normalized local Gaussian energy.
+    4895 +  - argument 26: `column_gaussian_precision`.
+    4896 +- The log header records `normalize_column_gaussian_energy` and `column_gaussian_precision`.
+    4897 +- The child log filename includes `ng1` or `ng0`, plus the precision label.
+    4898 +- `scripts/run_codex_stage3_96_bridge_best.sh` now passes normalized mode `on` and precision `1.0`.
+    4899 +
+    4900 +Validation:
+    4901 +
+    4902 +```bash
+    4903 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py columnar_cl_fabricpc/co
+          lumns/stage_taps.py columnar_cl_fabricpc/columns/depth_spanning_column.py columnar_cl_fabricpc/columns/normalized_gaussian.py columnar_cl_fabricpc/columns/__init
+          __.py
+    4904 +```
+    4905 +
+    4906 +Result:
+    4907 +
+    4908 +- Passed.
+    4909 +
+    4910 +```bash
+    4911 +bash -n scripts/run_codex_cifar10_depth_spanning.sh
+    4912 +```
+    4913 +
+    4914 +Result:
+    4915 +
+    4916 +- Passed.
+    4917 +
+    4918 +```bash
+    4919 +bash -n scripts/run_codex_stage3_96_bridge_best.sh
+    4920 +```
+    4921 +
+    4922 +Result:
+    4923 +
+    4924 +- Passed.
+    4925 +
+    4926 +```bash
+    4927 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+    4928 +```
+    4929 +
+    4930 +Result:
+    4931 +
+    4932 +- 52 passed in 13.65 seconds.
+    4933 +
+    4934 +Recommended diagnostic run:
+    4935 +
+    4936 +```bash
+    4937 +bash scripts/run_codex_stage3_96_bridge_best.sh 42 10
+    4938 +```
+    4939 +
+    4940 +Interpretation target:
+    4941 +
+    4942 +- Compare directly against the previous unnormalized stage3/96 diagnostic, which reached 22.19% test accuracy.
+    4943 +- Check whether normalized local precision restores useful outer-shell participation. In the failed unnormalized run, removing outer shell only dropped test accu
+          racy from 22.19% to 20.33%.
+    4944 +- Check whether the validation curve continues rising past epoch 7. If it does, rerun for 20 epochs.
+    4945 +- Do not compare only the top-line number. The route diagnostics should show whether `combined_without_column_pool`, `combined_without_column_shell_bridge`, and
+          `combined_without_outer_shell_context` become less chance-like.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log is updated. I’m doing one final clean check before handing you the command.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M columnar_cl_fabricpc/columns/__init__.py
+    … +9 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_composer_sh
+    ells_rogdora43_20260713_135318.log
+
+• Ran git diff --check
+  └ (no output)
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the normalized local Gaussian precision path and updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-
+  cifar10-hibacaml.md:4844.
+
+  What changed:
+
+  - Added MeanSquaredGaussianEnergy in columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/normalized_gaussian.py:1.
+  - Added --normalize_column_gaussian_energy and --column_gaussian_precision.
+  - Wired normalized Gaussian energy through the columnar local PC nodes when enabled.
+  - Left historical summed Gaussian behavior as the default for comparability.
+  - Updated columnarCL-fabricPC-experiments/scripts/run_codex_stage3_96_bridge_best.sh:1 so the stage3/96 diagnostic now uses normalized local Gaussian energy.
+
+  Validation passed:
+
+  - py_compile
+  - bash -n on both run scripts
+  - pytest tests/test_pooled_readout_norm.py: 52 passed
+
+  Run this from the repo:
+
+  bash scripts/run_codex_stage3_96_bridge_best.sh 42 10
