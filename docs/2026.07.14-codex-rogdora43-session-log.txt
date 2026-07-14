@@ -1014,3 +1014,1037 @@
   Run this from the repo:
 
   bash scripts/run_codex_stage3_96_bridge_best.sh 42 10
+\
+
+
+
+
+
+
+    4944 +- Check whether the validation curve continues rising past epoch 7. If it does, rerun for 20 epochs.
+    4945 +- Do not compare only the top-line number. The route diagnostics should show whether `combined_without_column_pool`, `combined_without_column_shell_bridge`, and
+          `combined_without_outer_shell_context` become less chance-like.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log is updated. I’m doing one final clean check before handing you the command.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M columnar_cl_fabricpc/columns/__init__.py
+    … +9 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_composer_sh
+    ells_rogdora43_20260713_135318.log
+
+• Ran git diff --check
+  └ (no output)
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the normalized local Gaussian precision path and updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-
+  cifar10-hibacaml.md:4844.
+
+  What changed:
+
+  - Added MeanSquaredGaussianEnergy in columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/normalized_gaussian.py:1.
+  - Added --normalize_column_gaussian_energy and --column_gaussian_precision.
+  - Wired normalized Gaussian energy through the columnar local PC nodes when enabled.
+  - Left historical summed Gaussian behavior as the default for comparability.
+  - Updated columnarCL-fabricPC-experiments/scripts/run_codex_stage3_96_bridge_best.sh:1 so the stage3/96 diagnostic now uses normalized local Gaussian energy.
+
+  Validation passed:
+
+  - py_compile
+  - bash -n on both run scripts
+  - pytest tests/test_pooled_readout_norm.py: 52 passed
+
+  Run this from the repo:
+
+  bash scripts/run_codex_stage3_96_bridge_best.sh 42 10
+
+─ Worked for 6m 47s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› This experimental run has finished
+
+
+• I’ll inspect the newest normalized stage3/96 result log, extract the accuracy and route diagnostics, then update the work log with the result and my recommendation.
+
+• Ran ls -t results/codex_dspan_* 2>/dev/null | head -10
+  └ results/
+    codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ng1_gp1p0_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_c
+    … +26 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0005_ocet0p0_sr0_br0_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_2026
+    0710_141925.log
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Context compacted
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll parse the completed result log, compare it against the preceding stage3 and best stage4 baselines, then write the conclusion into the work log before recommending
+  anything further.
+
+• Explored
+  └ List codex_dspan_*
+    Read
+    codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ng1_gp1p0_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_
+         composer_shells_rogdora43_20260713_211226.log
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z' && hostname && git status --short --branch
+  └ 2026-07-14 04:30:27 EDT
+    rogdora43
+    ## improve/plain-cifar10...origin/improve/plain-cifar10
+    A  docs/2026.07.14-codex-rogdora43-session-log.txt
+
+• Explored
+  └ Search Results Summary|Test Accuracy|Best Val|Epoch [0-9]+: val_acc|Shell diagnostic|Composer shell diagnostic|combined|without|only|shell|outer|context|NaN|nan|
+  energy=|
+           column in
+
+           codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ng1_gp1p0_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005
+           _ep1
+           0_composer_shells_rogdora43_20260713_211226.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The normalized stage3 run did not recover the path we wanted. I’m checking it against the unnormalized stage3 run and the stronger stage4 ten-column runs so the
+  recommendation is grounded in the actual trajectory, not just the latest result.
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    Search Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|combined                         acc=|combined_without_inner_shell|combined_without_middle_shell|
+           combined_without_outer_shell|column_only                      acc=|column_shell_bridge_only         acc=|outer_shell_context_only         acc=|
+           combined_without_column_pool|combined_without_column_shell_bridge|combined_without_outer_shell_context in
+
+           codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_comp
+           oser
+           _shells_rogdora43_20260713_135318.log
+
+• Ran git diff -- docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md docs/2026.07.14-codex-rogdora43-session-log.txt
+  └ (no output)
+
+• Explored
+  └ Search Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|combined                         acc=|combined_without_inner_shell|combined_without_middle_shell|
+           combined_without_outer_shell|column_only                      acc=|column_shell_bridge_only         acc=|outer_shell_context_only         acc=|
+           combined_without_column_pool|combined_without_column_shell_bridge|combined_without_outer_shell_context in
+
+           codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_
+           2026
+           0712_181700.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The latest result is worse than the unnormalized stage3 attempt: 18.89% test versus 22.19%. The important signal is that normalized precision at 1.0 made nearly every
+  isolated route chance-like, so it appears to underconstrain the local predictive latents rather than simply “fix” the larger grid.
+
+• Explored
+  └ Search Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|combined                         acc=|combined_without_inner_shell|combined_without_middle_shell|
+           combined_without_outer_shell|combined_without_column_pool|combined_without_column_shell_bridge|combined_without_outer_shell_context in
+
+           codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb1_nobyp_seed42_lr0p005_ep20_composer_shells_rogdo
+           ra43
+           _20260713_063611.log
+    Search Test Accuracy:|Best Val Accuracy:|Best Val Epoch: in
+           codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed*.log
+    Search column_gaussian_precision|normalize_column_gaussian_energy|MeanSquaredGaussianEnergy|make_column_gaussian_energy|column_grid|stage3|stage4 in
+           train_cifar10_depth_spanning.py
+    Read
+    codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_202607
+         11_074007.log,
+
+         codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20
+         2607
+         12_181700.log,
+
+         codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ng1_gp1p0_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_e
+         p10_
+         composer_shells_rogdora43_20260713_211226.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m going to append the analysis to the ongoing work log now. The conclusion I’m recording is that full latent mean-normalization is the wrong precision correction for
+  this graph because it weakens both spatial token nodes and shell/context routes too aggressively.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+91 -0)
+    4945  - Do not compare only the top-line number. The route diagnostics should show whether `combined_without_column_pool`, `combined_without_column_shell_bridge`, and
+          `combined_without_outer_shell_context` become less chance-like.
+    4946 +
+    4947 +## 2026-07-14 Stage3/96 Full Mean-Normalized Gaussian Result
+    4948 +
+    4949 +Recorded on 2026-07-14 04:30 EDT on `rogdora43`.
+    4950 +
+    4951 +Run:
+    4952 +
+    4953 +- Log: `results/codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ng1_gp1p0_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp
+          _seed42_lr0p005_ep10_composer_shells_rogdora43_20260713_211226.log`.
+    4954 +- Git commit recorded by the run: `a999f94d9aaf3bd969a61c3fca65576db7630bd3`.
+    4955 +- Configuration: 10 columns, 3 shared columns, 7 active non-shared columns, `column_grid=stage3`, `embed_dim=96`, `microcolumn_dim=32`, `shell_attention`, `colum
+          n_shell_bridge=on`, `outer_shell_context=on`, no bypass, `normalize_column_gaussian_energy=on`, `column_gaussian_precision=1.0`.
+    4956 +- The normalized local Gaussian energy was `E = 0.5 * precision * sum(e**2) / D`, where `E` is local predictive-coding energy, `precision` is the scalar error we
+          ight, `e` is the node residual `z_latent - z_mu`, and `D` is the number of non-batch latent elements in that node.
+    4957 +
+    4958 +Main result:
+    4959 +
+    4960 +| Metric | Value |
+    4961 +| --- | ---: |
+    4962 +| Best validation accuracy | 18.32% |
+    4963 +| Best validation epoch | 7 |
+    4964 +| Test accuracy | 18.89% |
+    4965 +
+    4966 +Validation trajectory:
+    4967 +
+    4968 +| Epoch | Validation accuracy |
+    4969 +| ---: | ---: |
+    4970 +| 1 | 15.52% |
+    4971 +| 2 | 13.08% |
+    4972 +| 3 | 15.12% |
+    4973 +| 4 | 13.64% |
+    4974 +| 5 | 15.02% |
+    4975 +| 6 | 18.20% |
+    4976 +| 7 | 18.32% |
+    4977 +| 8 | 16.46% |
+    4978 +| 9 | 16.20% |
+    4979 +| 10 | 15.86% |
+    4980 +
+    4981 +Test route diagnostics:
+    4982 +
+    4983 +| Route or lesion | Test accuracy |
+    4984 +| --- | ---: |
+    4985 +| Combined classifier | 18.89% |
+    4986 +| Column pool only | 10.00% |
+    4987 +| Combined without column pool | 10.00% |
+    4988 +| Shell bridge only | 10.00% |
+    4989 +| Combined without shell bridge | 10.00% |
+    4990 +| Outer-shell context only | 10.00% |
+    4991 +| Combined without outer-shell context | 10.01% |
+    4992 +| Combined without hard kernel | 10.00% |
+    4993 +| Combined without inner shell | 18.18% |
+    4994 +| Combined without middle shell | 10.00% |
+    4995 +| Combined without outer shell | 13.87% |
+    4996 +
+    4997 +Comparison against the preceding stage3/96 run:
+    4998 +
+    4999 +| Run | Local Gaussian | Best validation accuracy | Test accuracy |
+    5000 +| --- | --- | ---: | ---: |
+    5001 +| Stage3/96 seed 42, 10 epochs | summed residual energy | 21.96% | 22.19% |
+    5002 +| Stage3/96 seed 42, 10 epochs | full latent mean residual energy, precision 1.0 | 18.32% | 18.89% |
+    5003 +
+    5004 +Comparison against the stronger stage4 line:
+    5005 +
+    5006 +| Run | Commit recorded by run | Best validation accuracy | Test accuracy |
+    5007 +| --- | --- | ---: | ---: |
+    5008 +| Stage4, 10 columns, seed 42, 20 epochs, 2026-07-11 | `cccaecd58e14e7744fe2f65949ddf510bd4b88ed` | 34.30% | 33.93% |
+    5009 +| Stage4, 10 columns, seed 42, 20 epochs, 2026-07-12 | `6eb04f446e2e60452777e3a920cbd6ca93ac4b65` | 28.70% | 28.99% |
+    5010 +| Stage4, 10 columns, seed 7, 20 epochs, 2026-07-12 | `6eb04f446e2e60452777e3a920cbd6ca93ac4b65` | 30.90% | 29.91% |
+    5011 +| Stage4, 10 columns, seed 99, 20 epochs, 2026-07-12 | `6eb04f446e2e60452777e3a920cbd6ca93ac4b65` | 33.96% | 33.62% |
+    5012 +
+    5013 +Interpretation:
+    5014 +
+    5015 +- Full latent mean-normalization did not solve the stage3/96 problem. It made the result worse than the unnormalized stage3/96 run by 3.30 percentage points on t
+          est accuracy.
+    5016 +- The diagnostic routes became more chance-like than before. The combined classifier reached 18.89%, but removing any of the column pool, shell bridge, or outer-
+          shell context routes dropped the test result to about chance.
+    5017 +- The shell lesion pattern says the combined classifier was carried mainly by the hard kernel, middle shell, and outer shell together. Removing the inner shell b
+          arely changed the result, from 18.89% to 18.18%.
+    5018 +- The current `MeanSquaredGaussianEnergy` divides by all latent elements. For a stage3 token node with 64 tokens and 96 feature channels, `D = 6144`. For the his
+          torical stage4 token node with 16 tokens and 64 feature channels, `D = 1024`. The new correction therefore weakens the stage3 local predictive-coding residual by
+           a factor of 6144 when `precision=1.0`.
+    5019 +- This appears to underconstrain the local predictive-coding latents. The earlier unnormalized stage3 run likely overconstrained the expanded spatial grid, but t
+          he full mean-normalized run went too far in the other direction.
+    5020 +
+    5021 +Recommended next direction:
+    5022 +
+    5023 +- Do not continue with full latent mean-normalization at `precision=1.0`.
+    5024 +- Keep the stronger stage4 result as the current anchor: the 2026-07-11 seed-42 stage4 run reached 33.93% test accuracy before the later stage3 and normalization
+           changes.
+    5025 +- Replace full latent mean-normalization with spatial-reference Gaussian scaling for columnar token nodes.
+    5026 +- Mechanism: compute `S`, the number of spatial or token sites in the node, and `S_ref`, the historical reference site count. For the ResNet18 stage4 column grid
+          , `S_ref = 16` because the grid is 4 by 4. Scale local Gaussian energy by `max(1, S / S_ref)` rather than by all non-batch latent elements.
+    5027 +- This means a stage4 token node with `S = 16` keeps the historical summed residual energy. A stage3 token node with `S = 64` divides by 4, correcting the extra
+          replicated spatial positions without weakening the feature channels or one-dimensional shell/context nodes.
+    5028 +- This is more aligned with the HiBaCaML direction than the full mean version. It treats more spatial sites as more cortical positions, not as a reason to erase
+          per-feature predictive precision inside each position.
+    5029 +
+    5030 +Proposed next implementation, pending confirmation:
+    5031 +
+    5032 +- Add a `SpatialReferenceGaussianEnergy` or equivalent local energy class in `columnar_cl_fabricpc/columns/normalized_gaussian.py`.
+    5033 +- Add CLI controls for enabling spatial-reference scaling and setting the reference site count, with `16` as the default reference for the current ResNet18 stage
+          4 anchor.
+    5034 +- Apply it to the same columnar predictive-coding nodes that received the full mean energy.
+    5035 +- Preserve historical stage4 behavior when the scaling mode is off or when the node has 16 or fewer token sites.
+    5036 +- Rerun the stage3/96 seed-42 10-epoch diagnostic and compare against both the 22.19% unnormalized stage3 result and the 33.93% best stage4 anchor.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now has the result, route diagnostics, and the precision-scaling conclusion. I’m doing one final status check so I can separate my work-log change from
+  anything that was already present in the tree.
+
+• Explored
+  └ Search Stage3/96 Full Mean-Normalized Gaussian Result|Recommended next direction:|SpatialReferenceGaussianEnergy in 20260624-work-log-codex-rogdora43-cifar10-
+  hibacaml.md
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Ran git diff -- docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ diff --git a/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md b/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    index 9c6f337..3c3e964 100644
+    … +96 lines (ctrl + t to view transcript)
+    +- Preserve historical stage4 behavior when the scaling mode is off or when the node has 16 or fewer token sites.
+    +- Rerun the stage3/96 seed-42 10-epoch diagnostic and compare against both the 22.19% unnormalized stage3 result and the 33.93% best stage4 anchor.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I analyzed the completed run and updated the work log here: columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:4947.
+
+  Result: the stage3/96 full mean-normalized Gaussian run reached only 18.89% test, with 18.32% best validation at epoch 7. That is worse than the prior unnormalized
+  stage3/96 run at 22.19% test, and well below the stronger stage4 anchor, including the earlier 33.93% test seed-42 run.
+
+  My read: MeanSquaredGaussianEnergy went too far. It divides by all non-batch latent elements, so the stage3 token node with 64 * 96 = 6144 latent elements gets weakened
+  heavily at precision=1.0. The route ablations support that: column pool only, shell bridge only, outer-shell context only, and most “without route” tests are at chance.
+  The combined classifier is learning something, but the predictive-coding routes are not robustly carrying class information.
+
+  Recommended next step: replace full latent mean-normalization with spatial-reference Gaussian scaling. Use S, the number of spatial/token sites, and S_ref = 16, the
+  historical stage4 4x4 site count. Scale by max(1, S / S_ref) so stage4 keeps its old summed behavior, while stage3 divides by 4 for its 8x8 token grid without weakening
+  feature channels or one-dimensional shell/context nodes.
+
+  I have not made implementation changes beyond the work-log update. My recommendation is to implement that spatial-reference energy next, then rerun the same stage3/96
+  seed-42 10-epoch diagnostic.
+
+─ Worked for 4m 39s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Proceed please.
+
+
+• I’ll implement the spatial-reference energy in the local experiment repo, wire it through the existing columnar Gaussian selector, update the wrappers so you get a short
+  command, and record the implementation in the work log.
+
+• Updated Plan
+  └ □ Inspect current Gaussian energy wiring and runner arguments
+    □ Add spatial-reference predictive-coding energy and CLI mode
+    □ Update wrappers, tests, and work log
+    □ Run local validation and provide experiment command
+
+• First I’m reading the current energy class and the argument plumbing so the change lands in the shared mechanism instead of being a local special case.
+
+• Explored
+  └ Read normalized_gaussian.py, train_cifar10_depth_spanning.py, run_codex_cifar10_depth_spanning.sh
+    Search MeanSquaredGaussianEnergy|normalize_column_gaussian_energy|column_gaussian_precision|normalized_gaussian|GaussianEnergy in tests
+    Read run_codex_stage3_96_bridge_best.sh
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The current flag only has two modes: summed Gaussian or full mean over every latent element. I’ll extend that selector to support a third mode, spatial-reference
+  scaling, and keep existing summed and mean modes working for prior runs.
+
+• Explored
+  └ Read test_pooled_readout_norm.py, __init__.py, train_cifar10_depth_spanning.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Before editing, one design decision matters: I’m going to migrate the Boolean --normalize_column_gaussian_energy into a single explicit --column_gaussian_energy_mode
+  {sum,mean,spatial_reference} argument. That keeps summed, full mean, and spatial-reference behavior visible as one mechanism choice instead of layered flags.
+
+• Explored
+  └ Read train_cifar10_depth_spanning.py
+    Search normalize_column_gaussian_energy|column_gaussian_energy_mode|column_gaussian_reference_sites in scripts
+    Read __init__.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll make the energy class itself shape-aware, then the training script only has to choose the mode. For token tensors the spatial site count is the product of non-batch
+  axes except the final feature axis; for pooled shell/context tensors it is one, so those routes keep their existing precision.
+
+• Ran python - <<'PY'
+  │ from fabricpc.core.energy import EnergyFunctional
+  │ import inspect
+  │ … +3 lines
+  └ Traceback (most recent call last):
+      File "<stdin>", line 1, in <module>
+    ModuleNotFoundError: No module named 'fabricpc'
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The bare python on this shell does not see FabricPC, so I’m switching that inspection to the project venv before touching the code.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python - <<'PY'
+  │ from fabricpc.core.energy import EnergyFunctional
+  │ import inspect
+  │ … +3 lines
+  └ (self, **config)
+        def __init__(self, **config):
+            self.config = types.MappingProxyType(config)  # Immutable dictionary
+
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The FabricPC energy base accepts arbitrary immutable config, so the new class can carry reference_sites without changing upstream code.
+
+• Edited columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/normalized_gaussian.py (+76 -3)
+      1  """
+      2 -Shape-normalized Gaussian energy for columnar predictive-coding nodes.
+      2 +Shape-aware Gaussian energies for columnar predictive-coding nodes.
+      3
+        ⋮
+      6  it changes local precision when an experiment changes token count or feature
+      7 -width. This local energy keeps predictive-coding Gaussian errors while measuring
+      8 -mean squared error per latent element.
+      7 +width. These local energies keep Gaussian prediction errors while making the
+      8 +precision scaling explicit.
+      9  """
+        ⋮
+     27
+     28 +def _spatial_site_count(x: jnp.ndarray) -> float:
+     29 +    """
+     30 +    Return the number of spatial or token sites in a latent tensor.
+     31 +
+     32 +    Columnar token tensors use shape `(batch, sites, features)` or
+     33 +    `(batch, height, width, features)`. Pooled shell and context tensors use
+     34 +    shape `(batch, features)` and therefore have one spatial site.
+     35 +    """
+     36 +    if len(x.shape) <= 2:
+     37 +        return 1.0
+     38 +    sites = 1
+     39 +    for dim in x.shape[1:-1]:
+     40 +        sites *= int(dim)
+     41 +    return float(max(sites, 1))
+     42 +
+     43 +
+     44 +def _spatial_reference_scale(x: jnp.ndarray, reference_sites: float) -> float:
+     45 +    """
+     46 +    Return the predictive-coding precision divisor for spatial replication.
+     47 +
+     48 +    `reference_sites` is the historical token-site count whose summed Gaussian
+     49 +    precision should be preserved. For ResNet18 CIFAR-10 stage4 columns this is
+     50 +    16, corresponding to a 4 by 4 token grid.
+     51 +    """
+     52 +    return max(1.0, _spatial_site_count(x) / reference_sites)
+     53 +
+     54 +
+     55  class MeanSquaredGaussianEnergy(EnergyFunctional):
+        ⋮
+     90          return precision * (z_latent - z_mu) / _latent_size(z_latent)
+     91 +
+     92 +
+     93 +class SpatialReferenceGaussianEnergy(EnergyFunctional):
+     94 +    """
+     95 +    Gaussian prediction-error energy scaled by spatial-site count.
+     96 +
+     97 +    `precision` is the scalar Gaussian precision after spatial scaling.
+     98 +    `reference_sites` is the token-site count whose summed residual precision is
+     99 +    preserved. For an error tensor `e = z_latent - z_mu`, the per-sample energy
+    100 +    is `0.5 * precision * sum(e**2) / A`, where `A = max(1, S / S_ref)`, `S`
+    101 +    is the number of spatial or token sites in the latent tensor, and `S_ref`
+    102 +    is the reference site count.
+    103 +    """
+    104 +
+    105 +    def __init__(self, precision: float = 1.0, reference_sites: float = 16.0):
+    106 +        if precision < 0.0:
+    107 +            raise ValueError(f"precision must be >= 0, got {precision}")
+    108 +        if reference_sites <= 0.0:
+    109 +            raise ValueError(
+    110 +                f"reference_sites must be > 0, got {reference_sites}"
+    111 +            )
+    112 +        super().__init__(precision=precision, reference_sites=reference_sites)
+    113 +
+    114 +    @staticmethod
+    115 +    def energy(
+    116 +        z_latent: jnp.ndarray,
+    117 +        z_mu: jnp.ndarray,
+    118 +        config: Dict[str, Any] = None,
+    119 +    ) -> jnp.ndarray:
+    120 +        precision = config.get("precision", 1.0) if config else 1.0
+    121 +        reference_sites = config.get("reference_sites", 16.0) if config else 16.0
+    122 +        diff = z_latent - z_mu
+    123 +        axes_to_sum = tuple(range(1, len(diff.shape)))
+    124 +        scale = _spatial_reference_scale(diff, reference_sites)
+    125 +        return 0.5 * precision * jnp.sum(diff**2, axis=axes_to_sum) / scale
+    126 +
+    127 +    @staticmethod
+    128 +    def grad_latent(
+    129 +        z_latent: jnp.ndarray,
+    130 +        z_mu: jnp.ndarray,
+    131 +        config: Dict[str, Any] = None,
+    132 +    ) -> jnp.ndarray:
+    133 +        precision = config.get("precision", 1.0) if config else 1.0
+    134 +        reference_sites = config.get("reference_sites", 16.0) if config else 16.0
+    135 +        scale = _spatial_reference_scale(z_latent, reference_sites)
+    136 +        return precision * (z_latent - z_mu) / scale
+
+• Edited columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/__init__.py (+2 -0)
+    48      MeanSquaredGaussianEnergy,
+    49 +    SpatialReferenceGaussianEnergy,
+    50  )
+       ⋮
+    65      "MeanSquaredGaussianEnergy",
+    66 +    "SpatialReferenceGaussianEnergy",
+    67      "WeightedLabelSmoothedCrossEntropyEnergy",
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The new energy is added locally and exported. Next I’m wiring it through the graph builder as an explicit Gaussian energy mode so all columnar predictive-coding nodes
+  use the same selected local objective.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+1 -0)
+     98      MeanSquaredGaussianEnergy,
+     99 +    SpatialReferenceGaussianEnergy,
+    100      WeightedLabelSmoothedCrossEntropyEnergy,
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m removing the Boolean path inside the training script and replacing it with a mode selector. Historical summed behavior remains the default mode.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+11 -5)
+    1859
+    1860 -    `normalize_column_gaussian_energy` switches those local errors from summed
+    1861 -    squared error to mean squared error per latent element. This keeps the
+    1862 -    Gaussian predictive-coding mechanism while making token-grid and feature
+    1863 -    width changes explicit precision choices.
+    1860 +    `column_gaussian_energy_mode` selects how local Gaussian prediction errors
+    1861 +    are scaled. The summed mode keeps FabricPC's historical behavior. The mean
+    1862 +    mode divides by every non-batch latent element. The spatial-reference mode
+    1863 +    divides only by replicated spatial or token sites beyond the historical
+    1864 +    reference grid.
+    1865      """
+    1865 -    if args.normalize_column_gaussian_energy:
+    1866 +    if args.column_gaussian_energy_mode == "mean":
+    1867          return MeanSquaredGaussianEnergy(precision=args.column_gaussian_precision)
+    1868 +    if args.column_gaussian_energy_mode == "spatial_reference":
+    1869 +        return SpatialReferenceGaussianEnergy(
+    1870 +            precision=args.column_gaussian_precision,
+    1871 +            reference_sites=args.column_gaussian_reference_sites,
+    1872 +        )
+    1873      return GaussianEnergy(precision=args.column_gaussian_precision)
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+4 -0)
+    2230          raise ValueError("--column_gaussian_precision must be >= 0")
+    2231 +    if args.column_gaussian_reference_sites <= 0.0:
+    2232 +        raise ValueError("--column_gaussian_reference_sites must be > 0")
+    2233
+         ⋮
+    2761          raise ValueError("--column_gaussian_precision must be >= 0")
+    2762 +    if args.column_gaussian_reference_sites <= 0.0:
+    2763 +        raise ValueError("--column_gaussian_reference_sites must be > 0")
+    2764
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The graph builder now validates the new reference-site parameter. I’m updating the run header next so every log records which predictive-coding energy mode was used.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+2 -4)
+    2813      print(f"Inference eta: {args.eta_infer}")
+    2814 -    print(
+    2815 -        "Column Gaussian energy: "
+    2816 -        f"{'mean-normalized' if args.normalize_column_gaussian_energy else 'summed'}"
+    2817 -    )
+    2814 +    print(f"Column Gaussian energy mode: {args.column_gaussian_energy_mode}")
+    2815      print(f"Column Gaussian precision: {args.column_gaussian_precision}")
+    2816 +    print(f"Column Gaussian reference sites: {args.column_gaussian_reference_sites}")
+    2817      print("Column teacher head: enabled")
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m changing the CLI now. The old mean-normalization behavior is still available as --column_gaussian_energy_mode mean, and the new diagnostic will use
+  spatial_reference.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+18 -8)
+    3512      parser.add_argument(
+    3513 -        "--normalize_column_gaussian_energy",
+    3514 -        action="store_true",
+    3513 +        "--column_gaussian_energy_mode",
+    3514 +        choices=["sum", "mean", "spatial_reference"],
+    3515 +        default="sum",
+    3516          help=(
+    3516 -            "Use mean squared Gaussian prediction error for local columnar "
+    3517 -            "nodes instead of summed squared error. This keeps local "
+    3518 -            "predictive-coding precision stable when token count or feature "
+    3519 -            "width changes."
+    3517 +            "Scaling mode for local columnar Gaussian prediction errors. "
+    3518 +            "'sum' keeps FabricPC's summed residual energy, 'mean' divides by "
+    3519 +            "all non-batch latent elements, and 'spatial_reference' divides "
+    3520 +            "only by spatial or token sites beyond a reference grid."
+    3521          ),
+         ⋮
+    3528              "Scalar precision applied to local Gaussian energies in the "
+    3528 -            "columnar path. With --normalize_column_gaussian_energy, this is "
+    3529 -            "the precision after dividing by latent size."
+    3529 +            "columnar path after the selected Gaussian energy scaling."
+    3530 +        ),
+    3531 +    )
+    3532 +    parser.add_argument(
+    3533 +        "--column_gaussian_reference_sites",
+    3534 +        type=float,
+    3535 +        default=16.0,
+    3536 +        help=(
+    3537 +            "Reference spatial or token site count for "
+    3538 +            "--column_gaussian_energy_mode spatial_reference. The default 16 "
+    3539 +            "preserves the historical ResNet18 CIFAR-10 stage4 4x4 grid."
+    3540          ),
+
+• Explored
+  └ Search normalize_column_gaussian_energy|column_gaussian_energy_mode|column_gaussian_reference_sites in train_cifar10_depth_spanning.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The training script no longer refers to the old Boolean. I’m updating the tests to cover both full latent mean scaling and the new spatial-reference scaling.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+1 -0)
+    23      ShellContextPredictionNode,
+    24 +    SpatialReferenceGaussianEnergy,
+    25      StageTapTokenizer,
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+35 -0)
+    348
+    349 +def test_spatial_reference_gaussian_energy_scales_by_token_sites() -> None:
+    350 +    """Spatial-reference Gaussian energy preserves feature precision per site."""
+    351 +    token_latent = jnp.ones((2, 64, 3), dtype=jnp.float32)
+    352 +    token_mu = jnp.zeros((2, 64, 3), dtype=jnp.float32)
+    353 +    pooled_latent = jnp.ones((2, 3), dtype=jnp.float32)
+    354 +    pooled_mu = jnp.zeros((2, 3), dtype=jnp.float32)
+    355 +    energy = SpatialReferenceGaussianEnergy(precision=2.0, reference_sites=16.0)
+    356 +
+    357 +    token_energy = SpatialReferenceGaussianEnergy.energy(
+    358 +        token_latent,
+    359 +        token_mu,
+    360 +        energy.config,
+    361 +    )
+    362 +    token_grad = SpatialReferenceGaussianEnergy.grad_latent(
+    363 +        token_latent,
+    364 +        token_mu,
+    365 +        energy.config,
+    366 +    )
+    367 +    pooled_energy = SpatialReferenceGaussianEnergy.energy(
+    368 +        pooled_latent,
+    369 +        pooled_mu,
+    370 +        energy.config,
+    371 +    )
+    372 +    pooled_grad = SpatialReferenceGaussianEnergy.grad_latent(
+    373 +        pooled_latent,
+    374 +        pooled_mu,
+    375 +        energy.config,
+    376 +    )
+    377 +
+    378 +    assert jnp.allclose(token_energy, 48.0 * jnp.ones((2,), dtype=jnp.float32))
+    379 +    assert jnp.allclose(token_grad, 0.5 * jnp.ones_like(token_latent))
+    380 +    assert jnp.allclose(pooled_energy, 3.0 * jnp.ones((2,), dtype=jnp.float32))
+    381 +    assert jnp.allclose(pooled_grad, 2.0 * jnp.ones_like(pooled_latent))
+    382 +
+    383 +
+    384  def test_shell_context_prediction_node_keeps_terminal_local_energy() -> None:
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+2 -1)
+    474          outer_shell_context_teacher_weight=0.0,
+    475 -        normalize_column_gaussian_energy=False,
+    475 +        column_gaussian_energy_mode="sum",
+    476          column_gaussian_precision=1.0,
+    477 +        column_gaussian_reference_sites=16.0,
+    478          shell_lr_multipliers="1,1,1,1",
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The unit test now verifies the new scaling math directly. I’m updating graph-construction coverage so the same local energy is attached to taps, columns, shell slices,
+  shell bridges, and context nodes.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+35 -2)
+    570
+    571 -def test_depth_spanning_graph_can_normalize_column_gaussian_energy() -> None:
+    571 +def test_depth_spanning_graph_can_use_mean_column_gaussian_energy() -> None:
+    572      """Columnar local Gaussian nodes can use latent-size-normalized precision."""
+        ⋮
+    577          outer_shell_context=True,
+    578 -        normalize_column_gaussian_energy=True,
+    578 +        column_gaussian_energy_mode="mean",
+    579          column_gaussian_precision=0.5,
+        ⋮
+    601
+    602 +def test_depth_spanning_graph_can_use_spatial_reference_gaussian_energy() -> None:
+    603 +    """Columnar local Gaussian nodes can scale precision by token-site count."""
+    604 +    args = _tiny_depth_spanning_args(
+    605 +        combiner="shell_attention",
+    606 +        bypass_columns=False,
+    607 +        column_shell_bridge=True,
+    608 +        outer_shell_context=True,
+    609 +        column_gaussian_energy_mode="spatial_reference",
+    610 +        column_gaussian_precision=0.75,
+    611 +        column_gaussian_reference_sites=16.0,
+    612 +    )
+    613 +    structure, _ = build_depth_spanning_graph(args)
+    614 +    spatial_nodes = [
+    615 +        "stage2_tap",
+    616 +        "stage3_tap",
+    617 +        "stage4_tap",
+    618 +        "stage4_pool",
+    619 +        "col_00",
+    620 +        "combiner",
+    621 +        "column_pool",
+    622 +        column_shell_slice_node_name(0, "hard_kernel"),
+    623 +        column_shell_pool_node_name(0, "hard_kernel"),
+    624 +        column_shell_bridge_node_name(0),
+    625 +        outer_shell_context_node_name(0),
+    626 +    ]
+    627 +
+    628 +    for node_name in spatial_nodes:
+    629 +        energy = structure.nodes[node_name].node_info.energy
+    630 +        assert type(energy) is SpatialReferenceGaussianEnergy
+    631 +        assert energy.config["precision"] == 0.75
+    632 +        assert energy.config["reference_sites"] == 16.0
+    633 +
+    634 +
+    635  def test_depth_spanning_graph_uses_shell_composer_combiner_mode() -> None:
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The graph tests now cover both non-default modes. I’m checking for any remaining old Boolean references before updating the runner.
+
+• Explored
+  └ Search normalize_column_gaussian_energy|SpatialReferenceGaussianEnergy|column_gaussian_energy_mode|column_gaussian_reference_sites in tests
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The remaining old references are in the shell runner. I’m migrating that runner to pass a Gaussian energy mode string and a reference-site count, then the stage3/96
+  wrapper will select spatial_reference.
+
+• Edited columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh (+21 -19)
+     29  microcolumn_dim="${24:-32}"
+     30 -normalize_column_gaussian_mode="${25:-off}"
+     30 +column_gaussian_energy_mode="${25:-sum}"
+     31  column_gaussian_precision="${26:-1.0}"
+     32 +column_gaussian_reference_sites="${27:-16}"
+     33  hostname_value="$(hostname)"
+        ⋮
+     60  outer_shell_context_evidence_args=()
+     60 -normalize_column_gaussian_label="off"
+     61 -normalize_column_gaussian_args=()
+     61 +column_gaussian_energy_args=()
+     62
+        ⋮
+    174
+    175 -if [[ "$normalize_column_gaussian_mode" == "on" || "$normalize_column_gaussian_mode" == "true" || "$normalize_column_gaussian_mode" == "mean" ]]; then
+    176 -    normalize_column_gaussian_label="on"
+    177 -    normalize_column_gaussian_args+=(--normalize_column_gaussian_energy)
+    178 -elif [[ "$normalize_column_gaussian_mode" == "off" || "$normalize_column_gaussian_mode" == "false" || "$normalize_column_gaussian_mode" == "sum" ]]; then
+    179 -    normalize_column_gaussian_label="off"
+    175 +if [[ "$column_gaussian_energy_mode" == "sum" ]]; then
+    176 +    column_gaussian_energy_label="sum"
+    177 +    column_gaussian_energy_short="gsum"
+    178 +elif [[ "$column_gaussian_energy_mode" == "mean" ]]; then
+    179 +    column_gaussian_energy_label="mean"
+    180 +    column_gaussian_energy_short="gmean"
+    181 +elif [[ "$column_gaussian_energy_mode" == "spatial_reference" ]]; then
+    182 +    column_gaussian_energy_label="spatial_reference"
+    183 +    column_gaussian_energy_short="gspref"
+    184  else
+    181 -    echo "Unknown normalize column Gaussian mode: $normalize_column_gaussian_mode" >&2
+    182 -    echo "Use 'on' or 'off'." >&2
+    185 +    echo "Unknown column Gaussian energy mode: $column_gaussian_energy_mode" >&2
+    186 +    echo "Use 'sum', 'mean', or 'spatial_reference'." >&2
+    187      exit 2
+    188  fi
+    185 -
+    186 -if [[ "$normalize_column_gaussian_label" == "on" ]]; then
+    187 -    normalize_column_gaussian_short="ng1"
+    188 -else
+    189 -    normalize_column_gaussian_short="ng0"
+    190 -fi
+    189 +column_gaussian_energy_args+=(--column_gaussian_energy_mode "$column_gaussian_energy_mode")
+    190  column_gaussian_precision_label="${column_gaussian_precision//./p}"
+    191 +column_gaussian_reference_sites_label="${column_gaussian_reference_sites//./p}"
+    192
+        ⋮
+    231  # the log header; the filename keeps only compact run identifiers.
+    232 -log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolu
+         mn_dim}_${normalize_column_gaussian_short}_gp${column_gaussian_precision_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label
+         }_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_ocet${outer_context_evidence_teacher_label}_${column_shell_re
+         adout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_shor
+         t}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+    232 +log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolu
+         mn_dim}_${column_gaussian_energy_short}_gp${column_gaussian_precision_label}_rs${column_gaussian_reference_sites_label}_ct${teacher_weight_label}_sh${shell_weight
+         s_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_ocet${outer_context_e
+         vidence_teacher_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell
+         _context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+    233
+        ⋮
+    250      echo "microcolumn_dim: $microcolumn_dim"
+    251 -    echo "normalize_column_gaussian_energy: $normalize_column_gaussian_label"
+    251 +    echo "column_gaussian_energy_mode: $column_gaussian_energy_label"
+    252      echo "column_gaussian_precision: $column_gaussian_precision"
+    253 +    echo "column_gaussian_reference_sites: $column_gaussian_reference_sites"
+    254      echo "shell_lr_multipliers: $shell_lr_multipliers"
+        ⋮
+    294          --infer_max_norm 1.0 \
+    295 +        "${column_gaussian_energy_args[@]}" \
+    296          --column_gaussian_precision "$column_gaussian_precision" \
+    297 +        --column_gaussian_reference_sites "$column_gaussian_reference_sites" \
+    298          --eval_every 1 \
+        ⋮
+    312          "${outer_shell_context_evidence_args[@]}" \
+    310 -        "${normalize_column_gaussian_args[@]}" \
+    313          "${readout_args[@]}" \
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The general runner now logs column_gaussian_energy_mode and column_gaussian_reference_sites, and filenames include compact mode labels. I’m updating the stage3/96
+  wrapper to use the new spatial-reference mode.
+
+• Edited columnarCL-fabricPC-experiments/scripts/run_codex_stage3_96_bridge_best.sh (+3 -2)
+    35      "32" \
+    36 -    "on" \
+    37 -    "1.0"
+    36 +    "spatial_reference" \
+    37 +    "1.0" \
+    38 +    "16"
+
+• Explored
+  └ Search normalize_column_gaussian_energy|normalize_column_gaussian|column_gaussian_energy_mode|column_gaussian_reference_sites in scripts
+    Read run_codex_cifar10_depth_spanning.sh, run_codex_stage3_96_bridge_best.sh
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The wrappers are migrated. I’ll run syntax checks first, then the targeted unit tests that exercise the new energy mode and graph wiring.
+
+• Ran bash -n scripts/run_codex_stage3_96_bridge_best.sh
+  └ (no output)
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py columnar_cl_fabricpc/
+  │ columns/normalized_gaussian.py columnar_cl_fabricpc/columns/__init__.py
+  └ (no output)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Syntax checks passed. I’m running the targeted pytest file now; it is unit-level validation of the energy math and graph construction, not the GPU experiment.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +7 lines (ctrl + t to view transcript)
+
+    ============================= 54 passed in 13.66s ==============================
+
+• Updated Plan
+  └ ✔ Inspect current Gaussian energy wiring and runner arguments
+    ✔ Add spatial-reference predictive-coding energy and CLI mode
+    □ Update wrappers, tests, and work log
+    □ Run local validation and provide experiment command
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The targeted tests passed: 54 tests in the readout/graph test file. I’m appending implementation notes and the recommended experiment command to the work log now.
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z'
+  └ 2026-07-14 04:39:57 EDT
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M columnar_cl_fabricpc/columns/__init__.py
+    … +4 lines (ctrl + t to view transcript)
+     M scripts/train_cifar10_depth_spanning.py
+     M tests/test_pooled_readout_norm.py
+
+• Ran hostname
+  └ rogdora43
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The worktree only contains the expected implementation and work-log edits. I’m adding the notes at the end of the same log so the earlier “pending confirmation” section
+  is followed by what was actually implemented.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+79 -0)
+    5036  - Rerun the stage3/96 seed-42 10-epoch diagnostic and compare against both the 22.19% unnormalized stage3 result and the 33.93% best stage4 anchor.
+    5037 +
+    5038 +## 2026-07-14 Spatial-Reference Gaussian Implementation
+    5039 +
+    5040 +Recorded on 2026-07-14 04:39 EDT on `rogdora43`.
+    5041 +
+    5042 +Implemented after confirmation:
+    5043 +
+    5044 +- Added `SpatialReferenceGaussianEnergy` in `columnar_cl_fabricpc/columns/normalized_gaussian.py`.
+    5045 +- Exported `SpatialReferenceGaussianEnergy` from `columnar_cl_fabricpc/columns/__init__.py`.
+    5046 +- Replaced the Boolean training flag with one explicit mode selector:
+    5047 +  - `--column_gaussian_energy_mode sum`.
+    5048 +  - `--column_gaussian_energy_mode mean`.
+    5049 +  - `--column_gaussian_energy_mode spatial_reference`.
+    5050 +- Added `--column_gaussian_reference_sites`, with default `16.0`.
+    5051 +- Updated `make_column_gaussian_energy()` in `scripts/train_cifar10_depth_spanning.py` so every columnar predictive-coding node receives the selected local Gauss
+          ian energy.
+    5052 +- Updated `scripts/run_codex_cifar10_depth_spanning.sh` so logs record `column_gaussian_energy_mode`, `column_gaussian_precision`, and `column_gaussian_reference
+          _sites`.
+    5053 +- Updated `scripts/run_codex_stage3_96_bridge_best.sh` to run the stage3/96 diagnostic with `column_gaussian_energy_mode=spatial_reference`, `column_gaussian_pre
+          cision=1.0`, and `column_gaussian_reference_sites=16`.
+    5054 +
+    5055 +Mechanism:
+    5056 +
+    5057 +- `S` is the number of spatial or token sites in a node latent.
+    5058 +- `S_ref` is the reference site count whose summed residual precision is preserved.
+    5059 +- For CIFAR-10 ResNet18 stage4 columns, `S_ref = 16`, corresponding to the 4 by 4 stage4 token grid.
+    5060 +- `A = max(1, S / S_ref)` is the spatial precision divisor.
+    5061 +- For the residual `e = z_latent - z_mu`, where `z_latent` is the inferred predictive-coding latent and `z_mu` is the node prediction, the per-sample energy is:
+    5062 +  - `E = 0.5 * precision * sum(e**2) / A`.
+    5063 +- The explicit latent gradient is:
+    5064 +  - `dE/dz_latent = precision * e / A`.
+    5065 +- A stage4 token tensor with `S = 16` keeps the historical summed Gaussian energy because `A = 1`.
+    5066 +- A stage3 token tensor with `S = 64` divides by `4`, correcting for the larger 8 by 8 token grid.
+    5067 +- A pooled shell, shell bridge, outer-shell context, or column-pool tensor has `S = 1`, so `A = 1` and the route is not weakened by feature width.
+    5068 +
+    5069 +Validation:
+    5070 +
+    5071 +```bash
+    5072 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py columnar_cl_fabricpc/co
+          lumns/normalized_gaussian.py columnar_cl_fabricpc/columns/__init__.py
+    5073 +```
+    5074 +
+    5075 +Result:
+    5076 +
+    5077 +- Passed.
+    5078 +
+    5079 +```bash
+    5080 +bash -n scripts/run_codex_cifar10_depth_spanning.sh
+    5081 +```
+    5082 +
+    5083 +Result:
+    5084 +
+    5085 +- Passed.
+    5086 +
+    5087 +```bash
+    5088 +bash -n scripts/run_codex_stage3_96_bridge_best.sh
+    5089 +```
+    5090 +
+    5091 +Result:
+    5092 +
+    5093 +- Passed.
+    5094 +
+    5095 +```bash
+    5096 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+    5097 +```
+    5098 +
+    5099 +Result:
+    5100 +
+    5101 +- 54 passed in 13.66 seconds.
+    5102 +
+    5103 +Recommended diagnostic run:
+    5104 +
+    5105 +```bash
+    5106 +bash scripts/run_codex_stage3_96_bridge_best.sh 42 10
+    5107 +```
+    5108 +
+    5109 +Interpretation target:
+    5110 +
+    5111 +- Compare against the unnormalized stage3/96 run at 22.19% test accuracy.
+    5112 +- Compare against the full mean-normalized stage3/96 run at 18.89% test accuracy.
+    5113 +- Check whether `combined_without_column_pool`, `combined_without_column_shell_bridge`, and `combined_without_outer_shell_context` rise above chance.
+    5114 +- Check whether `combined_without_outer_shell` drops more strongly than it did in the unnormalized stage3/96 run. In that run it only dropped from 22.19% to 20.3
+          3%, which showed weak outer-shell participation.
+    5115 +- If validation improves past epoch 7 instead of declining, use the same wrapper for a 20-epoch run.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log is updated. I’m doing a final diff review and status check now, mainly to catch accidental leftover references to the old flag or unintended file edits.
+
+• Ran git diff --stat
+  └  columnar_cl_fabricpc/columns/__init__.py           |   2 +
+     .../columns/normalized_gaussian.py                 |  79 +++++++++-
+    … +4 lines (ctrl + t to view transcript)
+     tests/test_pooled_readout_norm.py                  |  76 ++++++++-
+     7 files changed, 381 insertions(+), 44 deletions(-)
+
+• Explored
+  └ Search normalize_column_gaussian_energy|--normalize_column_gaussian_energy|ng1|ng0 in scripts
+
+• Ran git diff -- columnar_cl_fabricpc/columns/normalized_gaussian.py scripts/train_cifar10_depth_spanning.py scripts/run_codex_cifar10_depth_spanning.sh scripts/
+  │ run_codex_stage3_96_bridge_best.sh tests/test_pooled_readout_norm.py
+  └ diff --git a/columnar_cl_fabricpc/columns/normalized_gaussian.py b/columnar_cl_fabricpc/columns/normalized_gaussian.py
+    index 988e1b5..abc7e59 100644
+    … +444 lines (ctrl + t to view transcript)
+         """The shell_attention combiner preserves column-shell identity in combiner."""
+         args = _tiny_depth_spanning_args(
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M columnar_cl_fabricpc/columns/__init__.py
+    … +4 lines (ctrl + t to view transcript)
+     M scripts/train_cifar10_depth_spanning.py
+     M tests/test_pooled_readout_norm.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Diff review looks scoped to the intended files. There are no remaining old --normalize_column_gaussian_energy references in scripts, tests, or local column code.
+
+• Updated Plan
+  └ ✔ Inspect current Gaussian energy wiring and runner arguments
+    ✔ Add spatial-reference predictive-coding energy and CLI mode
+    ✔ Update wrappers, tests, and work log
+    □ Run local validation and provide experiment command
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m running one final whitespace check. After that I’ll give you the short command to run the GPU experiment.
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --help | rg "column_gaussian|spatial_reference"
+  └                                        [--column_gaussian_energy_mode {sum,mean,spatial_reference}]
+                                           [--column_gaussian_precision COLUMN_GAUSSIAN_PRECISION]
+    … +4 lines (ctrl + t to view transcript)
+      --column_gaussian_reference_sites COLUMN_GAUSSIAN_REFERENCE_SITES
+                            --column_gaussian_energy_mode spatial_reference. The
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The help output exposes the new mode and reference-site argument, and git diff --check is clean.
+
+• Updated Plan
+  └ ✔ Inspect current Gaussian energy wiring and runner arguments
+    ✔ Add spatial-reference predictive-coding energy and CLI mode
+    ✔ Update wrappers, tests, and work log
+    ✔ Run local validation and provide experiment command
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the spatial-reference Gaussian path and updated the work log.
+
+  Key changes:
+
+  - Added SpatialReferenceGaussianEnergy in columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/normalized_gaussian.py:93.
+  - Replaced the old Boolean with --column_gaussian_energy_mode {sum,mean,spatial_reference} in columnarCL-fabricPC-experiments/scripts/
+    train_cifar10_depth_spanning.py:3513.
+
+  - Added --column_gaussian_reference_sites, defaulting to 16.
+  - Updated the stage3/96 wrapper to use spatial_reference, precision 1.0, reference sites 16.
+  - Added unit coverage for the spatial-reference energy and graph wiring.
+  - Updated columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:5039.
+
+  Validation passed:
+
+  - py_compile
+  - bash -n for both wrappers
+  - 54 passed in 13.66s for tests/test_pooled_readout_norm.py
+  - git diff --check
+
+  Run this next from the repo directory:
+
+  bash scripts/run_codex_stage3_96_bridge_best.sh 42 10
+
+  Note: the old runner positional value on for Gaussian normalization is no longer valid. Use mean for the old full latent mean mode, or spatial_reference for the new
+  mode.
+
+─ Worked for 6m 23s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ 
+› This experimental run has finished.
