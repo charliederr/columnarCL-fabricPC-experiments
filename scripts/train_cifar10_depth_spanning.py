@@ -96,6 +96,7 @@ from columnar_cl_fabricpc.columns import (
     DepthSpanningColumnNode,
     FeatureSliceNode,
     MeanSquaredGaussianEnergy,
+    SpatialReferenceGaussianEnergy,
     WeightedLabelSmoothedCrossEntropyEnergy,
     SHELL_NAMES,
     create_stage_tap,
@@ -1856,13 +1857,19 @@ def make_column_gaussian_energy(args):
     """
     Create the local Gaussian energy used by columnar predictive-coding nodes.
 
-    `normalize_column_gaussian_energy` switches those local errors from summed
-    squared error to mean squared error per latent element. This keeps the
-    Gaussian predictive-coding mechanism while making token-grid and feature
-    width changes explicit precision choices.
+    `column_gaussian_energy_mode` selects how local Gaussian prediction errors
+    are scaled. The summed mode keeps FabricPC's historical behavior. The mean
+    mode divides by every non-batch latent element. The spatial-reference mode
+    divides only by replicated spatial or token sites beyond the historical
+    reference grid.
     """
-    if args.normalize_column_gaussian_energy:
+    if args.column_gaussian_energy_mode == "mean":
         return MeanSquaredGaussianEnergy(precision=args.column_gaussian_precision)
+    if args.column_gaussian_energy_mode == "spatial_reference":
+        return SpatialReferenceGaussianEnergy(
+            precision=args.column_gaussian_precision,
+            reference_sites=args.column_gaussian_reference_sites,
+        )
     return GaussianEnergy(precision=args.column_gaussian_precision)
 
 
@@ -2221,6 +2228,8 @@ def build_depth_spanning_graph(args):
         raise ValueError("--outer_shell_context_to_bridge requires --column_shell_bridge")
     if args.column_gaussian_precision < 0.0:
         raise ValueError("--column_gaussian_precision must be >= 0")
+    if args.column_gaussian_reference_sites <= 0.0:
+        raise ValueError("--column_gaussian_reference_sites must be > 0")
 
     model_config = MODEL_CONFIGS[args.model]
     weight_init = MuPCInitializer()
@@ -2750,6 +2759,8 @@ def train_cifar10_depth_spanning(args):
         raise ValueError("--outer_shell_context_to_bridge requires --column_shell_bridge")
     if args.column_gaussian_precision < 0.0:
         raise ValueError("--column_gaussian_precision must be >= 0")
+    if args.column_gaussian_reference_sites <= 0.0:
+        raise ValueError("--column_gaussian_reference_sites must be > 0")
 
     print("=" * 70)
     print("CIFAR-10 Depth-Spanning Columnar Architecture")
@@ -2800,11 +2811,9 @@ def train_cifar10_depth_spanning(args):
     print(f"Shell LR multipliers: {shell_lr_summary}")
     print(f"Inference steps: {args.infer_steps}")
     print(f"Inference eta: {args.eta_infer}")
-    print(
-        "Column Gaussian energy: "
-        f"{'mean-normalized' if args.normalize_column_gaussian_energy else 'summed'}"
-    )
+    print(f"Column Gaussian energy mode: {args.column_gaussian_energy_mode}")
     print(f"Column Gaussian precision: {args.column_gaussian_precision}")
+    print(f"Column Gaussian reference sites: {args.column_gaussian_reference_sites}")
     print("Column teacher head: enabled")
     print(f"Column teacher weight: {args.column_teacher_weight}")
     shell_teacher_weights = parse_shell_teacher_weights(args.shell_teacher_weights)
@@ -3501,13 +3510,14 @@ def parse_args():
     parser.add_argument("--eta_infer", type=float, default=0.1)
     parser.add_argument("--infer_max_norm", type=float, default=1.0)
     parser.add_argument(
-        "--normalize_column_gaussian_energy",
-        action="store_true",
+        "--column_gaussian_energy_mode",
+        choices=["sum", "mean", "spatial_reference"],
+        default="sum",
         help=(
-            "Use mean squared Gaussian prediction error for local columnar "
-            "nodes instead of summed squared error. This keeps local "
-            "predictive-coding precision stable when token count or feature "
-            "width changes."
+            "Scaling mode for local columnar Gaussian prediction errors. "
+            "'sum' keeps FabricPC's summed residual energy, 'mean' divides by "
+            "all non-batch latent elements, and 'spatial_reference' divides "
+            "only by spatial or token sites beyond a reference grid."
         ),
     )
     parser.add_argument(
@@ -3516,8 +3526,17 @@ def parse_args():
         default=1.0,
         help=(
             "Scalar precision applied to local Gaussian energies in the "
-            "columnar path. With --normalize_column_gaussian_energy, this is "
-            "the precision after dividing by latent size."
+            "columnar path after the selected Gaussian energy scaling."
+        ),
+    )
+    parser.add_argument(
+        "--column_gaussian_reference_sites",
+        type=float,
+        default=16.0,
+        help=(
+            "Reference spatial or token site count for "
+            "--column_gaussian_energy_mode spatial_reference. The default 16 "
+            "preserves the historical ResNet18 CIFAR-10 stage4 4x4 grid."
         ),
     )
     parser.add_argument("--eval_every", type=int, default=1)

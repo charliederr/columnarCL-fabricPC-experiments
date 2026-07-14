@@ -33,5 +33,6 @@ bash "$script_dir/run_codex_cifar10_depth_spanning.sh" \
     "stage3" \
     "96" \
     "32" \
-    "on" \
-    "1.0"
+    "spatial_reference" \
+    "1.0" \
+    "16"

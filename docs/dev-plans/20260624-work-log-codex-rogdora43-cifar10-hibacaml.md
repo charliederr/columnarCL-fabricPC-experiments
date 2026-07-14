@@ -4943,3 +4943,173 @@ Interpretation target:
 - Check whether normalized local precision restores useful outer-shell participation. In the failed unnormalized run, removing outer shell only dropped test accuracy from 22.19% to 20.33%.
 - Check whether the validation curve continues rising past epoch 7. If it does, rerun for 20 epochs.
 - Do not compare only the top-line number. The route diagnostics should show whether `combined_without_column_pool`, `combined_without_column_shell_bridge`, and `combined_without_outer_shell_context` become less chance-like.
+
+## 2026-07-14 Stage3/96 Full Mean-Normalized Gaussian Result
+
+Recorded on 2026-07-14 04:30 EDT on `rogdora43`.
+
+Run:
+
+- Log: `results/codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ng1_gp1p0_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_composer_shells_rogdora43_20260713_211226.log`.
+- Git commit recorded by the run: `a999f94d9aaf3bd969a61c3fca65576db7630bd3`.
+- Configuration: 10 columns, 3 shared columns, 7 active non-shared columns, `column_grid=stage3`, `embed_dim=96`, `microcolumn_dim=32`, `shell_attention`, `column_shell_bridge=on`, `outer_shell_context=on`, no bypass, `normalize_column_gaussian_energy=on`, `column_gaussian_precision=1.0`.
+- The normalized local Gaussian energy was `E = 0.5 * precision * sum(e**2) / D`, where `E` is local predictive-coding energy, `precision` is the scalar error weight, `e` is the node residual `z_latent - z_mu`, and `D` is the number of non-batch latent elements in that node.
+
+Main result:
+
+| Metric | Value |
+| --- | ---: |
+| Best validation accuracy | 18.32% |
+| Best validation epoch | 7 |
+| Test accuracy | 18.89% |
+
+Validation trajectory:
+
+| Epoch | Validation accuracy |
+| ---: | ---: |
+| 1 | 15.52% |
+| 2 | 13.08% |
+| 3 | 15.12% |
+| 4 | 13.64% |
+| 5 | 15.02% |
+| 6 | 18.20% |
+| 7 | 18.32% |
+| 8 | 16.46% |
+| 9 | 16.20% |
+| 10 | 15.86% |
+
+Test route diagnostics:
+
+| Route or lesion | Test accuracy |
+| --- | ---: |
+| Combined classifier | 18.89% |
+| Column pool only | 10.00% |
+| Combined without column pool | 10.00% |
+| Shell bridge only | 10.00% |
+| Combined without shell bridge | 10.00% |
+| Outer-shell context only | 10.00% |
+| Combined without outer-shell context | 10.01% |
+| Combined without hard kernel | 10.00% |
+| Combined without inner shell | 18.18% |
+| Combined without middle shell | 10.00% |
+| Combined without outer shell | 13.87% |
+
+Comparison against the preceding stage3/96 run:
+
+| Run | Local Gaussian | Best validation accuracy | Test accuracy |
+| --- | --- | ---: | ---: |
+| Stage3/96 seed 42, 10 epochs | summed residual energy | 21.96% | 22.19% |
+| Stage3/96 seed 42, 10 epochs | full latent mean residual energy, precision 1.0 | 18.32% | 18.89% |
+
+Comparison against the stronger stage4 line:
+
+| Run | Commit recorded by run | Best validation accuracy | Test accuracy |
+| --- | --- | ---: | ---: |
+| Stage4, 10 columns, seed 42, 20 epochs, 2026-07-11 | `cccaecd58e14e7744fe2f65949ddf510bd4b88ed` | 34.30% | 33.93% |
+| Stage4, 10 columns, seed 42, 20 epochs, 2026-07-12 | `6eb04f446e2e60452777e3a920cbd6ca93ac4b65` | 28.70% | 28.99% |
+| Stage4, 10 columns, seed 7, 20 epochs, 2026-07-12 | `6eb04f446e2e60452777e3a920cbd6ca93ac4b65` | 30.90% | 29.91% |
+| Stage4, 10 columns, seed 99, 20 epochs, 2026-07-12 | `6eb04f446e2e60452777e3a920cbd6ca93ac4b65` | 33.96% | 33.62% |
+
+Interpretation:
+
+- Full latent mean-normalization did not solve the stage3/96 problem. It made the result worse than the unnormalized stage3/96 run by 3.30 percentage points on test accuracy.
+- The diagnostic routes became more chance-like than before. The combined classifier reached 18.89%, but removing any of the column pool, shell bridge, or outer-shell context routes dropped the test result to about chance.
+- The shell lesion pattern says the combined classifier was carried mainly by the hard kernel, middle shell, and outer shell together. Removing the inner shell barely changed the result, from 18.89% to 18.18%.
+- The current `MeanSquaredGaussianEnergy` divides by all latent elements. For a stage3 token node with 64 tokens and 96 feature channels, `D = 6144`. For the historical stage4 token node with 16 tokens and 64 feature channels, `D = 1024`. The new correction therefore weakens the stage3 local predictive-coding residual by a factor of 6144 when `precision=1.0`.
+- This appears to underconstrain the local predictive-coding latents. The earlier unnormalized stage3 run likely overconstrained the expanded spatial grid, but the full mean-normalized run went too far in the other direction.
+
+Recommended next direction:
+
+- Do not continue with full latent mean-normalization at `precision=1.0`.
+- Keep the stronger stage4 result as the current anchor: the 2026-07-11 seed-42 stage4 run reached 33.93% test accuracy before the later stage3 and normalization changes.
+- Replace full latent mean-normalization with spatial-reference Gaussian scaling for columnar token nodes.
+- Mechanism: compute `S`, the number of spatial or token sites in the node, and `S_ref`, the historical reference site count. For the ResNet18 stage4 column grid, `S_ref = 16` because the grid is 4 by 4. Scale local Gaussian energy by `max(1, S / S_ref)` rather than by all non-batch latent elements.
+- This means a stage4 token node with `S = 16` keeps the historical summed residual energy. A stage3 token node with `S = 64` divides by 4, correcting the extra replicated spatial positions without weakening the feature channels or one-dimensional shell/context nodes.
+- This is more aligned with the HiBaCaML direction than the full mean version. It treats more spatial sites as more cortical positions, not as a reason to erase per-feature predictive precision inside each position.
+
+Proposed next implementation, pending confirmation:
+
+- Add a `SpatialReferenceGaussianEnergy` or equivalent local energy class in `columnar_cl_fabricpc/columns/normalized_gaussian.py`.
+- Add CLI controls for enabling spatial-reference scaling and setting the reference site count, with `16` as the default reference for the current ResNet18 stage4 anchor.
+- Apply it to the same columnar predictive-coding nodes that received the full mean energy.
+- Preserve historical stage4 behavior when the scaling mode is off or when the node has 16 or fewer token sites.
+- Rerun the stage3/96 seed-42 10-epoch diagnostic and compare against both the 22.19% unnormalized stage3 result and the 33.93% best stage4 anchor.
+
+## 2026-07-14 Spatial-Reference Gaussian Implementation
+
+Recorded on 2026-07-14 04:39 EDT on `rogdora43`.
+
+Implemented after confirmation:
+
+- Added `SpatialReferenceGaussianEnergy` in `columnar_cl_fabricpc/columns/normalized_gaussian.py`.
+- Exported `SpatialReferenceGaussianEnergy` from `columnar_cl_fabricpc/columns/__init__.py`.
+- Replaced the Boolean training flag with one explicit mode selector:
+  - `--column_gaussian_energy_mode sum`.
+  - `--column_gaussian_energy_mode mean`.
+  - `--column_gaussian_energy_mode spatial_reference`.
+- Added `--column_gaussian_reference_sites`, with default `16.0`.
+- Updated `make_column_gaussian_energy()` in `scripts/train_cifar10_depth_spanning.py` so every columnar predictive-coding node receives the selected local Gaussian energy.
+- Updated `scripts/run_codex_cifar10_depth_spanning.sh` so logs record `column_gaussian_energy_mode`, `column_gaussian_precision`, and `column_gaussian_reference_sites`.
+- Updated `scripts/run_codex_stage3_96_bridge_best.sh` to run the stage3/96 diagnostic with `column_gaussian_energy_mode=spatial_reference`, `column_gaussian_precision=1.0`, and `column_gaussian_reference_sites=16`.
+
+Mechanism:
+
+- `S` is the number of spatial or token sites in a node latent.
+- `S_ref` is the reference site count whose summed residual precision is preserved.
+- For CIFAR-10 ResNet18 stage4 columns, `S_ref = 16`, corresponding to the 4 by 4 stage4 token grid.
+- `A = max(1, S / S_ref)` is the spatial precision divisor.
+- For the residual `e = z_latent - z_mu`, where `z_latent` is the inferred predictive-coding latent and `z_mu` is the node prediction, the per-sample energy is:
+  - `E = 0.5 * precision * sum(e**2) / A`.
+- The explicit latent gradient is:
+  - `dE/dz_latent = precision * e / A`.
+- A stage4 token tensor with `S = 16` keeps the historical summed Gaussian energy because `A = 1`.
+- A stage3 token tensor with `S = 64` divides by `4`, correcting for the larger 8 by 8 token grid.
+- A pooled shell, shell bridge, outer-shell context, or column-pool tensor has `S = 1`, so `A = 1` and the route is not weakened by feature width.
+
+Validation:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py columnar_cl_fabricpc/columns/normalized_gaussian.py columnar_cl_fabricpc/columns/__init__.py
+```
+
+Result:
+
+- Passed.
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+bash -n scripts/run_codex_stage3_96_bridge_best.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+```
+
+Result:
+
+- 54 passed in 13.66 seconds.
+
+Recommended diagnostic run:
+
+```bash
+bash scripts/run_codex_stage3_96_bridge_best.sh 42 10
+```
+
+Interpretation target:
+
+- Compare against the unnormalized stage3/96 run at 22.19% test accuracy.
+- Compare against the full mean-normalized stage3/96 run at 18.89% test accuracy.
+- Check whether `combined_without_column_pool`, `combined_without_column_shell_bridge`, and `combined_without_outer_shell_context` rise above chance.
+- Check whether `combined_without_outer_shell` drops more strongly than it did in the unnormalized stage3/96 run. In that run it only dropped from 22.19% to 20.33%, which showed weak outer-shell participation.
+- If validation improves past epoch 7 instead of declining, use the same wrapper for a 20-epoch run.

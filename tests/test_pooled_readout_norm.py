@@ -21,6 +21,7 @@ from columnar_cl_fabricpc.columns import (
     MeanSquaredGaussianEnergy,
     SHELL_NAMES,
     ShellContextPredictionNode,
+    SpatialReferenceGaussianEnergy,
     StageTapTokenizer,
     WeightedLabelSmoothedCrossEntropyEnergy,
     get_shell_slices,
@@ -345,6 +346,41 @@ def test_mean_squared_gaussian_energy_normalizes_by_latent_size() -> None:
     assert jnp.allclose(latent_grad, jnp.ones_like(z_latent) / 6.0)
 
 
+def test_spatial_reference_gaussian_energy_scales_by_token_sites() -> None:
+    """Spatial-reference Gaussian energy preserves feature precision per site."""
+    token_latent = jnp.ones((2, 64, 3), dtype=jnp.float32)
+    token_mu = jnp.zeros((2, 64, 3), dtype=jnp.float32)
+    pooled_latent = jnp.ones((2, 3), dtype=jnp.float32)
+    pooled_mu = jnp.zeros((2, 3), dtype=jnp.float32)
+    energy = SpatialReferenceGaussianEnergy(precision=2.0, reference_sites=16.0)
+
+    token_energy = SpatialReferenceGaussianEnergy.energy(
+        token_latent,
+        token_mu,
+        energy.config,
+    )
+    token_grad = SpatialReferenceGaussianEnergy.grad_latent(
+        token_latent,
+        token_mu,
+        energy.config,
+    )
+    pooled_energy = SpatialReferenceGaussianEnergy.energy(
+        pooled_latent,
+        pooled_mu,
+        energy.config,
+    )
+    pooled_grad = SpatialReferenceGaussianEnergy.grad_latent(
+        pooled_latent,
+        pooled_mu,
+        energy.config,
+    )
+
+    assert jnp.allclose(token_energy, 48.0 * jnp.ones((2,), dtype=jnp.float32))
+    assert jnp.allclose(token_grad, 0.5 * jnp.ones_like(token_latent))
+    assert jnp.allclose(pooled_energy, 3.0 * jnp.ones((2,), dtype=jnp.float32))
+    assert jnp.allclose(pooled_grad, 2.0 * jnp.ones_like(pooled_latent))
+
+
 def test_shell_context_prediction_node_keeps_terminal_local_energy() -> None:
     """The shell-context objective sends gradients to target and context inputs."""
     target = IdentityNode(shape=(2,), name="target")
@@ -436,8 +472,9 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         outer_shell_context_evidence=False,
         outer_shell_context_evidence_teacher_weight=0.0,
         outer_shell_context_teacher_weight=0.0,
-        normalize_column_gaussian_energy=False,
+        column_gaussian_energy_mode="sum",
         column_gaussian_precision=1.0,
+        column_gaussian_reference_sites=16.0,
         shell_lr_multipliers="1,1,1,1",
         shell_evidence_cascade_scale="0.05,0.05,0.05",
         shell_inhibition_strengths="0,0.35,0.22,0.10",
@@ -531,14 +568,14 @@ def test_depth_spanning_graph_defaults_to_summed_gaussian_energy() -> None:
     assert type(structure.nodes["column_pool"].node_info.energy) is GaussianEnergy
 
 
-def test_depth_spanning_graph_can_normalize_column_gaussian_energy() -> None:
+def test_depth_spanning_graph_can_use_mean_column_gaussian_energy() -> None:
     """Columnar local Gaussian nodes can use latent-size-normalized precision."""
     args = _tiny_depth_spanning_args(
         combiner="shell_attention",
         bypass_columns=False,
         column_shell_bridge=True,
         outer_shell_context=True,
-        normalize_column_gaussian_energy=True,
+        column_gaussian_energy_mode="mean",
         column_gaussian_precision=0.5,
     )
     structure, _ = build_depth_spanning_graph(args)
@@ -560,6 +597,39 @@ def test_depth_spanning_graph_can_normalize_column_gaussian_energy() -> None:
         energy = structure.nodes[node_name].node_info.energy
         assert type(energy) is MeanSquaredGaussianEnergy
         assert energy.config["precision"] == 0.5
+
+
+def test_depth_spanning_graph_can_use_spatial_reference_gaussian_energy() -> None:
+    """Columnar local Gaussian nodes can scale precision by token-site count."""
+    args = _tiny_depth_spanning_args(
+        combiner="shell_attention",
+        bypass_columns=False,
+        column_shell_bridge=True,
+        outer_shell_context=True,
+        column_gaussian_energy_mode="spatial_reference",
+        column_gaussian_precision=0.75,
+        column_gaussian_reference_sites=16.0,
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    spatial_nodes = [
+        "stage2_tap",
+        "stage3_tap",
+        "stage4_tap",
+        "stage4_pool",
+        "col_00",
+        "combiner",
+        "column_pool",
+        column_shell_slice_node_name(0, "hard_kernel"),
+        column_shell_pool_node_name(0, "hard_kernel"),
+        column_shell_bridge_node_name(0),
+        outer_shell_context_node_name(0),
+    ]
+
+    for node_name in spatial_nodes:
+        energy = structure.nodes[node_name].node_info.energy
+        assert type(energy) is SpatialReferenceGaussianEnergy
+        assert energy.config["precision"] == 0.75
+        assert energy.config["reference_sites"] == 16.0
 
 
 def test_depth_spanning_graph_uses_shell_composer_combiner_mode() -> None:
