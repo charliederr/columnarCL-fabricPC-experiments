@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from fabricpc.core.energy import GaussianEnergy
 from fabricpc.core.inference import InferenceSGD
 from fabricpc.core.topology import Edge
 from fabricpc.core.types import NodeParams, NodeState
@@ -17,6 +18,7 @@ from columnar_cl_fabricpc.columns import (
     ColumnShellComposerNode,
     FeatureSliceNode,
     GlobalAvgPoolNormNode,
+    MeanSquaredGaussianEnergy,
     SHELL_NAMES,
     ShellContextPredictionNode,
     StageTapTokenizer,
@@ -322,6 +324,27 @@ def test_weighted_cross_entropy_scales_energy_and_latent_gradient() -> None:
     assert jnp.allclose(weighted_grad, 0.25 * base_grad)
 
 
+def test_mean_squared_gaussian_energy_normalizes_by_latent_size() -> None:
+    """Normalized Gaussian energy preserves PC errors while scaling by shape."""
+    z_latent = jnp.ones((2, 3, 4), dtype=jnp.float32)
+    z_mu = jnp.zeros((2, 3, 4), dtype=jnp.float32)
+    energy = MeanSquaredGaussianEnergy(precision=2.0)
+
+    per_sample_energy = MeanSquaredGaussianEnergy.energy(
+        z_latent,
+        z_mu,
+        energy.config,
+    )
+    latent_grad = MeanSquaredGaussianEnergy.grad_latent(
+        z_latent,
+        z_mu,
+        energy.config,
+    )
+
+    assert jnp.allclose(per_sample_energy, jnp.ones((2,), dtype=jnp.float32))
+    assert jnp.allclose(latent_grad, jnp.ones_like(z_latent) / 6.0)
+
+
 def test_shell_context_prediction_node_keeps_terminal_local_energy() -> None:
     """The shell-context objective sends gradients to target and context inputs."""
     target = IdentityNode(shape=(2,), name="target")
@@ -413,6 +436,8 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         outer_shell_context_evidence=False,
         outer_shell_context_evidence_teacher_weight=0.0,
         outer_shell_context_teacher_weight=0.0,
+        normalize_column_gaussian_energy=False,
+        column_gaussian_precision=1.0,
         shell_lr_multipliers="1,1,1,1",
         shell_evidence_cascade_scale="0.05,0.05,0.05",
         shell_inhibition_strengths="0,0.35,0.22,0.10",
@@ -494,6 +519,47 @@ def test_depth_spanning_graph_routes_raw_column_pool_to_output() -> None:
     assert "bypass_pool" in output_sources
     assert "column_readout_norm" not in output_sources
     assert "column_readout_norm" not in structure.nodes
+
+
+def test_depth_spanning_graph_defaults_to_summed_gaussian_energy() -> None:
+    """Historical graph construction keeps FabricPC's summed Gaussian energy."""
+    structure, _ = build_depth_spanning_graph(_tiny_depth_spanning_args())
+
+    assert type(structure.nodes["stage2_tap"].node_info.energy) is GaussianEnergy
+    assert type(structure.nodes["col_00"].node_info.energy) is GaussianEnergy
+    assert type(structure.nodes["combiner"].node_info.energy) is GaussianEnergy
+    assert type(structure.nodes["column_pool"].node_info.energy) is GaussianEnergy
+
+
+def test_depth_spanning_graph_can_normalize_column_gaussian_energy() -> None:
+    """Columnar local Gaussian nodes can use latent-size-normalized precision."""
+    args = _tiny_depth_spanning_args(
+        combiner="shell_attention",
+        bypass_columns=False,
+        column_shell_bridge=True,
+        outer_shell_context=True,
+        normalize_column_gaussian_energy=True,
+        column_gaussian_precision=0.5,
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    normalized_nodes = [
+        "stage2_tap",
+        "stage3_tap",
+        "stage4_tap",
+        "stage4_pool",
+        "col_00",
+        "combiner",
+        "column_pool",
+        column_shell_slice_node_name(0, "hard_kernel"),
+        column_shell_pool_node_name(0, "hard_kernel"),
+        column_shell_bridge_node_name(0),
+        outer_shell_context_node_name(0),
+    ]
+
+    for node_name in normalized_nodes:
+        energy = structure.nodes[node_name].node_info.energy
+        assert type(energy) is MeanSquaredGaussianEnergy
+        assert energy.config["precision"] == 0.5
 
 
 def test_depth_spanning_graph_uses_shell_composer_combiner_mode() -> None:

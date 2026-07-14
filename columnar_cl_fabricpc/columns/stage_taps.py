@@ -563,6 +563,7 @@ def create_stage_tap(
     add_pos_embed: bool = True,
     apply_layer_norm: bool = False,
     fix_ln_gamma: bool = False,
+    energy: Optional[EnergyFunctional] = None,
 ) -> StageTapTokenizer:
     """
     Create a StageTapTokenizer for a ResNet stage.
@@ -576,6 +577,8 @@ def create_stage_tap(
         apply_layer_norm: If True, LayerNorm the output along embed_dim
         fix_ln_gamma: If True (and apply_layer_norm), gamma/beta are non-learnable
             scalar 1.0 / 0.0
+        energy: Predictive-coding energy functional. If omitted, the node uses
+            its default Gaussian energy.
 
     Returns:
         Configured StageTapTokenizer
@@ -589,6 +592,7 @@ def create_stage_tap(
         add_pos_embed=add_pos_embed,
         apply_layer_norm=apply_layer_norm,
         fix_ln_gamma=fix_ln_gamma,
+        energy=energy or GaussianEnergy(),
     )
 
 
@@ -598,6 +602,7 @@ def create_global_pool(
     embed_dim: int = 64,
     apply_layer_norm: bool = False,
     fix_ln_gamma: bool = False,
+    energy: Optional[EnergyFunctional] = None,
 ) -> GlobalPoolNode:
     """
     Create a GlobalPoolNode for the B pathway.
@@ -609,6 +614,8 @@ def create_global_pool(
         apply_layer_norm: If True, LayerNorm the output along embed_dim
         fix_ln_gamma: If True (and apply_layer_norm), gamma/beta are non-learnable
             scalar 1.0 / 0.0
+        energy: Predictive-coding energy functional. If omitted, the node uses
+            its default Gaussian energy.
 
     Returns:
         Configured GlobalPoolNode
@@ -619,6 +626,7 @@ def create_global_pool(
         source_channels=source_channels,
         apply_layer_norm=apply_layer_norm,
         fix_ln_gamma=fix_ln_gamma,
+        energy=energy or GaussianEnergy(),
     )
 
 

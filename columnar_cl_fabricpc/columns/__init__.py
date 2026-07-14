@@ -44,6 +44,9 @@ from columnar_cl_fabricpc.columns.label_smoothed_ce import (
     LabelSmoothedCrossEntropyEnergy,
     WeightedLabelSmoothedCrossEntropyEnergy,
 )
+from columnar_cl_fabricpc.columns.normalized_gaussian import (
+    MeanSquaredGaussianEnergy,
+)
 from columnar_cl_fabricpc.columns.accuracy_nodes import (
     ColumnShellComposerNode,
     FeatureSliceNode,
@@ -58,6 +61,7 @@ __all__ = [
     "ColumnShellComposerNode",
     "ColumnarNode",
     "LabelSmoothedCrossEntropyEnergy",
+    "MeanSquaredGaussianEnergy",
     "WeightedLabelSmoothedCrossEntropyEnergy",
     "ConvStemNode",
     "DEFAULT_SHELL_PROPORTIONS",

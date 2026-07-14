@@ -763,6 +763,7 @@ def create_depth_spanning_column(
     ] = DEFAULT_SHELL_INHIBITION_STRENGTHS,
     apply_layer_norm: bool = False,
     fix_ln_gamma: bool = False,
+    energy: Optional[EnergyFunctional] = None,
 ) -> DepthSpanningColumnNode:
     """
     Create a single depth-spanning column.
@@ -782,6 +783,8 @@ def create_depth_spanning_column(
         apply_layer_norm: If True, LayerNorm the column output along output_dim
         fix_ln_gamma: If True (and apply_layer_norm), gamma/beta are non-learnable
             scalar 1.0 / 0.0
+        energy: Predictive-coding energy functional. If omitted, the node uses
+            its default Gaussian energy.
 
     Returns:
         Configured DepthSpanningColumnNode
@@ -799,6 +802,7 @@ def create_depth_spanning_column(
         shell_inhibition_strengths=shell_inhibition_strengths,
         apply_layer_norm=apply_layer_norm,
         fix_ln_gamma=fix_ln_gamma,
+        energy=energy or GaussianEnergy(),
     )
 
 
@@ -817,6 +821,7 @@ def create_depth_spanning_column_pool(
         float, float, float, float
     ] = DEFAULT_SHELL_INHIBITION_STRENGTHS,
     name_prefix: str = "col",
+    energy: Optional[EnergyFunctional] = None,
 ) -> Dict[str, DepthSpanningColumnNode]:
     """
     Create a pool of depth-spanning columns.
@@ -834,6 +839,8 @@ def create_depth_spanning_column_pool(
             adjacent shell pairs
         shell_inhibition_strengths: Same-tier inhibition coefficients in shell order
         name_prefix: Prefix for column names
+        energy: Predictive-coding energy functional. If omitted, each node uses
+            its default Gaussian energy.
 
     Returns:
         Dictionary mapping column names to nodes
@@ -851,5 +858,6 @@ def create_depth_spanning_column_pool(
             shell_proportions=shell_proportions,
             shell_evidence_cascade_scale=shell_evidence_cascade_scale,
             shell_inhibition_strengths=shell_inhibition_strengths,
+            energy=energy,
         )
     return columns

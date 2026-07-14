@@ -32,4 +32,6 @@ bash "$script_dir/run_codex_cifar10_depth_spanning.sh" \
     "off" \
     "stage3" \
     "96" \
-    "32"
+    "32" \
+    "on" \
+    "1.0"

@@ -27,6 +27,8 @@ outer_shell_context_to_bridge_mode="${21:-off}"
 column_grid="${22:-stage4}"
 embed_dim="${23:-64}"
 microcolumn_dim="${24:-32}"
+normalize_column_gaussian_mode="${25:-off}"
+column_gaussian_precision="${26:-1.0}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
@@ -55,6 +57,8 @@ outer_shell_context_to_bridge_label="off"
 outer_shell_context_to_bridge_args=()
 outer_shell_context_evidence_label="off"
 outer_shell_context_evidence_args=()
+normalize_column_gaussian_label="off"
+normalize_column_gaussian_args=()
 
 if [[ "$diagnose_mode" == "diagnose" || "$diagnose_mode" == "--diagnose_energy" ]]; then
     diagnose_label="diag"
@@ -168,6 +172,24 @@ fi
 
 column_grid_label="${column_grid}"
 
+if [[ "$normalize_column_gaussian_mode" == "on" || "$normalize_column_gaussian_mode" == "true" || "$normalize_column_gaussian_mode" == "mean" ]]; then
+    normalize_column_gaussian_label="on"
+    normalize_column_gaussian_args+=(--normalize_column_gaussian_energy)
+elif [[ "$normalize_column_gaussian_mode" == "off" || "$normalize_column_gaussian_mode" == "false" || "$normalize_column_gaussian_mode" == "sum" ]]; then
+    normalize_column_gaussian_label="off"
+else
+    echo "Unknown normalize column Gaussian mode: $normalize_column_gaussian_mode" >&2
+    echo "Use 'on' or 'off'." >&2
+    exit 2
+fi
+
+if [[ "$normalize_column_gaussian_label" == "on" ]]; then
+    normalize_column_gaussian_short="ng1"
+else
+    normalize_column_gaussian_short="ng0"
+fi
+column_gaussian_precision_label="${column_gaussian_precision//./p}"
+
 if [[ "$readout_label" == "bypass" ]]; then
     readout_short="byp"
 else
@@ -207,7 +229,7 @@ fi
 # Capacity and context labels made the original descriptive filename exceed
 # common 255-byte filename limits. The full configuration is still written in
 # the log header; the filename keeps only compact run identifiers.
-log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolumn_dim}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_ocet${outer_context_evidence_teacher_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolumn_dim}_${normalize_column_gaussian_short}_gp${column_gaussian_precision_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_ocet${outer_context_evidence_teacher_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -226,6 +248,8 @@ mkdir -p results
     echo "column_grid: $column_grid"
     echo "embed_dim: $embed_dim"
     echo "microcolumn_dim: $microcolumn_dim"
+    echo "normalize_column_gaussian_energy: $normalize_column_gaussian_label"
+    echo "column_gaussian_precision: $column_gaussian_precision"
     echo "shell_lr_multipliers: $shell_lr_multipliers"
     echo "num_epochs: $num_epochs"
     echo "diagnose: $diagnose_label"
@@ -267,6 +291,7 @@ mkdir -p results
         --infer_steps 40 \
         --eta_infer 0.1 \
         --infer_max_norm 1.0 \
+        --column_gaussian_precision "$column_gaussian_precision" \
         --eval_every 1 \
         --seed "$seed" \
         --layer_norm_tokens \
@@ -282,6 +307,7 @@ mkdir -p results
         "${outer_shell_context_args[@]}" \
         "${outer_shell_context_to_bridge_args[@]}" \
         "${outer_shell_context_evidence_args[@]}" \
+        "${normalize_column_gaussian_args[@]}" \
         "${readout_args[@]}" \
         "${extra_args[@]}"
 } 2>&1 | tee "$log_path"

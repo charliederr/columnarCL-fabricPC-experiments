@@ -70,6 +70,7 @@ from fabricpc.core.topology import Edge
 from fabricpc.core.types import GraphParams, GraphStructure, NodeParams
 from fabricpc.graph_assembly import TaskMap, graph
 from fabricpc.core.inference import InferenceSGDNormClip
+from fabricpc.core.energy import GaussianEnergy
 from fabricpc.graph_initialization import initialize_params
 from fabricpc.core.activations import (
     IdentityActivation,
@@ -94,6 +95,7 @@ from columnar_cl_fabricpc.columns import (
     GlobalPoolNode,
     DepthSpanningColumnNode,
     FeatureSliceNode,
+    MeanSquaredGaussianEnergy,
     WeightedLabelSmoothedCrossEntropyEnergy,
     SHELL_NAMES,
     create_stage_tap,
@@ -1850,6 +1852,20 @@ def make_classifier_energy(label_smoothing: float, weight: float = 1.0):
     )
 
 
+def make_column_gaussian_energy(args):
+    """
+    Create the local Gaussian energy used by columnar predictive-coding nodes.
+
+    `normalize_column_gaussian_energy` switches those local errors from summed
+    squared error to mean squared error per latent element. This keeps the
+    Gaussian predictive-coding mechanism while making token-grid and feature
+    width changes explicit precision choices.
+    """
+    if args.normalize_column_gaussian_energy:
+        return MeanSquaredGaussianEnergy(precision=args.column_gaussian_precision)
+    return GaussianEnergy(precision=args.column_gaussian_precision)
+
+
 def batch_to_task_dict(batch_data: Any) -> Dict[str, jnp.ndarray]:
     """Convert CIFAR loader batches into FabricPC task-key arrays."""
     if isinstance(batch_data, (list, tuple)):
@@ -2203,6 +2219,8 @@ def build_depth_spanning_graph(args):
         raise ValueError("--outer_shell_context_to_bridge requires --outer_shell_context")
     if args.outer_shell_context_to_bridge and not args.column_shell_bridge:
         raise ValueError("--outer_shell_context_to_bridge requires --column_shell_bridge")
+    if args.column_gaussian_precision < 0.0:
+        raise ValueError("--column_gaussian_precision must be >= 0")
 
     model_config = MODEL_CONFIGS[args.model]
     weight_init = MuPCInitializer()
@@ -2221,6 +2239,7 @@ def build_depth_spanning_graph(args):
     shell_evidence_cascade_scale = parse_shell_evidence_cascade_scale(
         args.shell_evidence_cascade_scale
     )
+    column_gaussian_energy = make_column_gaussian_energy(args)
 
     # Input
     image = IdentityNode(shape=(32, 32, 3), name="input")
@@ -2304,6 +2323,7 @@ def build_depth_spanning_graph(args):
         add_pos_embed=True,
         apply_layer_norm=args.layer_norm_tokens,
         fix_ln_gamma=args.fix_ln_gamma,
+        energy=column_gaussian_energy,
     )
     stage3_tap = create_stage_tap(
         name="stage3_tap",
@@ -2313,6 +2333,7 @@ def build_depth_spanning_graph(args):
         add_pos_embed=True,
         apply_layer_norm=args.layer_norm_tokens,
         fix_ln_gamma=args.fix_ln_gamma,
+        energy=column_gaussian_energy,
     )
     stage4_tap = create_stage_tap(
         name="stage4_tap",
@@ -2322,6 +2343,7 @@ def build_depth_spanning_graph(args):
         add_pos_embed=True,
         apply_layer_norm=args.layer_norm_tokens,
         fix_ln_gamma=args.fix_ln_gamma,
+        energy=column_gaussian_energy,
     )
     stage4_pool = create_global_pool(
         name="stage4_pool",
@@ -2329,6 +2351,7 @@ def build_depth_spanning_graph(args):
         embed_dim=args.embed_dim,
         apply_layer_norm=args.layer_norm_tokens,
         fix_ln_gamma=args.fix_ln_gamma,
+        energy=column_gaussian_energy,
     )
 
     nodes.extend([stage2_tap, stage3_tap, stage4_tap, stage4_pool])
@@ -2353,6 +2376,7 @@ def build_depth_spanning_graph(args):
             shell_inhibition_strengths=shell_inhibition_tuple,
             apply_layer_norm=args.layer_norm_tokens,
             fix_ln_gamma=args.fix_ln_gamma,
+            energy=column_gaussian_energy,
         )
         columns.append(col)
 
@@ -2386,6 +2410,7 @@ def build_depth_spanning_graph(args):
             name="combiner",
             num_columns=args.num_columns,
             support_mask=support_mask,
+            energy=column_gaussian_energy,
         )
     else:
         combiner = MaskedColumnCombinerNode(
@@ -2394,6 +2419,7 @@ def build_depth_spanning_graph(args):
             num_columns=args.num_columns,
             support_mask=support_mask,
             combination=args.combiner,
+            energy=column_gaussian_energy,
         )
     nodes.append(combiner)
 
@@ -2405,6 +2431,7 @@ def build_depth_spanning_graph(args):
         shape=(args.embed_dim,),
         name="column_pool",
         global_pool=True,
+        energy=column_gaussian_energy,
     )
     output = Linear(
         shape=(10,),
@@ -2443,6 +2470,7 @@ def build_depth_spanning_graph(args):
             name=shell_slice_node_name(shell_name),
             start=start,
             end=end,
+            energy=column_gaussian_energy,
         )
         shell_teacher_output = Linear(
             shape=(10,),
@@ -2483,11 +2511,13 @@ def build_depth_spanning_graph(args):
                 name=column_shell_slice_node_name(column_idx, shell_name),
                 start=start,
                 end=end,
+                energy=column_gaussian_energy,
             )
             shell_pool = AvgPool(
                 shape=(end - start,),
                 name=column_shell_pool_node_name(column_idx, shell_name),
                 global_pool=True,
+                energy=column_gaussian_energy,
             )
             shell_teacher_output = Linear(
                 shape=(10,),
@@ -2523,6 +2553,7 @@ def build_depth_spanning_graph(args):
                 activation=IdentityActivation(),
                 flatten_input=False,
                 weight_init=XavierInitializer(),
+                energy=column_gaussian_energy,
             )
             nodes.append(outer_context)
             outer_shell_context_nodes.append(outer_context)
@@ -2561,6 +2592,7 @@ def build_depth_spanning_graph(args):
                 activation=IdentityActivation(),
                 flatten_input=False,
                 weight_init=XavierInitializer(),
+                energy=column_gaussian_energy,
             )
             nodes.append(shell_bridge)
             for shell_pool in column_shell_pools:
@@ -2591,6 +2623,7 @@ def build_depth_spanning_graph(args):
             activation=IdentityActivation(),
             flatten_input=True,
             weight_init=XavierInitializer(),
+            energy=column_gaussian_energy,
         )
         nodes.append(outer_shell_context_evidence)
         for outer_context in outer_shell_context_nodes:
@@ -2715,6 +2748,8 @@ def train_cifar10_depth_spanning(args):
         raise ValueError("--outer_shell_context_to_bridge requires --outer_shell_context")
     if args.outer_shell_context_to_bridge and not args.column_shell_bridge:
         raise ValueError("--outer_shell_context_to_bridge requires --column_shell_bridge")
+    if args.column_gaussian_precision < 0.0:
+        raise ValueError("--column_gaussian_precision must be >= 0")
 
     print("=" * 70)
     print("CIFAR-10 Depth-Spanning Columnar Architecture")
@@ -2765,6 +2800,11 @@ def train_cifar10_depth_spanning(args):
     print(f"Shell LR multipliers: {shell_lr_summary}")
     print(f"Inference steps: {args.infer_steps}")
     print(f"Inference eta: {args.eta_infer}")
+    print(
+        "Column Gaussian energy: "
+        f"{'mean-normalized' if args.normalize_column_gaussian_energy else 'summed'}"
+    )
+    print(f"Column Gaussian precision: {args.column_gaussian_precision}")
     print("Column teacher head: enabled")
     print(f"Column teacher weight: {args.column_teacher_weight}")
     shell_teacher_weights = parse_shell_teacher_weights(args.shell_teacher_weights)
@@ -3460,6 +3500,26 @@ def parse_args():
     parser.add_argument("--infer_steps", type=int, default=40)
     parser.add_argument("--eta_infer", type=float, default=0.1)
     parser.add_argument("--infer_max_norm", type=float, default=1.0)
+    parser.add_argument(
+        "--normalize_column_gaussian_energy",
+        action="store_true",
+        help=(
+            "Use mean squared Gaussian prediction error for local columnar "
+            "nodes instead of summed squared error. This keeps local "
+            "predictive-coding precision stable when token count or feature "
+            "width changes."
+        ),
+    )
+    parser.add_argument(
+        "--column_gaussian_precision",
+        type=float,
+        default=1.0,
+        help=(
+            "Scalar precision applied to local Gaussian energies in the "
+            "columnar path. With --normalize_column_gaussian_energy, this is "
+            "the precision after dividing by latent size."
+        ),
+    )
     parser.add_argument("--eval_every", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--quick", action="store_true")

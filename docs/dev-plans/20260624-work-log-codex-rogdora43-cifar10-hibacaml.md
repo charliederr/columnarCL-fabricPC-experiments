@@ -4729,3 +4729,217 @@ Interpretation target:
 - The first check is whether the wider 64-token column grid avoids early collapse and improves above the 10-column bridge-only family by epoch 10.
 - If the validation trajectory is still improving at epoch 10, rerun the same script with 20 epochs.
 - Compare against the earlier 10-column bridge-only seed-42 result of 33.93% test accuracy and the three-seed mean of 32.49%.
+
+## 2026-07-13 Stage3 Column-Grid / 96-Width Diagnostic Result
+
+Recorded on 2026-07-13 20:16 EDT on `rogdora43`.
+
+Run log:
+
+- `results/codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_composer_shells_rogdora43_20260713_135318.log`
+
+Configuration:
+
+- Seed: 42.
+- Columns: 10 total, with 3 shared columns and 7 active non-shared columns.
+- Column grid: `stage3`.
+- Target grid: 8 by 8, for 64 column tokens.
+- Column feature width: 96.
+- Microcolumn hidden width: 32.
+- Realized shell widths: hard kernel 33, inner shell 11, middle shell 21, outer shell 31.
+- Learning rate: 0.005.
+- Epochs: 10.
+- Readout mode: no bypass.
+- Combiner: `shell_attention`.
+- Column shell bridge: enabled.
+- Direct pooled-shell readout: disabled.
+- Outer-shell context: enabled.
+- Outer-shell context to shell bridge: disabled.
+- Shell learning-rate multipliers: hard kernel 1.0, inner shell 1.5, middle shell 2.0, outer shell 3.0.
+
+Top-line result:
+
+| Metric | Value |
+| --- | ---: |
+| Best validation accuracy | 21.96% |
+| Best validation epoch | 7 |
+| Test accuracy at best validation checkpoint | 22.19% |
+
+Validation trajectory:
+
+| Epoch | Validation accuracy |
+| ---: | ---: |
+| 1 | 14.60% |
+| 2 | 16.50% |
+| 3 | 12.78% |
+| 4 | 19.82% |
+| 5 | 18.34% |
+| 6 | 19.78% |
+| 7 | 21.96% |
+| 8 | 18.36% |
+| 9 | 19.98% |
+| 10 | 19.72% |
+
+Readout-family ablations on the test set:
+
+| Readout family | Test accuracy |
+| --- | ---: |
+| `combined` | 22.19% |
+| `column_only` | 10.00% |
+| `combined_without_column_pool` | 15.01% |
+| `column_shell_bridge_only` | 10.00% |
+| `column_pool_plus_shell_bridge` | 10.00% |
+| `combined_without_column_shell_bridge` | 16.49% |
+| `outer_shell_context_only` | 12.51% |
+| `column_pool_plus_outer_shell_context` | 16.49% |
+| `combined_without_outer_shell_context` | 10.00% |
+| `outer_shell_context_plus_column_shell_bridge` | 15.01% |
+
+Shell lesion ablations on the test set:
+
+| Lesion condition | Test accuracy |
+| --- | ---: |
+| `combined_without_hard_kernel` | 16.48% |
+| `combined_without_inner_shell` | 22.27% |
+| `combined_without_middle_shell` | 18.62% |
+| `combined_without_outer_shell` | 20.33% |
+
+Shell state norms:
+
+| Shell | Before training mean L2 | After training mean L2 |
+| --- | ---: | ---: |
+| Hard kernel | 5.7322 | 5.7424 |
+| Inner shell | 3.3015 | 3.3149 |
+| Middle shell | 4.5587 | 4.5805 |
+| Outer shell | 5.5252 | 5.5647 |
+
+Interpretation:
+
+- This run underperformed the current best no-bypass 10-column bridge-only branch. The earlier seed-42 bridge-only branch reached 33.93% test accuracy, while this stage3-grid, 96-width diagnostic reached 22.19%.
+- The validation curve peaked at epoch 7 and then declined, so simply extending this exact configuration to 20 epochs is not the best next use of compute.
+- This was not a magnitude collapse. All four shell state norms remained stable or increased slightly.
+- The full classifier still required the outer-shell context route. Removing outer-shell context dropped test accuracy from 22.19% to 10.00%.
+- The outer shell itself became weakly load-bearing. Removing the outer shell dropped test accuracy only from 22.19% to 20.33%. In the stronger 33.93% branch, removing the outer shell dropped test accuracy to 14.95%.
+- The hard kernel became the most important shell lesion in this run. Removing it dropped test accuracy from 22.19% to 16.48%.
+- The shell bridge did not become independently class-readable. `column_shell_bridge_only` and all bridge shell lesions remained at chance.
+
+Mechanistic conclusion:
+
+The stage3 token grid and 96-wide shell substrate are still plausible HiBaCaML-aligned ingredients, but they changed the predictive-coding energy balance. The local Gaussian consistency terms now cover many more latent dimensions than in the stage4, 64-width graph: 64 tokens times 96 features instead of 16 tokens times 64 features. The classifier cross-entropy target still has 10 class dimensions. The expanded local graph therefore gives much more unnormalized precision to latent consistency than to class-discriminative pressure.
+
+Recommended next direction:
+
+Do not run a 20-epoch repeat of this exact stage3/96 configuration yet. First, add an explicit local precision normalization for the expanded columnar graph. The target is not plain backprop. The target is predictive coding with precision-scaled local errors, so increasing token count and feature width does not silently increase the influence of local Gaussian error terms.
+
+Concrete implementation candidate:
+
+- Add a local normalized Gaussian energy for columnar stage taps, depth-spanning columns, the shell-aware combiner, per-column shell bridges, and outer-shell context nodes.
+- Normalize each node's Gaussian energy per sample by its non-batch latent size, or add an explicit `--column_gaussian_precision` control whose default preserves existing behavior.
+- Use the normalized setting for `column_grid=stage3` and `embed_dim=96`, while preserving the historical default for stage4 experiments unless explicitly changed.
+- Rerun the same 10-epoch seed-42 stage3/96 diagnostic after the precision correction.
+
+This is a shared-mechanism fix. It treats the move from 16 tokens to 64 tokens as a predictive-coding precision change, not just a capacity change.
+
+## 2026-07-13 Columnar Gaussian Precision Normalization Implementation
+
+Recorded on 2026-07-13 20:58 EDT on `rogdora43`.
+
+Direction:
+
+- Implemented the shared precision correction proposed after the failed stage3/96 diagnostic.
+- Upstream FabricPC was not modified.
+- Historical summed-Gaussian behavior remains the default so prior stage4 results remain comparable.
+- The stage3/96 wrapper now enables the normalized local precision mode by default.
+
+Mechanism:
+
+- Added `MeanSquaredGaussianEnergy` in `columnar_cl_fabricpc/columns/normalized_gaussian.py`.
+- For `e = z_latent - z_mu`, where `z_latent` is the inferred predictive-coding latent and `z_mu` is the node prediction, the new energy computes:
+  - `E = 0.5 * precision * sum(e**2) / D`.
+  - `D` is the number of non-batch latent elements in that node.
+- The corresponding explicit latent gradient helper computes:
+  - `dE/dz_latent = precision * e / D`.
+- This keeps the local Gaussian predictive-coding objective but prevents larger token grids and wider feature axes from silently increasing local error precision.
+
+Graph wiring:
+
+- Added `--normalize_column_gaussian_energy`.
+- Added `--column_gaussian_precision`.
+- Added `make_column_gaussian_energy()` in `scripts/train_cifar10_depth_spanning.py`.
+- When normalized mode is enabled, the graph uses `MeanSquaredGaussianEnergy`.
+- When normalized mode is disabled, the graph uses FabricPC's `GaussianEnergy`.
+- The selected local Gaussian energy is applied to:
+  - `stage2_tap`, `stage3_tap`, and `stage4_tap`.
+  - `stage4_pool`.
+  - every `DepthSpanningColumnNode`.
+  - `combiner`, including `ColumnShellComposerNode`.
+  - `column_pool`.
+  - global shell teacher slice nodes when present.
+  - per-column shell slice nodes and shell pools.
+  - per-column outer-shell context latents.
+  - per-column shell bridge latents.
+  - the optional class-shaped outer-shell context evidence latent.
+- Classifier heads still use cross-entropy energy. The backbone convolution and skip nodes still use their existing FabricPC Gaussian energy.
+
+Shared constructor updates:
+
+- `create_stage_tap()` now accepts an optional `energy` argument.
+- `create_global_pool()` now accepts an optional `energy` argument.
+- `create_depth_spanning_column()` now accepts an optional `energy` argument.
+- `create_depth_spanning_column_pool()` now forwards that optional `energy` argument.
+
+Runner updates:
+
+- `scripts/run_codex_cifar10_depth_spanning.sh` now accepts two new trailing arguments:
+  - argument 25: normalized column Gaussian mode, with `on`, `true`, or `mean` enabling normalized local Gaussian energy.
+  - argument 26: `column_gaussian_precision`.
+- The log header records `normalize_column_gaussian_energy` and `column_gaussian_precision`.
+- The child log filename includes `ng1` or `ng0`, plus the precision label.
+- `scripts/run_codex_stage3_96_bridge_best.sh` now passes normalized mode `on` and precision `1.0`.
+
+Validation:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py columnar_cl_fabricpc/columns/stage_taps.py columnar_cl_fabricpc/columns/depth_spanning_column.py columnar_cl_fabricpc/columns/normalized_gaussian.py columnar_cl_fabricpc/columns/__init__.py
+```
+
+Result:
+
+- Passed.
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+bash -n scripts/run_codex_stage3_96_bridge_best.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+```
+
+Result:
+
+- 52 passed in 13.65 seconds.
+
+Recommended diagnostic run:
+
+```bash
+bash scripts/run_codex_stage3_96_bridge_best.sh 42 10
+```
+
+Interpretation target:
+
+- Compare directly against the previous unnormalized stage3/96 diagnostic, which reached 22.19% test accuracy.
+- Check whether normalized local precision restores useful outer-shell participation. In the failed unnormalized run, removing outer shell only dropped test accuracy from 22.19% to 20.33%.
+- Check whether the validation curve continues rising past epoch 7. If it does, rerun for 20 epochs.
+- Do not compare only the top-line number. The route diagnostics should show whether `combined_without_column_pool`, `combined_without_column_shell_bridge`, and `combined_without_outer_shell_context` become less chance-like.
