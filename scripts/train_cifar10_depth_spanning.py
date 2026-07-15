@@ -19,7 +19,9 @@ Architecture::
       optional per-column shell readout ─────────► output classifier
       optional outer-shell context ──────────────► optional output classifier readout
                          │
-                         ├──── optional shell-bridge conditioning
+                         ├──── optional full-strength shell-bridge conditioning
+                         │
+                         ├──── optional scaled context latent
                          │              │
                          │              ▼
       optional per-column shell bridge ──────────► output classifier
@@ -163,6 +165,11 @@ def outer_shell_context_node_name(column_idx: int) -> str:
     return f"column{column_idx:02d}_outer_shell_context"
 
 
+def outer_shell_context_bridge_scale_node_name(column_idx: int) -> str:
+    """Return the node name for one column's scaled bridge-context latent."""
+    return f"column{column_idx:02d}_outer_shell_context_bridge_scale"
+
+
 def shell_context_prediction_node_name(column_idx: int, shell_name: str) -> str:
     """Return the node name for a context-to-shell prediction objective."""
     return f"column{column_idx:02d}_{shell_name}_context_prediction"
@@ -217,6 +224,13 @@ def is_outer_shell_context_node(node_name: str) -> bool:
     """Return true for a per-column outer-shell context latent."""
     return node_name.startswith("column") and node_name.endswith(
         "_outer_shell_context"
+    )
+
+
+def is_outer_shell_context_bridge_scale_node(node_name: str) -> bool:
+    """Return true for a scaled outer-context bridge-conditioning latent."""
+    return node_name.startswith("column") and node_name.endswith(
+        "_outer_shell_context_bridge_scale"
     )
 
 
@@ -608,6 +622,7 @@ def diagnose_energy_breakdown(
             or is_column_shell_auxiliary_node(node_name)
             or is_column_shell_bridge_node(node_name)
             or is_outer_shell_context_node(node_name)
+            or is_outer_shell_context_bridge_scale_node(node_name)
             or is_outer_shell_context_evidence_node(node_name)
             or is_shell_context_prediction_node(node_name)
         ):
@@ -674,6 +689,7 @@ def diagnose_column_outputs(
         or is_column_shell_auxiliary_node(name)
         or is_column_shell_bridge_node(name)
         or is_outer_shell_context_node(name)
+        or is_outer_shell_context_bridge_scale_node(name)
         or is_outer_shell_context_teacher_node(name)
         or is_outer_shell_context_evidence_node(name)
         or is_outer_shell_context_evidence_teacher_node(name)
@@ -1403,13 +1419,27 @@ def mask_column_shell_bridge_inputs(
         context_sources = tuple(
             source
             for source in bridge_input_sources
-            if is_outer_shell_context_node(source)
+            if (
+                is_outer_shell_context_node(source)
+                or is_outer_shell_context_bridge_scale_node(source)
+            )
         )
-        if context_sources:
+        context_parent_sources = []
+        for context_source in context_sources:
+            if is_outer_shell_context_node(context_source):
+                context_parent_sources.append(context_source)
+                continue
+            scaled_context_inputs = node_input_edge_sources(structure, context_source)
+            context_parent_sources.extend(
+                source
+                for source in scaled_context_inputs
+                if is_outer_shell_context_node(source)
+            )
+        if context_parent_sources:
             masked = mask_outer_shell_context_inputs(
                 masked,
                 structure,
-                context_sources,
+                tuple(sorted(set(context_parent_sources))),
                 shell_name,
                 keep_shell=keep_shell,
             )
@@ -1419,6 +1449,7 @@ def mask_column_shell_bridge_inputs(
             if (
                 is_column_shell_pool_for_shell(source, shell_name) == keep_shell
                 or is_outer_shell_context_node(source)
+                or is_outer_shell_context_bridge_scale_node(source)
             )
         )
         masked = mask_node_input_sources(
@@ -2226,6 +2257,21 @@ def build_depth_spanning_graph(args):
         raise ValueError("--outer_shell_context_to_bridge requires --outer_shell_context")
     if args.outer_shell_context_to_bridge and not args.column_shell_bridge:
         raise ValueError("--outer_shell_context_to_bridge requires --column_shell_bridge")
+    if args.outer_shell_context_bridge_scale < 0.0:
+        raise ValueError("--outer_shell_context_bridge_scale must be >= 0")
+    if args.outer_shell_context_bridge_scale > 0.0 and not args.outer_shell_context:
+        raise ValueError(
+            "--outer_shell_context_bridge_scale requires --outer_shell_context"
+        )
+    if args.outer_shell_context_bridge_scale > 0.0 and not args.column_shell_bridge:
+        raise ValueError(
+            "--outer_shell_context_bridge_scale requires --column_shell_bridge"
+        )
+    if args.outer_shell_context_to_bridge and args.outer_shell_context_bridge_scale > 0.0:
+        raise ValueError(
+            "--outer_shell_context_bridge_scale cannot be combined with "
+            "--outer_shell_context_to_bridge"
+        )
     if args.column_gaussian_precision < 0.0:
         raise ValueError("--column_gaussian_precision must be >= 0")
     if args.column_gaussian_reference_sites <= 0.0:
@@ -2613,6 +2659,23 @@ def build_depth_spanning_graph(args):
                         f"node for column {column_idx}"
                     )
                 edges.append(Edge(source=outer_context, target=shell_bridge.slot("in")))
+            if args.outer_shell_context_bridge_scale > 0.0:
+                if outer_context is None:
+                    raise ValueError(
+                        "--outer_shell_context_bridge_scale requires an outer context "
+                        f"node for column {column_idx}"
+                    )
+                scaled_context = IdentityNode(
+                    shape=outer_context.shape,
+                    name=outer_shell_context_bridge_scale_node_name(column_idx),
+                    scale=args.outer_shell_context_bridge_scale,
+                    energy=column_gaussian_energy,
+                )
+                nodes.append(scaled_context)
+                edges.extend([
+                    Edge(source=outer_context, target=scaled_context.slot("in")),
+                    Edge(source=scaled_context, target=shell_bridge.slot("in")),
+                ])
             edges.append(Edge(source=shell_bridge, target=output.slot("in")))
 
     outer_shell_context_task_map = {}
@@ -2757,6 +2820,21 @@ def train_cifar10_depth_spanning(args):
         raise ValueError("--outer_shell_context_to_bridge requires --outer_shell_context")
     if args.outer_shell_context_to_bridge and not args.column_shell_bridge:
         raise ValueError("--outer_shell_context_to_bridge requires --column_shell_bridge")
+    if args.outer_shell_context_bridge_scale < 0.0:
+        raise ValueError("--outer_shell_context_bridge_scale must be >= 0")
+    if args.outer_shell_context_bridge_scale > 0.0 and not args.outer_shell_context:
+        raise ValueError(
+            "--outer_shell_context_bridge_scale requires --outer_shell_context"
+        )
+    if args.outer_shell_context_bridge_scale > 0.0 and not args.column_shell_bridge:
+        raise ValueError(
+            "--outer_shell_context_bridge_scale requires --column_shell_bridge"
+        )
+    if args.outer_shell_context_to_bridge and args.outer_shell_context_bridge_scale > 0.0:
+        raise ValueError(
+            "--outer_shell_context_bridge_scale cannot be combined with "
+            "--outer_shell_context_to_bridge"
+        )
     if args.column_gaussian_precision < 0.0:
         raise ValueError("--column_gaussian_precision must be >= 0")
     if args.column_gaussian_reference_sites <= 0.0:
@@ -2839,6 +2917,7 @@ def train_cifar10_depth_spanning(args):
         "Outer shell context to shell bridge: "
         f"{'enabled' if args.outer_shell_context_to_bridge else 'disabled'}"
     )
+    print(f"Outer shell context bridge scale: {args.outer_shell_context_bridge_scale}")
     print(f"Outer shell context teacher weight: {args.outer_shell_context_teacher_weight}")
     print(
         "Outer shell context shell prediction weight: "
@@ -3679,6 +3758,17 @@ def parse_args():
             "Feed each active column's outer-shell context latent into that "
             "column's shell bridge latent. Requires --outer_shell_context and "
             "--column_shell_bridge."
+        ),
+    )
+    parser.add_argument(
+        "--outer_shell_context_bridge_scale",
+        type=float,
+        default=0.0,
+        help=(
+            "Fixed scalar applied to each active column's outer-shell context "
+            "before feeding it into that column's shell bridge latent. A zero "
+            "value omits the scaled route. Requires --outer_shell_context and "
+            "--column_shell_bridge when positive."
         ),
     )
     parser.add_argument(

@@ -5113,3 +5113,254 @@ Interpretation target:
 - Check whether `combined_without_column_pool`, `combined_without_column_shell_bridge`, and `combined_without_outer_shell_context` rise above chance.
 - Check whether `combined_without_outer_shell` drops more strongly than it did in the unnormalized stage3/96 run. In that run it only dropped from 22.19% to 20.33%, which showed weak outer-shell participation.
 - If validation improves past epoch 7 instead of declining, use the same wrapper for a 20-epoch run.
+
+## 2026-07-14 Stage3/96 Spatial-Reference Gaussian Result
+
+Recorded on 2026-07-14 13:21 EDT on `rogdora43`.
+
+Run:
+
+- Log: `results/codex_dspan_10c_3s_7a_shatt_cgstage3_e96_m32_gspref_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep10_composer_shells_rogdora43_20260714_044320.log`.
+- Git commit recorded by the run: `5e544e48acb56b7f00df0a1651eed5329aeebad4`.
+- Configuration: 10 columns, 3 shared columns, 7 active non-shared columns, `column_grid=stage3`, `embed_dim=96`, `microcolumn_dim=32`, `shell_attention`, `column_shell_bridge=on`, `outer_shell_context=on`, no bypass, `column_gaussian_energy_mode=spatial_reference`, `column_gaussian_precision=1.0`, and `column_gaussian_reference_sites=16`.
+
+Main result:
+
+| Metric | Value |
+| --- | ---: |
+| Best validation accuracy | 18.34% |
+| Best validation epoch | 8 |
+| Test accuracy | 19.34% |
+
+Validation trajectory:
+
+| Epoch | Validation accuracy |
+| ---: | ---: |
+| 1 | 16.32% |
+| 2 | 16.94% |
+| 3 | 11.80% |
+| 4 | 12.28% |
+| 5 | 13.76% |
+| 6 | 14.92% |
+| 7 | 15.28% |
+| 8 | 18.34% |
+| 9 | 17.80% |
+| 10 | 16.00% |
+
+Test route diagnostics:
+
+| Route or lesion | Test accuracy |
+| --- | ---: |
+| Combined classifier | 19.34% |
+| Column pool only | 10.00% |
+| Combined without column pool | 10.00% |
+| Shell bridge only | 10.00% |
+| Combined without shell bridge | 10.00% |
+| Outer-shell context only | 10.00% |
+| Combined without outer-shell context | 10.00% |
+| Outer-shell context plus shell bridge | 10.00% |
+| Combined without hard kernel | 10.02% |
+| Combined without inner shell | 10.55% |
+| Combined without middle shell | 17.05% |
+| Combined without outer shell | 9.54% |
+
+Shell state norms:
+
+| Shell | Before training mean L2 | After training mean L2 |
+| --- | ---: | ---: |
+| Hard kernel | 5.7322 | 5.7423 |
+| Inner shell | 3.3015 | 3.3158 |
+| Middle shell | 4.5588 | 4.5797 |
+| Outer shell | 5.5253 | 5.5624 |
+
+Comparison:
+
+| Run | Local Gaussian mode | Best validation accuracy | Test accuracy |
+| --- | --- | ---: | ---: |
+| Stage3/96 seed 42, 10 epochs | summed residual energy | 21.96% | 22.19% |
+| Stage3/96 seed 42, 10 epochs | full latent mean residual energy | 18.32% | 18.89% |
+| Stage3/96 seed 42, 10 epochs | spatial-reference residual energy | 18.34% | 19.34% |
+| Stage4 seed 42, 20 epochs, best bridge/context anchor | summed residual energy | 34.30% | 33.93% |
+
+Interpretation:
+
+- Spatial-reference Gaussian scaling did not rescue the stage3/96 branch. It improved over full latent mean-normalization by 0.45 percentage points on test accuracy, but it remained 2.85 percentage points below the unnormalized stage3/96 run and 14.59 percentage points below the best stage4 bridge/context anchor.
+- The failure is not a shell-magnitude collapse. All four shell state norms remained stable or increased slightly.
+- The route diagnostics are more important than the top-line result. `combined` reached 19.34%, but every major route alone, every pairwise readout family, and every "combined without one route family" case was at chance.
+- The shell lesion pattern says the weak stage3 signal depends on hard-kernel, inner-shell, and outer-shell participation together. Removing the middle shell preserved most of the weak signal, from 19.34% to 17.05%.
+- The stage3 grid increases spatial capacity, but the added capacity is not becoming a stable class-relevant columnar code. The current stage3 path should not be extended to 20 epochs.
+
+Recommendation:
+
+- Stop the stage3/96 branch for now.
+- Return to the stage4 10-column bridge/context anchor because it is the strongest no-bypass branch: seed 42 reached 33.93% test accuracy, seed 99 reached 33.62%, and seed 7 reached 29.91%.
+- Continue from the earlier diagnostic finding that the useful stage4 signal is a joint readout interaction among `column_pool`, `columnXX_outer_shell_context`, and `columnXX_shell_bridge`.
+- Do not re-enable direct full-strength `outer_shell_context_to_bridge`. That run dropped to 26.29% test accuracy and made `outer_shell_context_plus_column_shell_bridge` chance-level.
+- Next implementation should add a controlled, fixed-scale outer-context-to-bridge path rather than a full-strength edge.
+
+Proposed next implementation, pending confirmation:
+
+- Add `--outer_shell_context_bridge_scale`, defaulting to `0.0`.
+- When the scale is positive, route `columnXX_outer_shell_context` into `columnXX_shell_bridge` through a fixed scalar multiplier before the bridge receives it.
+- Keep teacher heads off.
+- Keep `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`, 10 columns, 3 shared columns, 7 active non-shared columns, `shell_attention`, `column_shell_bridge=on`, `outer_shell_context=on`, no bypass, summed Gaussian energy.
+- Run a seed-42 scale sweep at `0.025`, `0.05`, and `0.10` for 20 epochs.
+- Compare each scale against the best stage4 bridge/context anchor and the failed full-strength context-to-bridge run.
+
+## 2026-07-14 Controlled Outer-Context-to-Bridge Implementation
+
+Recorded on 2026-07-14 13:32 EDT on `rogdora43`.
+
+Implemented after confirmation:
+
+- Added `--outer_shell_context_bridge_scale`, defaulting to `0.0`.
+- Kept the older `--outer_shell_context_to_bridge` flag intact for reproducing the failed full-strength edge experiment.
+- Added validation so a positive `outer_shell_context_bridge_scale` requires both `--outer_shell_context` and `--column_shell_bridge`.
+- Added validation so `--outer_shell_context_bridge_scale` cannot be combined with `--outer_shell_context_to_bridge`.
+- Added `outer_shell_context_bridge_scale_node_name(column_idx)`, which names the per-column scaled bridge-conditioning latent as `columnXX_outer_shell_context_bridge_scale`.
+- Updated the architecture diagram in `scripts/train_cifar10_depth_spanning.py` to show the optional scaled context latent before the shell bridge.
+- Updated the shell-bridge masking helper so shell lesions trace through the scaled context latent and still mask the shell inputs to `columnXX_outer_shell_context`.
+- Updated `scripts/run_codex_cifar10_depth_spanning.sh` with a new trailing positional argument for `outer_shell_context_bridge_scale`. Existing runner calls keep the default value `0.0`.
+- Added `scripts/run_codex_outer_context_bridge_scale_sweep.sh`, which runs the stage4 10-column bridge/context anchor at fixed scales `0.025`, `0.05`, and `0.10` by default.
+
+Mechanism:
+
+- `columnXX_outer_shell_context` is the learned per-column context latent with width equal to the `outer_shell` shell.
+- `columnXX_outer_shell_context_bridge_scale` is a FabricPC `IdentityNode` with no learned weights and fixed `scale = outer_shell_context_bridge_scale`.
+- The scaled route is:
+  - `columnXX_outer_shell_context -> columnXX_outer_shell_context_bridge_scale -> columnXX_shell_bridge`.
+- `columnXX_shell_bridge` still receives the four pooled shell states directly.
+- `columnXX_shell_bridge` still feeds the final CIFAR-10 classifier as before.
+- The scaled latent has local Gaussian predictive-coding energy, so the path remains inside the predictive-coding graph instead of becoming a plain forward-only multiplier.
+- When `outer_shell_context_bridge_scale = 0.0`, the graph omits the scaled latent and preserves the previous bridge/context anchor.
+
+Validation:
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+```
+
+Result:
+
+- Passed.
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+bash -n scripts/run_codex_outer_context_bridge_scale_sweep.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+```
+
+Result:
+
+- 59 passed in 13.85 seconds.
+
+Recommended diagnostic run:
+
+```bash
+bash scripts/run_codex_outer_context_bridge_scale_sweep.sh
+```
+
+Interpretation target:
+
+- Compare the three scaled runs against the best stage4 bridge/context anchor: seed 42, 20 epochs, 33.93% test accuracy.
+- Compare the three scaled runs against the failed full-strength `outer_shell_context_to_bridge` result: 26.29% test accuracy.
+- Check whether `outer_shell_context_plus_column_shell_bridge` rises above the previous no-conditioning diagnostic value of 18.46% without reducing the full `combined` accuracy.
+- Check whether `combined_without_outer_shell` still drops strongly. In the best stage4 anchor, removing outer shell dropped test accuracy from 33.93% to 14.95%.
+- If none of the fixed scales improves the stage4 anchor or the context-plus-bridge diagnostic, stop this context-to-bridge direction and return to shell-preserving readout or composer-side mechanisms.
+
+## 2026-07-15 Controlled Outer-Context-to-Bridge Scale Sweep Result
+
+Recorded on 2026-07-15 06:00 EDT on `rogdora43`.
+
+Completed logs:
+
+- Master log: `results/codex_outer_context_bridge_scale_sweep_seed42_rogdora43_20260714_133407.log`.
+- Scale 0.025 child log: `results/codex_dspan_10c_3s_7a_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p025_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260714_133407.log`.
+- Scale 0.05 child log: `results/codex_dspan_10c_3s_7a_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p05_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260714_181723.log`.
+- Scale 0.10 child log: `results/codex_dspan_10c_3s_7a_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p10_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260714_230027.log`.
+
+Configuration:
+
+- Seed 42.
+- 10 columns, 3 shared columns, and 7 active non-shared columns.
+- `combiner=shell_attention`.
+- `column_grid=stage4`, `embed_dim=64`, and `microcolumn_dim=32`.
+- `outer_shell_context=on`, where `outer_shell_context` is a per-column predictive-coding latent whose width matches the column's `outer_shell` shell.
+- `column_shell_bridge=on`, where `column_shell_bridge` is a per-column predictive-coding latent that receives the four pooled shell states and feeds the main CIFAR-10 classifier.
+- `outer_shell_context_bridge_scale` is the fixed scalar multiplier on the route `columnXX_outer_shell_context -> columnXX_outer_shell_context_bridge_scale -> columnXX_shell_bridge`.
+- No bypass path, no shell readout path, no teacher heads, no context evidence path, and no shell-context prediction objective.
+- `shell_lr_multipliers=1,1.5,2,3`, where the four values scale optimizer updates for hard-kernel, inner-shell, middle-shell, and outer-shell parameters.
+- Learning rate 0.005 for 20 epochs.
+
+Primary results:
+
+| `outer_shell_context_bridge_scale` | Best validation accuracy | Best validation epoch | Test accuracy | Validation trajectory |
+| ---: | ---: | ---: | ---: | --- |
+| 0.025 | 30.74% | 19 | 30.28% | Improved late, then dipped slightly at epoch 20. |
+| 0.05 | 29.84% | 20 | 29.13% | Improved late and selected epoch 20. |
+| 0.10 | 30.70% | 20 | 30.08% | Improved late and selected epoch 20. |
+
+Readout-family results on test:
+
+| `outer_shell_context_bridge_scale` | Combined | `combined_without_column_pool` | `outer_shell_context_plus_column_shell_bridge` | `column_shell_bridge_only` | `outer_shell_context_only` |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.025 | 30.28% | 13.35% | 13.35% | 10.00% | 10.00% |
+| 0.05 | 29.13% | 10.81% | 10.81% | 10.00% | 10.00% |
+| 0.10 | 30.08% | 15.37% | 15.37% | 10.00% | 10.00% |
+
+Shell lesion results on test:
+
+| `outer_shell_context_bridge_scale` | Combined | Without hard kernel | Without inner shell | Without middle shell | Without outer shell |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.025 | 30.28% | 17.62% | 20.91% | 18.39% | 18.19% |
+| 0.05 | 29.13% | 16.71% | 21.33% | 19.76% | 16.36% |
+| 0.10 | 30.08% | 18.48% | 22.37% | 18.82% | 22.86% |
+
+Comparison to anchors:
+
+| Run | Test accuracy | Notes |
+| --- | ---: | --- |
+| Best stage4 bridge/context anchor, seed 42 | 33.93% | `column_shell_bridge=on`, `outer_shell_context=on`, no context-to-bridge edge. |
+| Three-seed stage4 bridge/context mean | 32.49% | Seeds 42, 99, and 7 from the bridge-only replicate. |
+| Full-strength `outer_shell_context_to_bridge`, seed 42 | 26.29% | Raw context-to-bridge edge. |
+| Best scaled context-to-bridge run | 30.28% | Fixed scale 0.025. |
+
+Interpretation:
+
+- Controlled scaling mitigated the full-strength context-to-bridge failure. The best scaled run reached 30.28% test accuracy, which is 3.99 percentage points above the 26.29% full-strength edge result.
+- Controlled scaling did not improve the current stage4 anchor. The best scaled run remained 3.65 percentage points below the 33.93% seed-42 bridge/context anchor and 2.21 percentage points below the 32.49% three-seed bridge/context mean.
+- The route diagnostic failed the intended mechanism test. `outer_shell_context_plus_column_shell_bridge` reached at most 15.37% test accuracy, below the previous no-conditioning diagnostic value of 18.46%.
+- `column_shell_bridge_only` and `outer_shell_context_only` stayed at chance for all three scales. The scaled bridge path did not make either local route independently class-readable.
+- Late validation improvement shows that this was not an early collapse failure. The weak result is a routing and representation issue inside the predictive-coding graph.
+- Shell lesions still show that hard kernel, middle shell, and outer shell matter. The full classifier remains shell-dependent, but the scaled context-to-bridge route does not make the shell/context subgraph more useful.
+
+Conclusion:
+
+Stop the context-to-bridge conditioning branch for now. The controlled edge is less harmful than the full-strength edge, but it does not beat the unscaled stage4 bridge/context anchor and it weakens the specific context-plus-bridge route we meant to improve.
+
+Recommended next step:
+
+Return to the unscaled stage4 bridge/context anchor and move toward support-structured column specialization rather than adding more context-to-bridge edges.
+
+The next experiment should use the existing static support machinery before adding a learned support controller. Run the best stage4 bridge/context branch with smaller non-shared supports, such as 3 shared columns plus 1, 3, or 5 non-shared columns, while keeping `column_shell_bridge=on`, `outer_shell_context=on`, `column_shell_readout=off`, no bypass, no teacher heads, `shell_attention`, and `shell_lr_multipliers=1,1.5,2,3`.
+
+Reasoning:
+
+- HiBaCaML emphasizes sparse support selection, while the current best branch uses all 10 columns on every example.
+- The current composer already chooses one dominant column per shell at readout, but all columns still train on all examples. Static support sparsity is not the full paper mechanism, but it tests whether reduced column interference improves CIFAR-10 accuracy before we implement a learned support posterior.
+- This experiment works from the best branch rather than continuing from the poorer scaled-context result.
+- If one sparse support size improves or matches the 32.49% bridge/context mean, the next implementation should make support selection trainable or auditable. If all sparse support sizes fall below the anchor, the next implementation should instead target shell consolidation, because static support reduction would have shown that capacity was not the limiting source of interference.
