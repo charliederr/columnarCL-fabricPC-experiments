@@ -31,6 +31,7 @@ column_gaussian_energy_mode="${25:-sum}"
 column_gaussian_precision="${26:-1.0}"
 column_gaussian_reference_sites="${27:-16}"
 outer_shell_context_bridge_scale="${28:-0.0}"
+column_mode="${29:-all_active}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
@@ -61,6 +62,23 @@ outer_shell_context_to_bridge_args=()
 outer_shell_context_evidence_label="off"
 outer_shell_context_evidence_args=()
 column_gaussian_energy_args=()
+
+case "$column_mode" in
+    all_active)
+        column_mode_label="all"
+        ;;
+    first_sparse)
+        column_mode_label="first"
+        ;;
+    random_sparse)
+        column_mode_label="random"
+        ;;
+    *)
+        echo "Unknown column mode: $column_mode" >&2
+        echo "Use 'all_active', 'first_sparse', or 'random_sparse'." >&2
+        exit 2
+        ;;
+esac
 
 if [[ "$diagnose_mode" == "diagnose" || "$diagnose_mode" == "--diagnose_energy" ]]; then
     diagnose_label="diag"
@@ -231,7 +249,7 @@ fi
 # Capacity and context labels made the original descriptive filename exceed
 # common 255-byte filename limits. The full configuration is still written in
 # the log header; the filename keeps only compact run identifiers.
-log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolumn_dim}_${column_gaussian_energy_short}_gp${column_gaussian_precision_label}_rs${column_gaussian_reference_sites_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_ocet${outer_context_evidence_teacher_label}_ocbs${outer_context_bridge_scale_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_cm${column_mode_label}_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolumn_dim}_${column_gaussian_energy_short}_gp${column_gaussian_precision_label}_rs${column_gaussian_reference_sites_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_ocet${outer_context_evidence_teacher_label}_ocbs${outer_context_bridge_scale_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -246,6 +264,7 @@ mkdir -p results
     echo "num_columns: $num_columns"
     echo "num_shared: $num_shared"
     echo "active_nonshared: $active_nonshared"
+    echo "column_mode: $column_mode"
     echo "lr: $lr"
     echo "column_grid: $column_grid"
     echo "embed_dim: $embed_dim"
@@ -282,7 +301,7 @@ mkdir -p results
         --num_columns "$num_columns" \
         --num_shared "$num_shared" \
         --active_nonshared "$active_nonshared" \
-        --column_mode all_active \
+        --column_mode "$column_mode" \
         --combiner "$combiner_mode" \
         --column_grid "$column_grid" \
         --embed_dim "$embed_dim" \

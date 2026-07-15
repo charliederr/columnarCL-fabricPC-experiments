@@ -5364,3 +5364,97 @@ Reasoning:
 - The current composer already chooses one dominant column per shell at readout, but all columns still train on all examples. Static support sparsity is not the full paper mechanism, but it tests whether reduced column interference improves CIFAR-10 accuracy before we implement a learned support posterior.
 - This experiment works from the best branch rather than continuing from the poorer scaled-context result.
 - If one sparse support size improves or matches the 32.49% bridge/context mean, the next implementation should make support selection trainable or auditable. If all sparse support sizes fall below the anchor, the next implementation should instead target shell consolidation, because static support reduction would have shown that capacity was not the limiting source of interference.
+
+## 2026-07-15 Static Support-Sparsity Sweep Implementation
+
+Recorded on 2026-07-15 06:31 EDT on `rogdora43`.
+
+Implemented after confirmation:
+
+- Extended `scripts/run_codex_cifar10_depth_spanning.sh` with a trailing positional argument for `column_mode`.
+- `column_mode` is the support-mask strategy passed to `scripts/train_cifar10_depth_spanning.py` through `--column_mode`.
+- The valid `column_mode` values are `all_active`, `first_sparse`, and `random_sparse`.
+- Existing wrapper calls keep `column_mode=all_active` when they omit the new trailing argument.
+- The wrapper now records `column_mode` in the log header and includes a compact `cm...` label in new child log filenames.
+- Added `scripts/run_codex_support_sparsity_10col3shared_sweep.sh`.
+
+New sweep mechanism:
+
+- The sweep keeps the strongest current no-bypass branch: stage4 column grid, 10 columns, 3 shared columns, `shell_attention`, `outer_shell_context=on`, `column_shell_bridge=on`, `column_shell_readout=off`, no teacher heads, no bypass path, and no outer-context-to-bridge edge.
+- `num_shared=3` means columns 0, 1, and 2 are always active in sparse modes.
+- `active_nonshared` is the number of additional non-shared columns that the support mask activates.
+- The default support sweep uses `active_nonshared=1`, `3`, and `5`, corresponding to 4, 6, and 8 total active columns.
+- The default `column_mode=first_sparse` selects the first N non-shared columns after the three shared columns. For example, `active_nonshared=3` activates columns 0, 1, 2, 3, 4, and 5.
+- `COLUMN_MODE=random_sparse` is available as an environment override if we want a randomized static support control.
+
+Prepared run command:
+
+```bash
+bash scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+```
+
+Optional overrides:
+
+```bash
+SEEDS="42 99 7" ACTIVE_NONSHARED_VALUES="3" bash scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+```
+
+```bash
+COLUMN_MODE=random_sparse bash scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+```
+
+Expected outputs:
+
+- A master log named `results/codex_support_sparsity_10col3shared_<column_mode>_seeds<...>_active<...>_<host>_<timestamp>.log`.
+- One child training log per seed and support size from `scripts/run_codex_cifar10_depth_spanning.sh`.
+
+Interpretation plan:
+
+- Compare each sparse support run against the unscaled stage4 bridge/context anchor: 33.93% seed-42 test accuracy and 32.49% three-seed mean test accuracy.
+- Prioritize collapse resistance and main `combined` test accuracy.
+- Check whether sparse support preserves the shell-lesion pattern from the anchor, where hard kernel, middle shell, and outer shell are all load-bearing.
+- Check whether `outer_shell_context_plus_column_shell_bridge` rises above the scaled-context sweep's best value of 15.37% and the earlier no-conditioning diagnostic value of 18.46%.
+- If a sparse support size improves or matches the anchor, the next implementation target should be an auditable support controller rather than more static support sweeps.
+- If sparse supports all underperform the anchor, the next implementation target should shift toward shell consolidation or shell-promotion mechanisms inside each column.
+
+Verification:
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+bash -n scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+```
+
+Result:
+
+- Passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+```
+
+Result:
+
+- 59 passed in 13.24 seconds.
+
+```bash
+git diff --check
+```
+
+Result:
+
+- Passed.
