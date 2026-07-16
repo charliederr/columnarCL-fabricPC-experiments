@@ -5458,3 +5458,118 @@ git diff --check
 Result:
 
 - Passed.
+
+## 2026-07-16 Static Support-Sparsity Sweep Results
+
+Recorded on 2026-07-16 08:05 EDT on `rogdora43`.
+
+Completed logs:
+
+- First-sparse master log: `results/codex_support_sparsity_10col3shared_first_sparse_seeds42_active1_3_5_rogdora43_20260715_060041.log`.
+- Random-sparse master log: `results/codex_support_sparsity_10col3shared_random_sparse_seeds42_active1_3_5_rogdora43_20260715_184731.log`.
+- First-sparse child logs:
+  - `results/codex_dspan_10c_3s_1a_cmfirst_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260715_060041.log`.
+  - `results/codex_dspan_10c_3s_3a_cmfirst_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260715_100517.log`.
+  - `results/codex_dspan_10c_3s_5a_cmfirst_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260715_142037.log`.
+- Random-sparse child logs:
+  - `results/codex_dspan_10c_3s_1a_cmrandom_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260715_184731.log`.
+  - `results/codex_dspan_10c_3s_3a_cmrandom_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260715_225101.log`.
+  - `results/codex_dspan_10c_3s_5a_cmrandom_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260716_030538.log`.
+
+Configuration:
+
+- Seed 42.
+- `active_nonshared` is the number of non-shared columns activated in addition to the three shared columns.
+- Total active columns equals `3 + active_nonshared`.
+- `first_sparse` activates columns 0, 1, and 2 as shared columns, then activates the first N non-shared columns.
+- `random_sparse` activates columns 0, 1, and 2 as shared columns, then samples N non-shared columns using the seed-42 pseudorandom permutation.
+- All runs used the current stage4 bridge/context branch: 10 total columns, 3 shared columns, `shell_attention`, `outer_shell_context=on`, `column_shell_bridge=on`, `column_shell_readout=off`, no bypass path, no teacher heads, no context-to-bridge edge, and `shell_lr_multipliers=1,1.5,2,3`.
+
+Primary results:
+
+| `column_mode` | `active_nonshared` | Active columns | Best validation accuracy | Best validation epoch | Test accuracy |
+| --- | ---: | --- | ---: | ---: | ---: |
+| `first_sparse` | 1 | `[0, 1, 2, 3]` | 24.98% | 20 | 24.41% |
+| `first_sparse` | 3 | `[0, 1, 2, 3, 4, 5]` | 27.04% | 4 | 26.97% |
+| `first_sparse` | 5 | `[0, 1, 2, 3, 4, 5, 6, 7]` | 26.38% | 6 | 27.50% |
+| `random_sparse` | 1 | `[0, 1, 2, 7]` | 26.92% | 20 | 26.58% |
+| `random_sparse` | 3 | `[0, 1, 2, 5, 7, 8]` | 26.28% | 20 | 26.82% |
+| `random_sparse` | 5 | `[0, 1, 2, 5, 6, 7, 8, 9]` | 30.42% | 20 | 30.11% |
+
+Readout-family results on test:
+
+| `column_mode` | `active_nonshared` | Combined | `combined_without_column_pool` | `outer_shell_context_plus_column_shell_bridge` | `column_pool_plus_shell_bridge` | `combined_without_column_shell_bridge` | `combined_without_outer_shell_context` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `first_sparse` | 1 | 24.41% | 10.29% | 10.29% | 10.00% | 10.03% | 10.00% |
+| `first_sparse` | 3 | 26.97% | 17.33% | 17.33% | 10.00% | 10.00% | 10.00% |
+| `first_sparse` | 5 | 27.50% | 14.55% | 14.55% | 13.28% | 10.00% | 13.28% |
+| `random_sparse` | 1 | 26.58% | 10.00% | 10.00% | 10.00% | 15.46% | 10.00% |
+| `random_sparse` | 3 | 26.82% | 10.00% | 10.00% | 10.00% | 10.00% | 10.00% |
+| `random_sparse` | 5 | 30.11% | 10.00% | 10.00% | 10.00% | 10.00% | 10.00% |
+
+Shell lesion results on test:
+
+| `column_mode` | `active_nonshared` | Combined | Without hard kernel | Without inner shell | Without middle shell | Without outer shell |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `first_sparse` | 1 | 24.41% | 10.00% | 16.03% | 14.56% | 10.03% |
+| `first_sparse` | 3 | 26.97% | 20.24% | 18.17% | 20.62% | 21.78% |
+| `first_sparse` | 5 | 27.50% | 18.61% | 20.31% | 17.10% | 22.12% |
+| `random_sparse` | 1 | 26.58% | 10.00% | 17.99% | 13.75% | 13.39% |
+| `random_sparse` | 3 | 26.82% | 10.04% | 15.39% | 10.61% | 10.00% |
+| `random_sparse` | 5 | 30.11% | 10.24% | 21.01% | 18.14% | 18.07% |
+
+Shell state norms after training:
+
+| `column_mode` | `active_nonshared` | Hard-kernel mean L2 | Inner-shell mean L2 | Middle-shell mean L2 | Outer-shell mean L2 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `first_sparse` | 1 | 4.6897 | 2.6446 | 3.7408 | 4.5815 |
+| `first_sparse` | 3 | 4.6898 | 2.6450 | 3.7401 | 4.5813 |
+| `first_sparse` | 5 | 4.6896 | 2.6446 | 3.7390 | 4.5809 |
+| `random_sparse` | 1 | 4.6896 | 2.6447 | 3.7395 | 4.5774 |
+| `random_sparse` | 3 | 4.6893 | 2.6436 | 3.7391 | 4.5790 |
+| `random_sparse` | 5 | 4.6887 | 2.6428 | 3.7396 | 4.5790 |
+
+Comparison to anchors:
+
+| Run | Test accuracy | Notes |
+| --- | ---: | --- |
+| Best stage4 bridge/context anchor, seed 42 | 33.93% | All 10 columns active. |
+| Three-seed stage4 bridge/context mean | 32.49% | Seeds 42, 99, and 7. |
+| Best controlled context-to-bridge scale run | 30.28% | Scale 0.025. |
+| Best static sparse support run | 30.11% | `random_sparse`, `active_nonshared=5`, 8 total active columns. |
+
+Interpretation:
+
+- Static support sparsity did not recover the stage4 bridge/context anchor. The best sparse run reached 30.11% test accuracy, 3.82 percentage points below the 33.93% seed-42 anchor and 2.38 percentage points below the 32.49% three-seed anchor mean.
+- Static support sparsity did not strengthen the context-plus-bridge route. `outer_shell_context_plus_column_shell_bridge` reached 17.33% only in the deterministic six-column support, below the earlier no-conditioning diagnostic value of 18.46%. It was at chance in all random-sparse runs.
+- The random eight-column run improved through epoch 20 and produced the best sparse result, but all readout-family removals were at chance. Its useful signal was even more dependent on the full combined readout than the anchor.
+- The sparse runs did not collapse by shell magnitude. Hard-kernel, inner-shell, middle-shell, and outer-shell state norms stayed close to the prior stage4 values in every run.
+- The random eight-column run made the hard kernel especially load-bearing. Removing the hard kernel dropped test accuracy from 30.11% to 10.24%, while removing inner shell, middle shell, or outer shell left 21.01%, 18.14%, and 18.07% respectively.
+- Deterministic sparse supports with 6 or 8 active columns peaked early, at epochs 4 and 6. Random sparse supports selected epoch 20 in all three runs. This suggests support composition affects training stability, but the effect is not sufficient to beat the all-active anchor.
+
+Conclusion:
+
+Do not continue static support-size sweeps as the next main path. The sparse-support idea is architecturally relevant to HiBaCaML, but this static version did not improve CIFAR-10 accuracy or route interpretability. It mostly reduced capacity while leaving the same full-readout dependency.
+
+Recommended next step:
+
+Move to shell consolidation or shell promotion inside each active column, starting from the all-active stage4 bridge/context anchor rather than from the sparse-support result.
+
+Proposed mechanism, pending confirmation:
+
+- Add a small inward shell-promotion predictive objective inside `DepthSpanningColumnNode`.
+- The promotion path should move reusable outer-shell evidence inward through learned local predictors, not through a classifier head.
+- The first implementation should be conservative:
+  - Predict `middle_shell` from `outer_shell` inside each column.
+  - Predict `inner_shell` from `middle_shell` inside each column.
+  - Keep `hard_kernel` untouched in the first pass to avoid destabilizing the strongest current class-bearing path.
+  - Weight the promotion energy very lightly, such as `0.0001` or `0.00025`.
+  - Keep the main graph at the stage4 bridge/context anchor: all 10 columns active, `outer_shell_context=on`, `column_shell_bridge=on`, no shell readout, no bypass, no teacher heads, and no context-to-bridge edge.
+- The diagnostic should compare no promotion against one or two light promotion weights on seed 42 before any three-seed replicate.
+
+Reasoning:
+
+- The static-support experiment says column count and support composition are not the immediate limiting factor.
+- The repeated route-ablation failure says local context and bridge latents are still not independently useful.
+- The shell-lesion pattern says shell identity matters, but the model often depends on the full classifier to combine shell evidence.
+- A local inward promotion objective is closer to the HiBaCaML consolidation idea than more readout edges, because it gives shell-to-shell structure a learning signal inside each column without adding another class-label head.

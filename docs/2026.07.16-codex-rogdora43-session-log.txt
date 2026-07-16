@@ -1,0 +1,1013 @@
+
+    5279 +- Compare the three scaled runs against the best stage4 bridge/context anchor: seed 42, 20 epochs, 33.93% test accuracy.
+    5280 +- Compare the three scaled runs against the failed full-strength `outer_shell_context_to_bridge` result: 26.29% test accuracy.
+    5281 +- Check whether `outer_shell_context_plus_column_shell_bridge` rises above the previous no-conditioning diagnostic value of 18.46% without reducing the full `com
+          bined` accuracy.
+    5282 +- Check whether `combined_without_outer_shell` still drops strongly. In the best stage4 anchor, removing outer shell dropped test accuracy from 33.93% to 14.95%.
+    5283 +- If none of the fixed scales improves the stage4 anchor or the context-plus-bridge diagnostic, stop this context-to-bridge direction and return to shell-preserv
+          ing readout or composer-side mechanisms.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now has the implementation and run plan. I’m doing final checks for whitespace, CLI help, and the exact diff before I hand you the command.
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +2 lines (ctrl + t to view transcript)
+     M tests/test_pooled_readout_norm.py
+    ?? scripts/run_codex_outer_context_bridge_scale_sweep.sh
+
+• Ran git diff --stat
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md | 168 +++++++++++++++++++++
+     scripts/run_codex_cifar10_depth_spanning.sh        |   6 +-
+     scripts/train_cifar10_depth_spanning.py            |  98 +++++++++++-
+     tests/test_pooled_readout_norm.py                  | 135 +++++++++++++++++
+     4 files changed, 402 insertions(+), 5 deletions(-)
+
+• Ran git diff -- scripts/train_cifar10_depth_spanning.py scripts/run_codex_cifar10_depth_spanning.sh tests/test_pooled_readout_norm.py scripts/
+  │ run_codex_outer_context_bridge_scale_sweep.sh | head -n 240
+  └ diff --git a/scripts/run_codex_cifar10_depth_spanning.sh b/scripts/run_codex_cifar10_depth_spanning.sh
+    index 25fb695..9037837 100755
+    … +236 lines (ctrl + t to view transcript)
+    +++ b/tests/test_pooled_readout_norm.py
+    @@ -58,6 +58,7 @@ from scripts.train_cifar10_depth_spanning import (
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --help | rg "outer_shell_context_bridge_scale|
+  │ outer_shell_context_to_bridge"
+  └                                        [--outer_shell_context_to_bridge]
+                                           [--outer_shell_context_bridge_scale OUTER_SHELL_CONTEXT_BRIDGE_SCALE]
+      --outer_shell_context_to_bridge
+      --outer_shell_context_bridge_scale OUTER_SHELL_CONTEXT_BRIDGE_SCALE
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The final checks passed: git diff --check is clean, CLI help shows the new flag, and the focused tests already passed. I’m marking the task complete and will give you
+  the short command for the GPU sweep.
+
+• Updated Plan
+  └ ✔ Inspect existing outer-context-to-bridge wiring and tests
+    ✔ Add fixed-scale context-to-bridge mechanism and CLI plumbing
+    ✔ Add/update tests and sweep wrapper
+    ✔ Run local validation and update work log
+    ✔ Provide the next experiment command
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the controlled outer-context-to-bridge path and updated the work log.
+
+  What changed:
+
+  - Added --outer_shell_context_bridge_scale, default 0.0.
+  - Positive scale adds outer_context -> scaled IdentityNode -> shell_bridge.
+  - The old full-strength --outer_shell_context_to_bridge still exists, but the code rejects using both at once.
+  - Added masking support so shell bridge lesion diagnostics trace through the scaled context latent correctly.
+  - Added scripts/run_codex_outer_context_bridge_scale_sweep.sh.
+  - Updated tests; 59 passed in 13.85s.
+
+  Work log updated here: columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:5209.
+
+  Run this from the repo directory:
+
+  bash scripts/run_codex_outer_context_bridge_scale_sweep.sh
+
+  By default it runs seed 42 for 20 epochs at scales 0.025, 0.05, and 0.10, writing logs under results/.
+
+─ Worked for 7m 24s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› This experiment has finished.
+
+
+• I’ll find the newest result logs from the scale sweep, extract the metrics and ablations for each scale, then append the result and interpretation to the work log before
+  recommending a next step.
+
+• Explored
+  └ List results
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +12 lines (ctrl + t to view transcript)
+    ?? results/codex_outer_context_bridge_scale_sweep_seed42_rogdora43_20260714_133407.log
+    ?? scripts/run_codex_outer_context_bridge_scale_sweep.sh
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z' && hostname
+  └ 2026-07-15 05:48:14 EDT
+    rogdora43
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Context compacted
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll pull the new result logs apart first, then I’ll update the work log with the actual numbers and give you a recommendation without changing code.
+
+• Explored
+  └ Search outer_shell_context_bridge_scale:|Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|combined                         acc=|column_only
+           acc=|combined_without_column_pool|column_shell_bridge_only         acc=|column_pool_plus_shell_bridge|combined_without_column_shell_bridge|
+           outer_shell_context_only|
+           column_pool_plus_outer_shell_context|combined_without_outer_shell_context|outer_shell_context_plus_column_shell_bridge|combined_without_hard_kernel|
+           combined_without_inner_shell|combined_without_middle_shell|combined_without_outer_shell in
+           codex_dspan_10c_3s_7a_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_*ocbs0p025*.log
+    Read codex_outer_context_bridge_scale_sweep_seed42_rogdora43_20260714_133407.log, 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The sweep completed cleanly. The first pass shows all three scaled context-to-bridge runs stayed around 29-30% test accuracy, below the earlier stage4 bridge/context
+  anchor, and the auxiliary shell/context paths remained near chance when isolated.
+
+• Explored
+  └ Search stage4 bridge/context anchor|33\.93|outer_shell_context_to_bridge|26\.29|18\.46|best stage4|stage4 anchor|Shell-Preserving|shell-preserving|2026-07-
+  in 20260624-
+           work-log-codex-rogdora43-cifar10-hibacaml.md
+    Search Epoch [0-9]+: val_acc|Training time|Test Accuracy|Best Val Accuracy|Best Val Epoch in
+    codex_dspan_10c_3s_7a_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_*ocbs0p025*.log
+
+• Ran git diff -- docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md | tail -n 120
+  └ +| Combined without middle shell | 17.05% |
+    +| Combined without outer shell | 9.54% |
+    … +118 lines (ctrl + t to view transcript)
+    +- If none of the fixed scales improves the stage4 anchor or the context-plus-bridge diagnostic, stop this context-to-bridge direction and return to shell-preserving
+    readout or composer-side mechanisms.
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    Search class|prototype|routing|posterior|slab|teacher|evidence|predict in codex-architechture-review-2026.07.01.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m going to append the result section now. The key conclusion I’m writing down is that controlled scaling made the full-strength edge less damaging, but still failed
+  the two criteria we set: it did not beat the stage4 anchor, and it did not make the context-plus-bridge route stronger.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+83 -0)
+    5283  - If none of the fixed scales improves the stage4 anchor or the context-plus-bridge diagnostic, stop this context-to-bridge direction and return to shell-preserv
+          ing readout or composer-side mechanisms.
+    5284 +
+    5285 +## 2026-07-15 Controlled Outer-Context-to-Bridge Scale Sweep Result
+    5286 +
+    5287 +Recorded on 2026-07-15 06:00 EDT on `rogdora43`.
+    5288 +
+    5289 +Completed logs:
+    5290 +
+    5291 +- Master log: `results/codex_outer_context_bridge_scale_sweep_seed42_rogdora43_20260714_133407.log`.
+    5292 +- Scale 0.025 child log: `results/codex_dspan_10c_3s_7a_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocb
+          s0p025_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260714_133407.log`.
+    5293 +- Scale 0.05 child log: `results/codex_dspan_10c_3s_7a_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs
+          0p05_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260714_181723.log`.
+    5294 +- Scale 0.10 child log: `results/codex_dspan_10c_3s_7a_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs
+          0p10_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260714_230027.log`.
+    5295 +
+    5296 +Configuration:
+    5297 +
+    5298 +- Seed 42.
+    5299 +- 10 columns, 3 shared columns, and 7 active non-shared columns.
+    5300 +- `combiner=shell_attention`.
+    5301 +- `column_grid=stage4`, `embed_dim=64`, and `microcolumn_dim=32`.
+    5302 +- `outer_shell_context=on`, where `outer_shell_context` is a per-column predictive-coding latent whose width matches the column's `outer_shell` shell.
+    5303 +- `column_shell_bridge=on`, where `column_shell_bridge` is a per-column predictive-coding latent that receives the four pooled shell states and feeds the main CI
+          FAR-10 classifier.
+    5304 +- `outer_shell_context_bridge_scale` is the fixed scalar multiplier on the route `columnXX_outer_shell_context -> columnXX_outer_shell_context_bridge_scale -> co
+          lumnXX_shell_bridge`.
+    5305 +- No bypass path, no shell readout path, no teacher heads, no context evidence path, and no shell-context prediction objective.
+    5306 +- `shell_lr_multipliers=1,1.5,2,3`, where the four values scale optimizer updates for hard-kernel, inner-shell, middle-shell, and outer-shell parameters.
+    5307 +- Learning rate 0.005 for 20 epochs.
+    5308 +
+    5309 +Primary results:
+    5310 +
+    5311 +| `outer_shell_context_bridge_scale` | Best validation accuracy | Best validation epoch | Test accuracy | Validation trajectory |
+    5312 +| ---: | ---: | ---: | ---: | --- |
+    5313 +| 0.025 | 30.74% | 19 | 30.28% | Improved late, then dipped slightly at epoch 20. |
+    5314 +| 0.05 | 29.84% | 20 | 29.13% | Improved late and selected epoch 20. |
+    5315 +| 0.10 | 30.70% | 20 | 30.08% | Improved late and selected epoch 20. |
+    5316 +
+    5317 +Readout-family results on test:
+    5318 +
+    5319 +| `outer_shell_context_bridge_scale` | Combined | `combined_without_column_pool` | `outer_shell_context_plus_column_shell_bridge` | `column_shell_bridge_only` |
+          `outer_shell_context_only` |
+    5320 +| ---: | ---: | ---: | ---: | ---: | ---: |
+    5321 +| 0.025 | 30.28% | 13.35% | 13.35% | 10.00% | 10.00% |
+    5322 +| 0.05 | 29.13% | 10.81% | 10.81% | 10.00% | 10.00% |
+    5323 +| 0.10 | 30.08% | 15.37% | 15.37% | 10.00% | 10.00% |
+    5324 +
+    5325 +Shell lesion results on test:
+    5326 +
+    5327 +| `outer_shell_context_bridge_scale` | Combined | Without hard kernel | Without inner shell | Without middle shell | Without outer shell |
+    5328 +| ---: | ---: | ---: | ---: | ---: | ---: |
+    5329 +| 0.025 | 30.28% | 17.62% | 20.91% | 18.39% | 18.19% |
+    5330 +| 0.05 | 29.13% | 16.71% | 21.33% | 19.76% | 16.36% |
+    5331 +| 0.10 | 30.08% | 18.48% | 22.37% | 18.82% | 22.86% |
+    5332 +
+    5333 +Comparison to anchors:
+    5334 +
+    5335 +| Run | Test accuracy | Notes |
+    5336 +| --- | ---: | --- |
+    5337 +| Best stage4 bridge/context anchor, seed 42 | 33.93% | `column_shell_bridge=on`, `outer_shell_context=on`, no context-to-bridge edge. |
+    5338 +| Three-seed stage4 bridge/context mean | 32.49% | Seeds 42, 99, and 7 from the bridge-only replicate. |
+    5339 +| Full-strength `outer_shell_context_to_bridge`, seed 42 | 26.29% | Raw context-to-bridge edge. |
+    5340 +| Best scaled context-to-bridge run | 30.28% | Fixed scale 0.025. |
+    5341 +
+    5342 +Interpretation:
+    5343 +
+    5344 +- Controlled scaling mitigated the full-strength context-to-bridge failure. The best scaled run reached 30.28% test accuracy, which is 3.99 percentage points abo
+          ve the 26.29% full-strength edge result.
+    5345 +- Controlled scaling did not improve the current stage4 anchor. The best scaled run remained 3.65 percentage points below the 33.93% seed-42 bridge/context ancho
+          r and 2.21 percentage points below the 32.49% three-seed bridge/context mean.
+    5346 +- The route diagnostic failed the intended mechanism test. `outer_shell_context_plus_column_shell_bridge` reached at most 15.37% test accuracy, below the previou
+          s no-conditioning diagnostic value of 18.46%.
+    5347 +- `column_shell_bridge_only` and `outer_shell_context_only` stayed at chance for all three scales. The scaled bridge path did not make either local route indepen
+          dently class-readable.
+    5348 +- Late validation improvement shows that this was not an early collapse failure. The weak result is a routing and representation issue inside the predictive-codi
+          ng graph.
+    5349 +- Shell lesions still show that hard kernel, middle shell, and outer shell matter. The full classifier remains shell-dependent, but the scaled context-to-bridge
+          route does not make the shell/context subgraph more useful.
+    5350 +
+    5351 +Conclusion:
+    5352 +
+    5353 +Stop the context-to-bridge conditioning branch for now. The controlled edge is less harmful than the full-strength edge, but it does not beat the unscaled stage4
+           bridge/context anchor and it weakens the specific context-plus-bridge route we meant to improve.
+    5354 +
+    5355 +Recommended next step:
+    5356 +
+    5357 +Return to the unscaled stage4 bridge/context anchor and move toward support-structured column specialization rather than adding more context-to-bridge edges.
+    5358 +
+    5359 +The next experiment should use the existing static support machinery before adding a learned support controller. Run the best stage4 bridge/context branch with s
+          maller non-shared supports, such as 3 shared columns plus 1, 3, or 5 non-shared columns, while keeping `column_shell_bridge=on`, `outer_shell_context=on`, `colum
+          n_shell_readout=off`, no bypass, no teacher heads, `shell_attention`, and `shell_lr_multipliers=1,1.5,2,3`.
+    5360 +
+    5361 +Reasoning:
+    5362 +
+    5363 +- HiBaCaML emphasizes sparse support selection, while the current best branch uses all 10 columns on every example.
+    5364 +- The current composer already chooses one dominant column per shell at readout, but all columns still train on all examples. Static support sparsity is not the
+          full paper mechanism, but it tests whether reduced column interference improves CIFAR-10 accuracy before we implement a learned support posterior.
+    5365 +- This experiment works from the best branch rather than continuing from the poorer scaled-context result.
+    5366 +- If one sparse support size improves or matches the 32.49% bridge/context mean, the next implementation should make support selection trainable or auditable. If
+           all sparse support sizes fall below the anchor, the next implementation should instead target shell consolidation, because static support reduction would have s
+          hown that capacity was not the limiting source of interference.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log is updated with the scale sweep tables and the decision point. I’m doing a quick formatting check now so we don’t leave whitespace issues in the doc.
+
+• Ran git diff --check -- docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ (no output)
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    Search 2026-07-15 Controlled Outer-Context-to-Bridge Scale Sweep Result in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Recorded the completed sweep in the work log: columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:5285. git diff --check
+  passed for the doc update.
+
+  Key result: controlled context-to-bridge scaling helped versus the full-strength edge, but did not beat the unscaled stage4 bridge/context anchor.
+
+   Scale    Best val      Test    Context + bridge only
+  ━━━━━━━  ━━━━━━━━━━  ━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━
+   0.025      30.74%    30.28%                   13.35%
+  ───────  ──────────  ────────  ───────────────────────
+    0.05      29.84%    29.13%                   10.81%
+  ───────  ──────────  ────────  ───────────────────────
+    0.10      30.70%    30.08%                   15.37%
+
+  The current anchor remains 33.93% seed-42 test accuracy, with a 32.49% three-seed mean. The best scaled run was 30.28%, and the route we wanted to strengthen,
+  outer_shell_context_plus_column_shell_bridge, stayed below the prior 18.46% no-conditioning diagnostic.
+
+  My recommendation is to stop the context-to-bridge conditioning branch for now and return to the unscaled stage4 bridge/context anchor. The next experiment I’d try is a
+  support-sparsity sweep: keep 10 columns and 3 shared columns available, but run deterministic smaller active supports such as 3 shared plus 1, 3, or 5 non-shared
+  columns. That is closer to the HiBaCaML sparse-support idea and works from our best branch rather than from this weaker scaled-context result.
+
+─ Worked for 3m 46s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Your plan seems sensible. Please proceed.
+
+
+• I’ll set this up as a new sequential sweep from the unscaled stage4 bridge/context anchor, using existing support controls where possible. First I’m checking the runner
+  and training arguments so the new script matches the current positional interface instead of guessing.
+
+• Explored
+  └ Read run_codex_cifar10_depth_spanning.sh
+    Search column_mode|active_nonshared|num_shared|support|random_sparse|first_sparse|all_active|outer_shell_context_bridge_scale in train_cifar10_depth_spanning.py
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+    M  docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +12 lines (ctrl + t to view transcript)
+    M  scripts/train_cifar10_depth_spanning.py
+    M  tests/test_pooled_readout_norm.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The existing training CLI already has --column_mode, but the common wrapper does not expose it yet. I’m going to add a trailing wrapper argument for column mode, then
+  create a sweep script that runs first_sparse supports with 1, 3, and 5 active non-shared columns from the current stage4 bridge/context anchor.
+
+• Explored
+  └ Read run_codex_cifar10_depth_spanning.sh, train_cifar10_depth_spanning.py
+
+• Ran ls scripts/run_codex_*support* scripts/run_codex_*sparse* 2>/dev/null || true
+  └ (no output)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The wrapper currently hard-codes --column_mode all_active, so active_nonshared has not actually reduced the support in prior all-active runs. I’ll fix that shared runner
+  path and make the new sweep explicit in the log header so future results are unambiguous.
+
+• Explored
+  └ Read run_codex_outer_context_bridge_scale_sweep.sh
+
+• Ran sed -n '1,220p' scripts/run_codex_outer_context_bridge_only_10col3shared_replicate.sh 2>/dev/null || true
+  └ #!/usr/bin/env bash
+    set -euo pipefail
+    … +76 lines (ctrl + t to view transcript)
+        echo "master_log: $master_log"
+    } 2>&1 | tee "$master_log"
+
+• Explored
+  └ Search run_codex_cifar10_depth_spanning.sh in run_codex_*.sh
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll keep the new sweep deterministic by default: first_sparse means columns 0..2 are the shared set and the first N non-shared columns are active. The script will also
+  allow COLUMN_MODE=random_sparse later if we want a support-selection sanity check.
+
+• Edited columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh (+21 -2)
+     33  outer_shell_context_bridge_scale="${28:-0.0}"
+     34 +column_mode="${29:-all_active}"
+     35  hostname_value="$(hostname)"
+        ⋮
+     65
+     66 +case "$column_mode" in
+     67 +    all_active)
+     68 +        column_mode_label="all"
+     69 +        ;;
+     70 +    first_sparse)
+     71 +        column_mode_label="first"
+     72 +        ;;
+     73 +    random_sparse)
+     74 +        column_mode_label="random"
+     75 +        ;;
+     76 +    *)
+     77 +        echo "Unknown column mode: $column_mode" >&2
+     78 +        echo "Use 'all_active', 'first_sparse', or 'random_sparse'." >&2
+     79 +        exit 2
+     80 +        ;;
+     81 +esac
+     82 +
+     83  if [[ "$diagnose_mode" == "diagnose" || "$diagnose_mode" == "--diagnose_energy" ]]; then
+        ⋮
+    251  # the log header; the filename keeps only compact run identifiers.
+    234 -log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolu
+         mn_dim}_${column_gaussian_energy_short}_gp${column_gaussian_precision_label}_rs${column_gaussian_reference_sites_label}_ct${teacher_weight_label}_sh${shell_weight
+         s_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_ocet${outer_context_e
+         vidence_teacher_label}_ocbs${outer_context_bridge_scale_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_she
+         ll_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}
+         _${timestamp}.log"
+    252 +log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_cm${column_mode_label}_${combiner_label}_cg${column_grid_label}_e${
+         embed_dim}_m${microcolumn_dim}_${column_gaussian_energy_short}_gp${column_gaussian_precision_label}_rs${column_gaussian_reference_sites_label}_ct${teacher_weight_
+         label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label
+         }_ocet${outer_context_evidence_teacher_label}_ocbs${outer_context_bridge_scale_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_con
+         text_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_l
+         abel}_${hostname_value}_${timestamp}.log"
+    253
+        ⋮
+    266      echo "active_nonshared: $active_nonshared"
+    267 +    echo "column_mode: $column_mode"
+    268      echo "lr: $lr"
+        ⋮
+    303          --active_nonshared "$active_nonshared" \
+    285 -        --column_mode all_active \
+    304 +        --column_mode "$column_mode" \
+    305          --combiner "$combiner_mode" \
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ve extended the common runner. Next I’m adding a dedicated sweep script rather than asking you to assemble the positional arguments by hand. It will run the unscaled
+  stage4 bridge/context branch with support sizes 4, 6, and 8 total active columns.
+
+• Added columnarCL-fabricPC-experiments/scripts/run_codex_support_sparsity_10col3shared_sweep.sh (+115 -0)
+      1 +#!/usr/bin/env bash
+      2 +set -euo pipefail
+      3 +
+      4 +repo_root="/home/ni/repos/fpc/columnarCL-fabricPC-experiments"
+      5 +run_script="${repo_root}/scripts/run_codex_cifar10_depth_spanning.sh"
+      6 +hostname_value="$(hostname)"
+      7 +timestamp="$(date +%Y%m%d_%H%M%S)"
+      8 +
+      9 +lr="${LR:-0.005}"
+     10 +num_epochs="${NUM_EPOCHS:-20}"
+     11 +diagnose_mode="${DIAGNOSE_MODE:-composer_shells}"
+     12 +seeds_text="${SEEDS:-42}"
+     13 +column_mode="${COLUMN_MODE:-first_sparse}"
+     14 +
+     15 +if [[ "$column_mode" != "first_sparse" && "$column_mode" != "random_sparse" ]]; then
+     16 +    echo "COLUMN_MODE must be 'first_sparse' or 'random_sparse' for this sweep." >&2
+     17 +    exit 2
+     18 +fi
+     19 +
+     20 +if [[ "$#" -gt 0 ]]; then
+     21 +    active_nonshared_text="$*"
+     22 +else
+     23 +    active_nonshared_text="${ACTIVE_NONSHARED_VALUES:-1 3 5}"
+     24 +fi
+     25 +
+     26 +seed_label="${seeds_text// /_}"
+     27 +support_label="${active_nonshared_text// /_}"
+     28 +master_log="${repo_root}/results/codex_support_sparsity_10col3shared_${column_mode}_seeds${seed_label}_active${support_label}_${hostname_value}_${timestamp}.log"
+     29 +
+     30 +cd "$repo_root"
+     31 +mkdir -p results
+     32 +
+     33 +{
+     34 +    echo "repo: $repo_root"
+     35 +    echo "git_commit: $(git rev-parse HEAD)"
+     36 +    echo "git_status:"
+     37 +    git status --short --branch
+     38 +    echo "lr: $lr"
+     39 +    echo "num_epochs: $num_epochs"
+     40 +    echo "diagnose_mode: $diagnose_mode"
+     41 +    echo "seeds: $seeds_text"
+     42 +    echo "num_columns: 10"
+     43 +    echo "num_shared: 3"
+     44 +    echo "active_nonshared_values: $active_nonshared_text"
+     45 +    echo "column_mode: $column_mode"
+     46 +    echo "column_grid: stage4"
+     47 +    echo "embed_dim: 64"
+     48 +    echo "microcolumn_dim: 32"
+     49 +    echo "column_gaussian_energy_mode: sum"
+     50 +    echo "column_gaussian_precision: 1.0"
+     51 +    echo "column_gaussian_reference_sites: 16"
+     52 +    echo "combiner: shell_attention"
+     53 +    echo "outer_shell_context: on"
+     54 +    echo "column_shell_bridge: on"
+     55 +    echo "column_shell_readout: off"
+     56 +    echo "outer_shell_context_to_bridge: off"
+     57 +    echo "outer_shell_context_bridge_scale: 0.0"
+     58 +    echo "shell_lr_multipliers: 1,1.5,2,3"
+     59 +    echo "readout_mode: nobypass"
+     60 +    echo "column_teacher_weight: 0.0"
+     61 +    echo "shell_teacher_weights: 0,0,0,0"
+     62 +    echo "column_shell_teacher_weights: 0,0,0,0"
+     63 +    echo "outer_shell_context_teacher_weight: 0.0"
+     64 +    echo "outer_shell_context_evidence: off"
+     65 +    echo "outer_shell_context_evidence_teacher_weight: 0.0"
+     66 +    echo "outer_shell_context_shell_prediction_weight: 0.0"
+     67 +    echo "started_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+     68 +
+     69 +    for seed in $seeds_text; do
+     70 +        for active_nonshared in $active_nonshared_text; do
+     71 +            total_active=$((3 + active_nonshared))
+     72 +            echo
+     73 +            echo "======================================================================"
+     74 +            echo "Starting seed=${seed} active_nonshared=${active_nonshared} total_active_columns=${total_active} column_mode=${column_mode} at $(date '+%Y-%m-%d
+         %H:%M:%S %Z')"
+     75 +            echo "======================================================================"
+     76 +
+     77 +            bash "$run_script" \
+     78 +                "$seed" \
+     79 +                "$lr" \
+     80 +                "$diagnose_mode" \
+     81 +                "$num_epochs" \
+     82 +                "0.0" \
+     83 +                "0,0,0,0" \
+     84 +                "nobypass" \
+     85 +                "0,0,0,0" \
+     86 +                "off" \
+     87 +                "on" \
+     88 +                "shell_attention" \
+     89 +                "on" \
+     90 +                "10" \
+     91 +                "3" \
+     92 +                "$active_nonshared" \
+     93 +                "1,1.5,2,3" \
+     94 +                "0.0" \
+     95 +                "off" \
+     96 +                "0.0" \
+     97 +                "0.0" \
+     98 +                "off" \
+     99 +                "stage4" \
+    100 +                "64" \
+    101 +                "32" \
+    102 +                "sum" \
+    103 +                "1.0" \
+    104 +                "16" \
+    105 +                "0.0" \
+    106 +                "$column_mode"
+    107 +
+    108 +            echo "Finished seed=${seed} active_nonshared=${active_nonshared} total_active_columns=${total_active} at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    109 +        done
+    110 +    done
+    111 +
+    112 +    echo
+    113 +    echo "completed_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    114 +    echo "master_log: $master_log"
+    115 +} 2>&1 | tee "$master_log"
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The new sweep script is in place. I’ll mark it executable and then run shell syntax checks plus the focused unit tests that cover the graph-building changes already in
+  this branch.
+
+• Ran chmod +x scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+  └ (no output)
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh
+  └ (no output)
+
+• Ran bash -n scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+  └ (no output)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Syntax is clean. Since this change touches the shared wrapper rather than the model internals, I’m keeping verification to shell checks, Python compile, the existing
+  focused graph tests, and whitespace checking.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+  └ (no output)
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+  └ ...........................................................              [100%]
+    59 passed in 13.24s
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The focused tests passed. I’m appending an implementation note to the work log now, including the exact command for you to run from the repo root.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+94 -0)
+    5366  - If one sparse support size improves or matches the 32.49% bridge/context mean, the next implementation should make support selection trainable or auditable. If
+           all sparse support sizes fall below the anchor, the next implementation should instead target shell consolidation, because static support reduction would have s
+          hown that capacity was not the limiting source of interference.
+    5367 +
+    5368 +## 2026-07-15 Static Support-Sparsity Sweep Implementation
+    5369 +
+    5370 +Recorded on 2026-07-15 06:31 EDT on `rogdora43`.
+    5371 +
+    5372 +Implemented after confirmation:
+    5373 +
+    5374 +- Extended `scripts/run_codex_cifar10_depth_spanning.sh` with a trailing positional argument for `column_mode`.
+    5375 +- `column_mode` is the support-mask strategy passed to `scripts/train_cifar10_depth_spanning.py` through `--column_mode`.
+    5376 +- The valid `column_mode` values are `all_active`, `first_sparse`, and `random_sparse`.
+    5377 +- Existing wrapper calls keep `column_mode=all_active` when they omit the new trailing argument.
+    5378 +- The wrapper now records `column_mode` in the log header and includes a compact `cm...` label in new child log filenames.
+    5379 +- Added `scripts/run_codex_support_sparsity_10col3shared_sweep.sh`.
+    5380 +
+    5381 +New sweep mechanism:
+    5382 +
+    5383 +- The sweep keeps the strongest current no-bypass branch: stage4 column grid, 10 columns, 3 shared columns, `shell_attention`, `outer_shell_context=on`, `column_
+          shell_bridge=on`, `column_shell_readout=off`, no teacher heads, no bypass path, and no outer-context-to-bridge edge.
+    5384 +- `num_shared=3` means columns 0, 1, and 2 are always active in sparse modes.
+    5385 +- `active_nonshared` is the number of additional non-shared columns that the support mask activates.
+    5386 +- The default support sweep uses `active_nonshared=1`, `3`, and `5`, corresponding to 4, 6, and 8 total active columns.
+    5387 +- The default `column_mode=first_sparse` selects the first N non-shared columns after the three shared columns. For example, `active_nonshared=3` activates colum
+          ns 0, 1, 2, 3, 4, and 5.
+    5388 +- `COLUMN_MODE=random_sparse` is available as an environment override if we want a randomized static support control.
+    5389 +
+    5390 +Prepared run command:
+    5391 +
+    5392 +```bash
+    5393 +bash scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+    5394 +```
+    5395 +
+    5396 +Optional overrides:
+    5397 +
+    5398 +```bash
+    5399 +SEEDS="42 99 7" ACTIVE_NONSHARED_VALUES="3" bash scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+    5400 +```
+    5401 +
+    5402 +```bash
+    5403 +COLUMN_MODE=random_sparse bash scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+    5404 +```
+    5405 +
+    5406 +Expected outputs:
+    5407 +
+    5408 +- A master log named `results/codex_support_sparsity_10col3shared_<column_mode>_seeds<...>_active<...>_<host>_<timestamp>.log`.
+    5409 +- One child training log per seed and support size from `scripts/run_codex_cifar10_depth_spanning.sh`.
+    5410 +
+    5411 +Interpretation plan:
+    5412 +
+    5413 +- Compare each sparse support run against the unscaled stage4 bridge/context anchor: 33.93% seed-42 test accuracy and 32.49% three-seed mean test accuracy.
+    5414 +- Prioritize collapse resistance and main `combined` test accuracy.
+    5415 +- Check whether sparse support preserves the shell-lesion pattern from the anchor, where hard kernel, middle shell, and outer shell are all load-bearing.
+    5416 +- Check whether `outer_shell_context_plus_column_shell_bridge` rises above the scaled-context sweep's best value of 15.37% and the earlier no-conditioning diagno
+          stic value of 18.46%.
+    5417 +- If a sparse support size improves or matches the anchor, the next implementation target should be an auditable support controller rather than more static suppo
+          rt sweeps.
+    5418 +- If sparse supports all underperform the anchor, the next implementation target should shift toward shell consolidation or shell-promotion mechanisms inside eac
+          h column.
+    5419 +
+    5420 +Verification:
+    5421 +
+    5422 +```bash
+    5423 +bash -n scripts/run_codex_cifar10_depth_spanning.sh
+    5424 +```
+    5425 +
+    5426 +Result:
+    5427 +
+    5428 +- Passed.
+    5429 +
+    5430 +```bash
+    5431 +bash -n scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+    5432 +```
+    5433 +
+    5434 +Result:
+    5435 +
+    5436 +- Passed.
+    5437 +
+    5438 +```bash
+    5439 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+    5440 +```
+    5441 +
+    5442 +Result:
+    5443 +
+    5444 +- Passed.
+    5445 +
+    5446 +```bash
+    5447 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+    5448 +```
+    5449 +
+    5450 +Result:
+    5451 +
+    5452 +- 59 passed in 13.24 seconds.
+    5453 +
+    5454 +```bash
+    5455 +git diff --check
+    5456 +```
+    5457 +
+    5458 +Result:
+    5459 +
+    5460 +- Passed.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now has the new implementation section and run command. I’m doing one final status and diff check so I can report exactly what changed.
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+    MM docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +13 lines (ctrl + t to view transcript)
+    M  tests/test_pooled_readout_norm.py
+    ?? scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+
+• Ran git diff --stat
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md | 94 ++++++++++++++++++++++
+     scripts/run_codex_cifar10_depth_spanning.sh        | 23 +++++-
+     2 files changed, 115 insertions(+), 2 deletions(-)
+
+• Ran git diff --cached --stat
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md |  251 ++++
+     ...0_composer_shells_rogdora43_20260714_133407.log |  418 +++++++
+    … +6 lines (ctrl + t to view transcript)
+     tests/test_pooled_readout_norm.py                  |  135 ++
+     9 files changed, 3158 insertions(+), 5 deletions(-)
+
+• Ran git diff -- scripts/run_codex_cifar10_depth_spanning.sh
+  └ diff --git a/scripts/run_codex_cifar10_depth_spanning.sh b/scripts/run_codex_cifar10_depth_spanning.sh
+    index 9037837..48ec1d2 100755
+    … +58 lines (ctrl + t to view transcript)
+             --column_grid "$column_grid" \
+             --embed_dim "$embed_dim" \
+
+• Explored
+  └ Read run_codex_support_sparsity_10col3shared_sweep.sh, 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the static support-sparsity sweep setup.
+
+  Changed:
+
+  - columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh:31: added trailing positional arg 29 for column_mode, logged it, and passed it to
+    --column_mode.
+
+  - columnarCL-fabricPC-experiments/scripts/run_codex_support_sparsity_10col3shared_sweep.sh:1: new sequential sweep for 10 columns, 3 shared, active_nonshared=1 3 5,
+    default first_sparse.
+
+  - columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:5285: added the implementation notes, interpretation plan, and run
+    command.
+
+  Verification passed:
+
+  - bash -n scripts/run_codex_cifar10_depth_spanning.sh
+  - bash -n scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+  - Python compile check
+  - pytest tests/test_pooled_readout_norm.py -q -> 59 passed
+  - git diff --check
+
+  Run this from the repo root:
+
+  bash scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+
+  Optional variants:
+
+  SEEDS="42 99 7" ACTIVE_NONSHARED_VALUES="3" bash scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+
+  COLUMN_MODE=random_sparse bash scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+
+─ Worked for 3m 21s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› I ran the first script you suggested and then also the 2nd variant. Both runs have now finished.
+
+
+• I’ll parse the two support-sparsity master logs and their child training logs, then update the work log with the accuracy, route ablations, and shell-lesion pattern
+  before recommending the next step.
+
+• Ran ls -t results/codex_support_sparsity_10col3shared_* 2>/dev/null | head -10
+  └ results/codex_support_sparsity_10col3shared_random_sparse_seeds42_active1_3_5_rogdora43_20260715_184731.log
+    results/codex_support_sparsity_10col3shared_first_sparse_seeds42_active1_3_5_rogdora43_20260715_060041.log
+
+• Ran ls -t results/codex_dspan_10c_3s_*cmfirst* 2>/dev/null | head -30
+  └ results/
+    codex_dspan_10c_3s_5a_cmfirst_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp
+    … +5 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_1a_cmfirst_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp
+    _seed42_lr0p005_ep20_composer_shells_rogdora43_20260715_060041.log
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10 [ahead 1]
+    ?? results/
+    … +17 lines (ctrl + t to view transcript)
+    ?? results/codex_support_sparsity_10col3shared_first_sparse_seeds42_active1_3_5_rogdora43_20260715_060041.log
+    ?? results/codex_support_sparsity_10col3shared_random_sparse_seeds42_active1_3_5_rogdora43_20260715_184731.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I found two completed master logs: the default first_sparse sweep and a random_sparse sweep. The second variant appears to be the COLUMN_MODE=random_sparse option, not
+  the three-seed active-3 option.
+
+• Explored
+  └ Read codex_support_sparsity_10col3shared_random_sparse_seeds42_active1_3_5_rogdora43_20260715_184731.log,
+         codex_support_sparsity_10col3shared_first_sparse_seeds42_active1_3_5_rogdora43_20260715_060041.log
+    Search column_mode:|active_nonshared:|Active columns:|Epoch [0-9]+: val_acc|Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|combined
+           acc=|column_only                      acc=|combined_without_column_pool|column_shell_bridge_only         acc=|column_pool_plus_shell_bridge|
+           combined_without_column_shell_bridge|outer_shell_context_only|column_pool_plus_outer_shell_context|combined_without_outer_shell_context|
+           outer_shell_context_plus_column_shell_bridge|combined_without_hard_kernel|combined_without_inner_shell|combined_without_middle_shell|
+           combined_without_outer_shell|
+           column_teacher_output in codex_dspan_10c_3s_*cmfirst*20260715*.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The top-line from the tails is already clear: the best new sparse run was the random 8-column support at 30.11%, still below the 33.93% stage4 anchor. I’m extracting the
+  full per-run table now so the work log has exact route and shell-lesion numbers.
+
+• Ran perl -ne 'sub dump_row { return unless defined $file; printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", $file, $mode // "", $active_nonshared //
+  │ "", $active_cols // "", $best_val // "", $best_epoch // "", $test_acc // "", $r{"combined_without_column_pool"} // "",
+  │ $r{"outer_shell_context_plus_column_shell_bridge"} // "", $r{"column_pool_plus_shell_bridge"} // "", $r{"combined_without_column_shell_bridge"} // "",
+  │ … +20 lines
+  └ Can't open results/
+    codex_dspan_10c_3s_3a_cmrandom_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rog
+    … +19 lines (ctrl + t to view transcript)
+    p_seed42_lr0p005_ep20_composer_shells_rogdora43_20260716_030538.log    random_sparse    5    [0, 1, 2, 5, 6, 7, 8, 9]    0.3042    20    0.3011    0.1000    0.1000
+    0.1000    0.1000    0.1000    0.1024    0.2101    0.1814
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• One filename typo dropped the random 6-column row from the first extraction. I’m rerunning the compact parser with wildcards and including the outer-shell lesion column
+  that I accidentally omitted from the print format.
+
+• Ran perl -ne 'sub dump_row { return unless defined $file; printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", $file, $mode // "",
+  │ $active_nonshared // "", $active_cols // "", $best_val // "", $best_epoch // "", $test_acc // "", $r{"combined_without_column_pool"} // "",
+  │ $r{"outer_shell_context_plus_column_shell_bridge"} // "", $r{"column_pool_plus_shell_bridge"} // "", $r{"combined_without_column_shell_bridge"} // "",
+  │ … +9 lines
+  └ results/
+    codex_dspan_10c_3s_1a_cmfirst_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp
+    … +20 lines (ctrl + t to view transcript)
+    p_seed42_lr0p005_ep20_composer_shells_rogdora43_20260716_030538.log    random_sparse    5    [0, 1, 2, 5, 6, 7, 8, 9]    0.3042    20    0.3011    0.1000    0.1000
+    0.1000    0.1000    0.1000    0.1024    0.2101    0.1814    0.1807
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The compact table is complete. One pattern stands out: deterministic first-sparse supports peaked early for 6 and 8 active columns, while random supports improved
+  through epoch 20, with the random 8-column support reaching the best sparse result.
+
+• Explored
+  └ Search Shell State Norms|After Training|hard_kernel:|inner_shell:|middle_shell:|outer_shell: in codex_dspan_10c_3s_*a_cmfirst_*20260715*.log
+    Search 2026-07-15 Static Support-Sparsity Sweep Implementation|Recommended next step|Static Support in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    Read codex_support_sparsity_10col3shared_random_sparse_seeds42_active1_3_5_rogdora43_20260715_184731.log
+    Search Shell|norm|L2|State in
+
+           codex_dspan_10c_3s_5a_cmrandom_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_oc
+           b0_n
+           obyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260716_030538.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The norm headings are present under a slightly different label. I’ll inspect those next because they tell us whether this was a collapse or just weaker route
+  composition.
+
+• Explored
+  └ Read
+  codex_dspan_10c_3s_5a_cmrandom_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nob
+         yp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260716_030538.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The best random 8-column run did not show magnitude collapse: its shell L2 means were essentially unchanged from earlier stage4 runs. I’m using that as part of the
+  conclusion, but not treating it as enough to justify continuing static sparsity.
+
+• Explored
+  └ Search Shell Norms \(after training\) in codex_dspan_10c_3s_1a_cmfirst_*20260715*.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m going to add the results section now. The conclusion I’m writing down is that static support sparsity did not recover the anchor, so the next serious HiBaCaML-
+  aligned mechanism should be shell consolidation/promotion inside columns rather than more static support-size sweeps.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+115 -0)
+    5460  - Passed.
+    5461 +
+    5462 +## 2026-07-16 Static Support-Sparsity Sweep Results
+    5463 +
+    5464 +Recorded on 2026-07-16 08:05 EDT on `rogdora43`.
+    5465 +
+    5466 +Completed logs:
+    5467 +
+    5468 +- First-sparse master log: `results/codex_support_sparsity_10col3shared_first_sparse_seeds42_active1_3_5_rogdora43_20260715_060041.log`.
+    5469 +- Random-sparse master log: `results/codex_support_sparsity_10col3shared_random_sparse_seeds42_active1_3_5_rogdora43_20260715_184731.log`.
+    5470 +- First-sparse child logs:
+    5471 +  - `results/codex_dspan_10c_3s_1a_cmfirst_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_
+          oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260715_060041.log`.
+    5472 +  - `results/codex_dspan_10c_3s_3a_cmfirst_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_
+          oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260715_100517.log`.
+    5473 +  - `results/codex_dspan_10c_3s_5a_cmfirst_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_
+          oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260715_142037.log`.
+    5474 +- Random-sparse child logs:
+    5475 +  - `results/codex_dspan_10c_3s_1a_cmrandom_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1
+          _oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260715_184731.log`.
+    5476 +  - `results/codex_dspan_10c_3s_3a_cmrandom_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1
+          _oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260715_225101.log`.
+    5477 +  - `results/codex_dspan_10c_3s_5a_cmrandom_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1
+          _oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260716_030538.log`.
+    5478 +
+    5479 +Configuration:
+    5480 +
+    5481 +- Seed 42.
+    5482 +- `active_nonshared` is the number of non-shared columns activated in addition to the three shared columns.
+    5483 +- Total active columns equals `3 + active_nonshared`.
+    5484 +- `first_sparse` activates columns 0, 1, and 2 as shared columns, then activates the first N non-shared columns.
+    5485 +- `random_sparse` activates columns 0, 1, and 2 as shared columns, then samples N non-shared columns using the seed-42 pseudorandom permutation.
+    5486 +- All runs used the current stage4 bridge/context branch: 10 total columns, 3 shared columns, `shell_attention`, `outer_shell_context=on`, `column_shell_bridge=o
+          n`, `column_shell_readout=off`, no bypass path, no teacher heads, no context-to-bridge edge, and `shell_lr_multipliers=1,1.5,2,3`.
+    5487 +
+    5488 +Primary results:
+    5489 +
+    5490 +| `column_mode` | `active_nonshared` | Active columns | Best validation accuracy | Best validation epoch | Test accuracy |
+    5491 +| --- | ---: | --- | ---: | ---: | ---: |
+    5492 +| `first_sparse` | 1 | `[0, 1, 2, 3]` | 24.98% | 20 | 24.41% |
+    5493 +| `first_sparse` | 3 | `[0, 1, 2, 3, 4, 5]` | 27.04% | 4 | 26.97% |
+    5494 +| `first_sparse` | 5 | `[0, 1, 2, 3, 4, 5, 6, 7]` | 26.38% | 6 | 27.50% |
+    5495 +| `random_sparse` | 1 | `[0, 1, 2, 7]` | 26.92% | 20 | 26.58% |
+    5496 +| `random_sparse` | 3 | `[0, 1, 2, 5, 7, 8]` | 26.28% | 20 | 26.82% |
+    5497 +| `random_sparse` | 5 | `[0, 1, 2, 5, 6, 7, 8, 9]` | 30.42% | 20 | 30.11% |
+    5498 +
+    5499 +Readout-family results on test:
+    5500 +
+    5501 +| `column_mode` | `active_nonshared` | Combined | `combined_without_column_pool` | `outer_shell_context_plus_column_shell_bridge` | `column_pool_plus_shell_bridg
+          e` | `combined_without_column_shell_bridge` | `combined_without_outer_shell_context` |
+    5502 +| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    5503 +| `first_sparse` | 1 | 24.41% | 10.29% | 10.29% | 10.00% | 10.03% | 10.00% |
+    5504 +| `first_sparse` | 3 | 26.97% | 17.33% | 17.33% | 10.00% | 10.00% | 10.00% |
+    5505 +| `first_sparse` | 5 | 27.50% | 14.55% | 14.55% | 13.28% | 10.00% | 13.28% |
+    5506 +| `random_sparse` | 1 | 26.58% | 10.00% | 10.00% | 10.00% | 15.46% | 10.00% |
+    5507 +| `random_sparse` | 3 | 26.82% | 10.00% | 10.00% | 10.00% | 10.00% | 10.00% |
+    5508 +| `random_sparse` | 5 | 30.11% | 10.00% | 10.00% | 10.00% | 10.00% | 10.00% |
+    5509 +
+    5510 +Shell lesion results on test:
+    5511 +
+    5512 +| `column_mode` | `active_nonshared` | Combined | Without hard kernel | Without inner shell | Without middle shell | Without outer shell |
+    5513 +| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+    5514 +| `first_sparse` | 1 | 24.41% | 10.00% | 16.03% | 14.56% | 10.03% |
+    5515 +| `first_sparse` | 3 | 26.97% | 20.24% | 18.17% | 20.62% | 21.78% |
+    5516 +| `first_sparse` | 5 | 27.50% | 18.61% | 20.31% | 17.10% | 22.12% |
+    5517 +| `random_sparse` | 1 | 26.58% | 10.00% | 17.99% | 13.75% | 13.39% |
+    5518 +| `random_sparse` | 3 | 26.82% | 10.04% | 15.39% | 10.61% | 10.00% |
+    5519 +| `random_sparse` | 5 | 30.11% | 10.24% | 21.01% | 18.14% | 18.07% |
+    5520 +
+    5521 +Shell state norms after training:
+    5522 +
+    5523 +| `column_mode` | `active_nonshared` | Hard-kernel mean L2 | Inner-shell mean L2 | Middle-shell mean L2 | Outer-shell mean L2 |
+    5524 +| --- | ---: | ---: | ---: | ---: | ---: |
+    5525 +| `first_sparse` | 1 | 4.6897 | 2.6446 | 3.7408 | 4.5815 |
+    5526 +| `first_sparse` | 3 | 4.6898 | 2.6450 | 3.7401 | 4.5813 |
+    5527 +| `first_sparse` | 5 | 4.6896 | 2.6446 | 3.7390 | 4.5809 |
+    5528 +| `random_sparse` | 1 | 4.6896 | 2.6447 | 3.7395 | 4.5774 |
+    5529 +| `random_sparse` | 3 | 4.6893 | 2.6436 | 3.7391 | 4.5790 |
+    5530 +| `random_sparse` | 5 | 4.6887 | 2.6428 | 3.7396 | 4.5790 |
+    5531 +
+    5532 +Comparison to anchors:
+    5533 +
+    5534 +| Run | Test accuracy | Notes |
+    5535 +| --- | ---: | --- |
+    5536 +| Best stage4 bridge/context anchor, seed 42 | 33.93% | All 10 columns active. |
+    5537 +| Three-seed stage4 bridge/context mean | 32.49% | Seeds 42, 99, and 7. |
+    5538 +| Best controlled context-to-bridge scale run | 30.28% | Scale 0.025. |
+    5539 +| Best static sparse support run | 30.11% | `random_sparse`, `active_nonshared=5`, 8 total active columns. |
+    5540 +
+    5541 +Interpretation:
+    5542 +
+    5543 +- Static support sparsity did not recover the stage4 bridge/context anchor. The best sparse run reached 30.11% test accuracy, 3.82 percentage points below the 33
+          .93% seed-42 anchor and 2.38 percentage points below the 32.49% three-seed anchor mean.
+    5544 +- Static support sparsity did not strengthen the context-plus-bridge route. `outer_shell_context_plus_column_shell_bridge` reached 17.33% only in the determinist
+          ic six-column support, below the earlier no-conditioning diagnostic value of 18.46%. It was at chance in all random-sparse runs.
+    5545 +- The random eight-column run improved through epoch 20 and produced the best sparse result, but all readout-family removals were at chance. Its useful signal wa
+          s even more dependent on the full combined readout than the anchor.
+    5546 +- The sparse runs did not collapse by shell magnitude. Hard-kernel, inner-shell, middle-shell, and outer-shell state norms stayed close to the prior stage4 value
+          s in every run.
+    5547 +- The random eight-column run made the hard kernel especially load-bearing. Removing the hard kernel dropped test accuracy from 30.11% to 10.24%, while removing
+          inner shell, middle shell, or outer shell left 21.01%, 18.14%, and 18.07% respectively.
+    5548 +- Deterministic sparse supports with 6 or 8 active columns peaked early, at epochs 4 and 6. Random sparse supports selected epoch 20 in all three runs. This sugg
+          ests support composition affects training stability, but the effect is not sufficient to beat the all-active anchor.
+    5549 +
+    5550 +Conclusion:
+    5551 +
+    5552 +Do not continue static support-size sweeps as the next main path. The sparse-support idea is architecturally relevant to HiBaCaML, but this static version did no
+          t improve CIFAR-10 accuracy or route interpretability. It mostly reduced capacity while leaving the same full-readout dependency.
+    5553 +
+    5554 +Recommended next step:
+    5555 +
+    5556 +Move to shell consolidation or shell promotion inside each active column, starting from the all-active stage4 bridge/context anchor rather than from the sparse-s
+          upport result.
+    5557 +
+    5558 +Proposed mechanism, pending confirmation:
+    5559 +
+    5560 +- Add a small inward shell-promotion predictive objective inside `DepthSpanningColumnNode`.
+    5561 +- The promotion path should move reusable outer-shell evidence inward through learned local predictors, not through a classifier head.
+    5562 +- The first implementation should be conservative:
+    5563 +  - Predict `middle_shell` from `outer_shell` inside each column.
+    5564 +  - Predict `inner_shell` from `middle_shell` inside each column.
+    5565 +  - Keep `hard_kernel` untouched in the first pass to avoid destabilizing the strongest current class-bearing path.
+    5566 +  - Weight the promotion energy very lightly, such as `0.0001` or `0.00025`.
+    5567 +  - Keep the main graph at the stage4 bridge/context anchor: all 10 columns active, `outer_shell_context=on`, `column_shell_bridge=on`, no shell readout, no bypa
+          ss, no teacher heads, and no context-to-bridge edge.
+    5568 +- The diagnostic should compare no promotion against one or two light promotion weights on seed 42 before any three-seed replicate.
+    5569 +
+    5570 +Reasoning:
+    5571 +
+    5572 +- The static-support experiment says column count and support composition are not the immediate limiting factor.
+    5573 +- The repeated route-ablation failure says local context and bridge latents are still not independently useful.
+    5574 +- The shell-lesion pattern says shell identity matters, but the model often depends on the full classifier to combine shell evidence.
+    5575 +- A local inward promotion objective is closer to the HiBaCaML consolidation idea than more readout edges, because it gives shell-to-shell structure a learning s
+          ignal inside each column without adding another class-label head.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now has the two sweep results and the recommendation. I’m doing the final whitespace and status check before I summarize.
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10 [ahead 1]
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +18 lines (ctrl + t to view transcript)
+    ?? results/codex_support_sparsity_10col3shared_first_sparse_seeds42_active1_3_5_rogdora43_20260715_060041.log
+    ?? results/codex_support_sparsity_10col3shared_random_sparse_seeds42_active1_3_5_rogdora43_20260715_184731.log
+
+• Explored
+  └ Search 2026-07-16 Static Support-Sparsity Sweep Results in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Updated the work log with the completed analysis: columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:5462. git diff
+  --check passed.
+
+  I interpreted the second run from the logs as the COLUMN_MODE=random_sparse variant. Results:
+
+   Mode             Active non-shared    Total active columns      Test
+  ━━━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━  ━━━━━━━━
+   first_sparse                     1                       4    24.41%
+  ───────────────  ───────────────────  ──────────────────────  ────────
+   first_sparse                     3                       6    26.97%
+  ───────────────  ───────────────────  ──────────────────────  ────────
+   first_sparse                     5                       8    27.50%
+  ───────────────  ───────────────────  ──────────────────────  ────────
+   random_sparse                    1                       4    26.58%
+  ───────────────  ───────────────────  ──────────────────────  ────────
+   random_sparse                    3                       6    26.82%
+  ───────────────  ───────────────────  ──────────────────────  ────────
+   random_sparse                    5                       8    30.11%
+
+  The best sparse run was random 8-column support at 30.11%, still below the seed-42 all-active anchor at 33.93% and the three-seed all-active mean at 32.49%. Shell norms
+  stayed stable, so this was not a magnitude collapse. The route ablations also did not improve: outer_shell_context_plus_column_shell_bridge was at chance in all random-
+  sparse runs and peaked at only 17.33% in deterministic 6-column support.
+
+  My recommendation is to stop static support-size sweeps for now and move to shell consolidation/promotion inside each column, starting from the all-active stage4 bridge/
+  context anchor. I’d implement a light inward predictive objective, such as outer_shell -> middle_shell and middle_shell -> inner_shell, leaving hard_kernel untouched
+  initially and using a very small weight. I’ll wait for your confirmation before making code changes.
+
+─ Worked for 4m 02s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ 
+› Explain this codebase
