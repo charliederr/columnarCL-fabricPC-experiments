@@ -1011,3 +1011,50 @@
  
  
 › Explain this codebase
+
+
+
+
+
+
+
+  The best sparse run was random 8-column support at 30.11%, still below the seed-42 all-active anchor at 33.93% and the three-seed all-active mean at 32.49%. Shell norms
+  stayed stable, so this was not a magnitude collapse. The route ablations also did not improve: outer_shell_context_plus_column_shell_bridge was at chance in all random-
+  sparse runs and peaked at only 17.33% in deterministic 6-column support.
+
+  My recommendation is to stop static support-size sweeps for now and move to shell consolidation/promotion inside each column, starting from the all-active stage4 bridge/
+  context anchor. I’d implement a light inward predictive objective, such as outer_shell -> middle_shell and middle_shell -> inner_shell, leaving hard_kernel untouched
+  initially and using a very small weight. I’ll wait for your confirmation before making code changes.
+
+─ Worked for 4m 02s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Just because it's not quite as good as our previous best results does not mean we should abandon anything.  Given this feedback from me, do you have an alternate
+  suggestion as to what to try next, or do you maintain that your plan still makes the most sense for our next experimental setup and run?
+
+
+• I agree with the correction: “not best” is not the same as “unpromising.” I’ll separate “do not keep sweeping blindly” from “keep the support mechanism alive” and give
+  you a revised next-step recommendation.
+
+• I’d revise the next step. Your feedback is right: the sparse-support result is not good enough to declare success, but it is too informative to drop.
+
+  My updated recommendation is:
+
+  1. Stay on support sparsity for one more focused experiment.
+  2. Do not repeat the whole sweep.
+  3. Fill the missing density point and current-code control: random sparse with active_nonshared=6 and 7.
+
+  Why: random sparse improved with more active columns: 26.58% at 4 active columns, 26.82% at 6, 30.11% at 8. We did not test 9 active columns. active_nonshared=7 gives
+  all 10 columns active, so it acts as a current-code control against the old 33.93% anchor.
+
+  Run:
+
+  COLUMN_MODE=random_sparse ACTIVE_NONSHARED_VALUES="6 7" bash scripts/run_codex_support_sparsity_10col3shared_sweep.sh
+
+  If active_nonshared=6 approaches or beats the prior anchor, support composition becomes a real lead. If active_nonshared=7 underperforms the old anchor, we should
+  investigate reproducibility or code-state drift before drawing architectural conclusions. If both stay below the anchor, then I’d return to the shell-promotion plan.
+ 
+ 
+› .
+ 
+  gpt-5.5 xhigh · ~/repos/fpc
