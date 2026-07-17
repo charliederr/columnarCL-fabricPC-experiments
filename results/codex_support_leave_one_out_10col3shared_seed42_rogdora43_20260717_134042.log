@@ -1,0 +1,93 @@
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 38e08fdbe0ab9ae2ab315bda1294e9149b5cad22
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+?? results/codex_dspan_10c_3s_7a_cmall_sm1111011111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_082358.log
+?? results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_062131.log
+?? results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_062131.log
+?? results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_134042.log
+seed: 42
+lr: 0.005
+num_epochs: 20
+diagnose_mode: nodiag
+post_training_diagnostics: core
+num_columns: 10
+num_shared: 3
+active_nonshared: 7
+column_mode: all_active
+column_grid: stage4
+embed_dim: 64
+microcolumn_dim: 32
+column_gaussian_energy_mode: sum
+column_gaussian_precision: 1.0
+column_gaussian_reference_sites: 16
+combiner: shell_attention
+outer_shell_context: on
+column_shell_bridge: on
+column_shell_readout: off
+outer_shell_context_to_bridge: off
+outer_shell_context_bridge_scale: 0.0
+shell_lr_multipliers: 1,1.5,2,3
+readout_mode: nobypass
+column_teacher_weight: 0.0
+shell_teacher_weights: 0,0,0,0
+column_shell_teacher_weights: 0,0,0,0
+outer_shell_context_teacher_weight: 0.0
+outer_shell_context_evidence: off
+outer_shell_context_evidence_teacher_weight: 0.0
+outer_shell_context_shell_prediction_weight: 0.0
+mask_specs: all:1,1,1,1,1,1,1,1,1,1 drop_col03:1,1,1,0,1,1,1,1,1,1 drop_col04:1,1,1,1,0,1,1,1,1,1 drop_col05:1,1,1,1,1,0,1,1,1,1 drop_col06:1,1,1,1,1,1,0,1,1,1 drop_col07:1,1,1,1,1,1,1,0,1,1 drop_col08:1,1,1,1,1,1,1,1,0,1 drop_col09:1,1,1,1,1,1,1,1,1,0
+started_at: 2026-07-17 13:40:42 EDT
+
+======================================================================
+Starting support_mask_label=all support_mask=1,1,1,1,1,1,1,1,1,1 at 2026-07-17 13:40:42 EDT
+======================================================================
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 38e08fdbe0ab9ae2ab315bda1294e9149b5cad22
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+?? results/codex_dspan_10c_3s_7a_cmall_sm1111011111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_082358.log
+?? results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_062131.log
+?? results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_134042.log
+?? results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_062131.log
+?? results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_134042.log
+python: /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+seed: 42
+num_columns: 10
+num_shared: 3
+active_nonshared: 7
+column_mode: all_active
+support_mask: 1,1,1,1,1,1,1,1,1,1
+lr: 0.005
+column_grid: stage4
+embed_dim: 64
+microcolumn_dim: 32
+column_gaussian_energy_mode: sum
+column_gaussian_precision: 1.0
+column_gaussian_reference_sites: 16
+shell_lr_multipliers: 1,1.5,2,3
+num_epochs: 20
+diagnose: nodiag
+post_training_diagnostics: core
+column_teacher_head: enabled
+column_teacher_weight: 0.0
+shell_teacher_weights: 0,0,0,0
+column_shell_teacher_weights: 0,0,0,0
+column_shell_readout: off
+column_shell_bridge: on
+outer_shell_context: on
+outer_shell_context_to_bridge: off
+outer_shell_context_bridge_scale: 0.0
+outer_shell_context_teacher_weight: 0.0
+outer_shell_context_shell_prediction_weight: 0.0
+outer_shell_context_evidence: off
+outer_shell_context_evidence_teacher_weight: 0.0
+combiner: shell_attention
+shell_evidence_cascade: on
+shell_evidence_cascade_scale: 0.05,0.05,0.05
+shell_inhibition_strengths: 0,0.35,0.22,0.10
+readout_mode: nobypass
+[CudaDevice(id=0)]
+gpu

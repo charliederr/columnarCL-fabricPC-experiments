@@ -5926,3 +5926,82 @@ git diff --check
 Result:
 
 - Passed.
+
+## 2026-07-17 Two-Mask Support Audit Recovery Result
+
+Recorded on 2026-07-17 13:35 EDT on `rogdora43`.
+
+Run inspected:
+
+- Master log: `results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_062131.log`.
+- All-column child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_062131.log`.
+- `drop_col04` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111011111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_082358.log`.
+- Commit recorded by the master log: `38e08fdbe0ab9ae2ab315bda1294e9149b5cad22`.
+
+Configuration:
+
+- Seed 42, learning rate 0.005, 20 epochs.
+- 10 columns, 3 shared columns, 7 active non-shared columns, `column_mode=all_active`.
+- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, and `microcolumn_dim=32`.
+- `outer_shell_context=on`, `column_shell_bridge=on`, `column_shell_readout=off`, `outer_shell_context_to_bridge=off`, and no backbone bypass.
+- `shell_lr_multipliers=1,1.5,2,3`, where the four values apply to `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell`.
+- `diagnose_mode=nodiag`.
+- `post_training_diagnostics=core`.
+
+Result:
+
+| Mask label | `support_mask` | Best validation accuracy | Best validation epoch | Test accuracy |
+| --- | --- | ---: | ---: | ---: |
+| `all` | `1,1,1,1,1,1,1,1,1,1` | 33.66% | 18 | 33.40% |
+| `drop_col04` | `1,1,1,1,0,1,1,1,1,1` | 33.92% | 18 | 33.41% |
+
+Validation trajectory:
+
+| Epoch | `all` validation accuracy | `drop_col04` validation accuracy |
+| ---: | ---: | ---: |
+| 1 | 11.34% | 11.14% |
+| 2 | 21.76% | 21.30% |
+| 3 | 20.30% | 22.16% |
+| 4 | 24.56% | 19.74% |
+| 5 | 25.88% | 25.84% |
+| 6 | 24.12% | 24.70% |
+| 7 | 25.88% | 24.66% |
+| 8 | 27.14% | 27.90% |
+| 9 | 30.18% | 22.74% |
+| 10 | 23.86% | 28.16% |
+| 11 | 22.70% | 23.36% |
+| 12 | 27.18% | 27.32% |
+| 13 | 25.80% | 28.48% |
+| 14 | 28.06% | 26.98% |
+| 15 | 26.82% | 27.18% |
+| 16 | 29.22% | 28.50% |
+| 17 | 29.14% | 30.12% |
+| 18 | 33.66% | 33.92% |
+| 19 | 30.80% | 31.76% |
+| 20 | 31.38% | 31.90% |
+
+Infrastructure conclusion:
+
+- The durable core metric path works for this recovery run.
+- Both child logs printed `Results Summary`, `Test Accuracy`, `Best Val Accuracy`, and `Best Val Epoch`.
+- The master log reached `completed_at`.
+- This fixes the immediate measurement failure from the prior support-mask audit.
+
+Model interpretation:
+
+- Dropping column 4 did not materially change test accuracy in seed 42.
+- The all-column and `drop_col04` results differ by 0.01 percentage points on test accuracy.
+- The best validation score is slightly higher for `drop_col04`, but the difference is small enough that it should be treated as support neutrality until the remaining leave-one-out masks are tested.
+- The two completed masks are slightly above the previous 10-column random-support current-code control of 32.47% test accuracy, but this comparison is not definitive because the recovery run used the all-column support construction and only one seed.
+
+Recommended next step:
+
+- Run the full default leave-one-out support audit now that core metrics survive.
+- Keep `DIAGNOSE_MODE=nodiag` and `POST_TRAINING_DIAGNOSTICS=core` for this audit.
+- After the full audit identifies any promising or harmful masks, run full diagnostics only for the all-column control and the most informative leave-one-out mask.
+
+Run command:
+
+```bash
+bash scripts/run_codex_support_leave_one_out_10col3shared.sh
+```
