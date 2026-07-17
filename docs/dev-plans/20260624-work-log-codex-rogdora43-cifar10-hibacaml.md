@@ -5573,3 +5573,109 @@ Reasoning:
 - The repeated route-ablation failure says local context and bridge latents are still not independently useful.
 - The shell-lesion pattern says shell identity matters, but the model often depends on the full classifier to combine shell evidence.
 - A local inward promotion objective is closer to the HiBaCaML consolidation idea than more readout edges, because it gives shell-to-shell structure a learning signal inside each column without adding another class-label head.
+
+## 2026-07-16 Random Support Density Follow-Up Results
+
+Recorded on 2026-07-16 20:32 EDT on `rogdora43`.
+
+This section supersedes the immediate next-step recommendation from the previous static support section. The user correctly pointed out that a support branch should not be dropped merely because it did not beat the previous best result. The follow-up run fills the high-density random-support cases and provides a current-code all-column control.
+
+Completed logs:
+
+- Master log: `results/codex_support_sparsity_10col3shared_random_sparse_seeds42_active6_7_rogdora43_20260716_091144.log`.
+- `active_nonshared=6` child log: `results/codex_dspan_10c_3s_6a_cmrandom_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260716_091144.log`.
+- `active_nonshared=7` child log: `results/codex_dspan_10c_3s_7a_cmrandom_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260716_135817.log`.
+
+Configuration:
+
+- Seed 42.
+- `column_mode=random_sparse`.
+- `active_nonshared=6` means three shared columns plus six of the seven non-shared columns, for nine total active columns.
+- `active_nonshared=7` means three shared columns plus all seven non-shared columns, for ten total active columns. Its support mask is therefore the same as `all_active`, even though the logged mode is `random_sparse`.
+- Both runs used the stage4 bridge/context branch: 10 total columns, 3 shared columns, `shell_attention`, `outer_shell_context=on`, `column_shell_bridge=on`, `column_shell_readout=off`, no bypass path, no teacher heads, no context-to-bridge edge, and `shell_lr_multipliers=1,1.5,2,3`.
+
+Primary results:
+
+| `active_nonshared` | Active columns | Best validation accuracy | Best validation epoch | Test accuracy | Validation trajectory |
+| ---: | --- | ---: | ---: | ---: | --- |
+| 6 | `[0, 1, 2, 3, 5, 6, 7, 8, 9]` | 31.56% | 20 | 30.48% | Improved through epoch 20. |
+| 7 | `[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]` | 32.98% | 20 | 32.47% | Improved through epoch 20. |
+
+Readout-family results on test:
+
+| `active_nonshared` | Combined | `combined_without_column_pool` | `outer_shell_context_plus_column_shell_bridge` | `column_pool_plus_shell_bridge` | `combined_without_column_shell_bridge` | `combined_without_outer_shell_context` |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 6 | 30.48% | 16.06% | 16.06% | 10.00% | 10.00% | 10.00% |
+| 7 | 32.47% | 18.64% | 18.64% | 10.00% | 10.00% | 10.00% |
+
+Shell lesion results on test:
+
+| `active_nonshared` | Combined | Without hard kernel | Without inner shell | Without middle shell | Without outer shell |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 6 | 30.48% | 19.10% | 22.98% | 16.53% | 14.45% |
+| 7 | 32.47% | 21.09% | 24.31% | 21.02% | 17.95% |
+
+Shell state norms after training:
+
+| `active_nonshared` | Hard-kernel mean L2 | Inner-shell mean L2 | Middle-shell mean L2 | Outer-shell mean L2 |
+| ---: | ---: | ---: | ---: | ---: |
+| 6 | 4.6892 | 2.6445 | 3.7389 | 4.5793 |
+| 7 | 4.6884 | 2.6430 | 3.7394 | 4.5795 |
+
+Composer attention at the selected checkpoint:
+
+| `active_nonshared` | Hard-kernel owner | Inner-shell owner | Middle-shell owner | Outer-shell owner |
+| ---: | --- | --- | --- | --- |
+| 6 | `col_01` at 0.995160 | `col_07` at 0.998983 | `col_03` at 0.999242 | `col_06` at 0.999657 |
+| 7 | `col_09` at 0.997870 | `col_00` at 0.997463 | `col_05` at 0.999196 | `col_00` at 0.999712 |
+
+Comparison to anchors:
+
+| Run | Test accuracy | Notes |
+| --- | ---: | --- |
+| Best stage4 bridge/context anchor, seed 42 | 33.93% | Earlier all-active high result. |
+| Three-seed stage4 bridge/context mean | 32.49% | Seeds 42, 99, and 7 from the earlier bridge/context replicate. |
+| Random sparse, `active_nonshared=5` | 30.11% | Best result from the previous sparse sweep. |
+| Random sparse, `active_nonshared=6` | 30.48% | Nine total active columns. |
+| Random sparse, `active_nonshared=7` | 32.47% | Ten total active columns; current-code all-column control. |
+
+Interpretation:
+
+- The support-density follow-up makes the support branch more important, not less. Accuracy increased as support density approached all columns: 30.11% at eight active columns, 30.48% at nine active columns, and 32.47% at ten active columns.
+- The ten-column current-code control did not reproduce the old 33.93% seed-42 high, but it essentially matched the earlier three-seed mean of 32.49%. This reduces concern that recent code changes broke the branch.
+- `outer_shell_context_plus_column_shell_bridge` rose to 18.64% in the ten-column run. That slightly exceeds the previous no-conditioning diagnostic value of 18.46%.
+- The route remains a full-readout interaction. `column_pool_plus_shell_bridge`, `combined_without_column_shell_bridge`, and `combined_without_outer_shell_context` stayed at chance in both runs.
+- The shell norms again show no magnitude collapse.
+- The composer continues to choose sparse shell owners even when all columns are active. In the ten-column run, `col_00` owned both inner shell and outer shell, `col_05` owned middle shell, and `col_09` owned hard kernel.
+
+Conclusion:
+
+Support should remain an active research branch. The result does not show that smaller static supports are better than all columns, but it does show that support composition and support density shape training stability and route use. The correct next support step is not another scalar support-size sweep. It is an auditable support-mask experiment that can test specific column subsets without coupling the support mask to the training seed.
+
+Recommended next step:
+
+Add explicit support-mask control, then run a leave-one-non-shared-column-out support audit from the stage4 bridge/context branch.
+
+Proposed mechanism, pending confirmation:
+
+- Add a `--support_mask` CLI argument to `scripts/train_cifar10_depth_spanning.py`.
+- `support_mask` should be a comma-separated list of 10 binary values, where value 1 activates the corresponding column and value 0 excludes it from the support mask.
+- When `--support_mask` is provided, it should override `--column_mode`, `--num_shared`, and `--active_nonshared` for mask construction.
+- Update `scripts/run_codex_cifar10_depth_spanning.sh` with a trailing positional argument for `support_mask`.
+- Add a runner for a leave-one-non-shared-column-out audit:
+  - all columns active: `1,1,1,1,1,1,1,1,1,1`;
+  - drop column 3: `1,1,1,0,1,1,1,1,1,1`;
+  - drop column 4: `1,1,1,1,0,1,1,1,1,1`;
+  - drop column 5: `1,1,1,1,1,0,1,1,1,1`;
+  - drop column 6: `1,1,1,1,1,1,0,1,1,1`;
+  - drop column 7: `1,1,1,1,1,1,1,0,1,1`;
+  - drop column 8: `1,1,1,1,1,1,1,1,0,1`;
+  - drop column 9: `1,1,1,1,1,1,1,1,1,0`.
+- Keep the graph otherwise unchanged: stage4 column grid, `shell_attention`, `outer_shell_context=on`, `column_shell_bridge=on`, no shell readout, no bypass, no teacher heads, no context-to-bridge edge, and `shell_lr_multipliers=1,1.5,2,3`.
+
+Reasoning:
+
+- `active_nonshared=6` already tested one leave-one-out mask by excluding column 4. That run reached 30.48%, so column 4 appears useful in that specific comparison.
+- The ten-column run's composer used columns 0, 5, and 9 strongly. A leave-one-out audit can test whether the unused columns are neutral, harmful, or necessary through indirect predictive-coding routes.
+- Explicit masks are closer to a support controller than the current `first_sparse` and `random_sparse` modes, because the experiment can test named supports and later compare them with learned or audited support proposals.
+- If one leave-one-out support beats the all-column control, support auditing becomes the next implementation target. If all leave-one-out supports underperform, then shell promotion remains the next best mechanism.
