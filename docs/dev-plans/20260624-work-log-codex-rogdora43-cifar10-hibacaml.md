@@ -5679,3 +5679,250 @@ Reasoning:
 - The ten-column run's composer used columns 0, 5, and 9 strongly. A leave-one-out audit can test whether the unused columns are neutral, harmful, or necessary through indirect predictive-coding routes.
 - Explicit masks are closer to a support controller than the current `first_sparse` and `random_sparse` modes, because the experiment can test named supports and later compare them with learned or audited support proposals.
 - If one leave-one-out support beats the all-column control, support auditing becomes the next implementation target. If all leave-one-out supports underperform, then shell promotion remains the next best mechanism.
+
+## 2026-07-16 Explicit Support-Mask Audit Implementation
+
+Recorded on 2026-07-16 21:04 EDT on `rogdora43`.
+
+Implemented after confirmation:
+
+- Added `parse_support_mask(value, num_columns)` to `scripts/train_cifar10_depth_spanning.py`.
+- Added `--support_mask` to `scripts/train_cifar10_depth_spanning.py`.
+- `support_mask` is a comma-separated list with one binary value per column.
+- Value 1 activates the column, and value 0 excludes it from the support mask.
+- When `--support_mask` is provided, it overrides `--column_mode`, `--num_shared`, and `--active_nonshared` for support-mask construction.
+- The explicit support mask flows through the existing shared `build_support_mask()` path.
+- The same mask is used by the combiner, active-column per-shell pools, per-column shell bridges, per-column outer-shell context latents, and active-column diagnostics.
+- Added a trailing positional argument 30 to `scripts/run_codex_cifar10_depth_spanning.sh` for `support_mask`.
+- The wrapper now records `support_mask` in the log header and includes a compact support-mask label in new child log filenames.
+- Added `scripts/run_codex_support_leave_one_out_10col3shared.sh`.
+
+Prepared audit:
+
+- The audit keeps the stage4 bridge/context branch unchanged except for the support mask.
+- Shared configuration: seed 42, 10 total columns, 3 shared columns, `shell_attention`, `outer_shell_context=on`, `column_shell_bridge=on`, `column_shell_readout=off`, no bypass path, no teacher heads, no context-to-bridge edge, `shell_lr_multipliers=1,1.5,2,3`, learning rate 0.005, and 20 epochs.
+- The default audit runs these masks:
+
+| Label | `support_mask` | Meaning |
+| --- | --- | --- |
+| `all` | `1,1,1,1,1,1,1,1,1,1` | Current-code all-column control. |
+| `drop_col03` | `1,1,1,0,1,1,1,1,1,1` | Excludes non-shared column 3. |
+| `drop_col04` | `1,1,1,1,0,1,1,1,1,1` | Excludes non-shared column 4. |
+| `drop_col05` | `1,1,1,1,1,0,1,1,1,1` | Excludes non-shared column 5. |
+| `drop_col06` | `1,1,1,1,1,1,0,1,1,1` | Excludes non-shared column 6. |
+| `drop_col07` | `1,1,1,1,1,1,1,0,1,1` | Excludes non-shared column 7. |
+| `drop_col08` | `1,1,1,1,1,1,1,1,0,1` | Excludes non-shared column 8. |
+| `drop_col09` | `1,1,1,1,1,1,1,1,1,0` | Excludes non-shared column 9. |
+
+Run command:
+
+```bash
+bash scripts/run_codex_support_leave_one_out_10col3shared.sh
+```
+
+Optional targeted subset syntax:
+
+```bash
+bash scripts/run_codex_support_leave_one_out_10col3shared.sh all:1,1,1,1,1,1,1,1,1,1 drop_col04:1,1,1,1,0,1,1,1,1,1
+```
+
+Expected outputs:
+
+- Master log: `results/codex_support_leave_one_out_10col3shared_seed42_<host>_<timestamp>.log`.
+- One child training log per support mask from `scripts/run_codex_cifar10_depth_spanning.sh`.
+
+Interpretation plan:
+
+- Compare every leave-one-out mask against the current-code all-column control from the same script.
+- Also compare against the previous random `active_nonshared=7` current-code control: 32.47% test accuracy.
+- Track `outer_shell_context_plus_column_shell_bridge`; the previous all-column current-code run reached 18.64%.
+- Track shell lesions. In the previous all-column current-code run, removing hard kernel, inner shell, middle shell, and outer shell left 21.09%, 24.31%, 21.02%, and 17.95%.
+- If one leave-one-out mask beats the all-column control, the next implementation should move toward an auditable support controller.
+- If all leave-one-out masks underperform the all-column control, the support branch still remains useful as a diagnostic, but the next implementation should shift to shell promotion inside columns.
+
+Verification:
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+bash -n scripts/run_codex_support_leave_one_out_10col3shared.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+```
+
+Result:
+
+- Passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --help | rg -n "support_mask|column_mode"
+```
+
+Result:
+
+- `--support_mask` appears in the CLI help beside `--column_mode`.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+```
+
+Result:
+
+- 61 passed in 13.63 seconds.
+
+```bash
+git diff --check
+```
+
+Result:
+
+- Passed.
+
+## 2026-07-17 Explicit Support-Mask Audit Run Did Not Complete
+
+Recorded on 2026-07-17 06:06 EDT on `rogdora43`.
+
+Run inspected:
+
+- Master log: `results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260716_204115.log`.
+- Child log for the first mask: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_composer_shells_rogdora43_20260716_204115.log`.
+- Commit recorded by the master log: `333f6796874eef09e1dab5f0be0acf063b37d19d`.
+- `support_mask = 1,1,1,1,1,1,1,1,1,1`, where each value is the binary active-column indicator for one of the 10 columns.
+
+Configuration of the child run:
+
+- 10 columns, 3 shared columns, 7 active non-shared columns, `column_mode=all_active`, and explicit all-column `support_mask`.
+- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, and `microcolumn_dim=32`.
+- `outer_shell_context=on`, `column_shell_bridge=on`, `column_shell_readout=off`, `outer_shell_context_to_bridge=off`, and no backbone bypass.
+- `shell_lr_multipliers=1,1.5,2,3`, where the four values apply to `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell`.
+- `diagnose_mode=composer_shells`.
+
+Observed outcome:
+
+- The audit did not finish the all-column control and did not start the leave-one-out masks.
+- The child process reached the end of the 20-epoch training loop, with the progress bar reporting epoch 20 complete and training energy around `0.0035`.
+- The process was then killed during a GPU JIT compilation step before `Training time`, `Results Summary`, `Test Accuracy`, `Best Val Accuracy`, or `Best Val Epoch` were written.
+- No `val_acc` lines are present in either the master log or the child log.
+- The run therefore provides no usable CIFAR-10 classification metric.
+
+Conclusion:
+
+- This is an evaluation/logging infrastructure failure, not a model-quality result.
+- The explicit support-mask implementation itself was exercised far enough to build the graph with all 10 columns active: 147 nodes, 273 edges, and 3,125,444 parameters.
+- The all-column mask cannot yet be compared with the previous 10-column random-support result or with the planned leave-one-out masks.
+
+Recommended next step:
+
+- Change the shared training script so core metrics are durable before expensive diagnostics.
+- Mechanism: compute and print the selected-parameter test accuracy, best validation accuracy, and best validation epoch immediately after training and before composer lesions, readout lesions, shell lesions, teacher-head evaluations, and path ablations.
+- Add an explicit post-training diagnostic level if needed, where the main metric pass is always run and the expensive ablation suite is opt-in for long sweeps.
+- Then rerun the support-mask audit with a lighter default diagnostic setting. The first rerun should include only the all-column control and one leave-one-out mask to verify that the script writes complete metrics before committing another overnight run.
+
+## 2026-07-17 Durable Core Metrics Implementation
+
+Recorded on 2026-07-17 06:17 EDT on `rogdora43`.
+
+Implemented after confirmation:
+
+- Added `--post_training_diagnostics` to `scripts/train_cifar10_depth_spanning.py`.
+- `post_training_diagnostics = core` means the script evaluates the selected checkpoint on the test loader, prints `Results Summary`, and returns before after-training diagnostics.
+- `post_training_diagnostics = full` keeps the new early `Results Summary` and then runs the expensive composer, shell, teacher-head, readout, bridge, context, and path ablation diagnostics.
+- The selected checkpoint is `best_params` when validation evaluation has selected one; otherwise it is `final_params`.
+- The core metric path calls FabricPC `evaluate_pcn(eval_params, structure, test_loader, train_config, summary_key)`, where `eval_params` is the selected parameter tree and `summary_key` is the deterministic JAX pseudo-random key derived from the experiment seed.
+- The script now prints `Training time`, `Test Accuracy`, `Best Val Accuracy`, and `Best Val Epoch` before any post-training shell norms, composer diagnostics, or ablation evaluations can start.
+- Epoch validation lines now use `flush=True`, so `val_acc` entries are more likely to survive if a later post-training step is killed.
+- The previous full diagnostic output is now labeled `Detailed Test Diagnostics` so it is distinct from the early durable `Results Summary`.
+
+Runner changes:
+
+- Added trailing positional argument 31 to `scripts/run_codex_cifar10_depth_spanning.sh`.
+- Argument 31 is `post_training_diagnostics`, with valid values `core` and `full`.
+- Existing calls keep the default `full`.
+- The wrapper records `post_training_diagnostics` in each child log header.
+- Updated `scripts/run_codex_support_leave_one_out_10col3shared.sh` to default to `DIAGNOSE_MODE=nodiag`.
+- Updated `scripts/run_codex_support_leave_one_out_10col3shared.sh` to default to `POST_TRAINING_DIAGNOSTICS=core`.
+- The support-mask audit still accepts `DIAGNOSE_MODE` and `POST_TRAINING_DIAGNOSTICS` environment overrides for targeted full diagnostic runs.
+
+Recommended recovery run:
+
+```bash
+bash scripts/run_codex_support_leave_one_out_10col3shared.sh all:1,1,1,1,1,1,1,1,1,1 drop_col04:1,1,1,1,0,1,1,1,1,1
+```
+
+Interpretation target:
+
+- Confirm that both child logs print `Results Summary`, `Test Accuracy`, `Best Val Accuracy`, and `Best Val Epoch`.
+- Confirm that the master log reaches `completed_at`.
+- If this two-mask recovery run completes, run the full default leave-one-out audit:
+
+```bash
+bash scripts/run_codex_support_leave_one_out_10col3shared.sh
+```
+
+If a specific support mask later looks promising, run diagnostics on that mask only:
+
+```bash
+DIAGNOSE_MODE=composer_shells POST_TRAINING_DIAGNOSTICS=full bash scripts/run_codex_support_leave_one_out_10col3shared.sh all:1,1,1,1,1,1,1,1,1,1
+```
+
+Verification:
+
+```bash
+bash -n scripts/run_codex_cifar10_depth_spanning.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+bash -n scripts/run_codex_support_leave_one_out_10col3shared.sh
+```
+
+Result:
+
+- Passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+```
+
+Result:
+
+- Passed.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --help | rg -n "post_training_diagnostics|support_mask|column_mode"
+```
+
+Result:
+
+- `--post_training_diagnostics`, `--support_mask`, and `--column_mode` appear in the CLI help.
+
+```bash
+/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+```
+
+Result:
+
+- 61 passed in 13.67 seconds.
+
+```bash
+git diff --check
+```
+
+Result:
+
+- Passed.

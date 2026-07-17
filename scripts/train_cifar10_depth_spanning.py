@@ -339,6 +339,44 @@ def parse_shell_evidence_cascade_scale(value: str) -> Tuple[float, float, float]
     return scale
 
 
+def parse_support_mask(value: str | None, num_columns: int) -> Tuple[float, ...] | None:
+    """
+    Parse an optional explicit column support mask.
+
+    The mask is a comma-separated list with one binary value per column. A
+    value of 1 activates the column, and a value of 0 excludes it from the
+    column support used by the combiner and per-column auxiliary paths.
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped or stripped.lower() == "none":
+        return None
+
+    pieces = [piece.strip() for piece in stripped.split(",")]
+    if len(pieces) != num_columns:
+        raise ValueError(
+            f"--support_mask must contain {num_columns} comma-separated "
+            f"binary values, got {value!r}"
+        )
+
+    mask = []
+    for idx, piece in enumerate(pieces):
+        if piece == "":
+            raise ValueError("--support_mask cannot contain empty entries")
+        raw_value = float(piece)
+        if raw_value not in (0.0, 1.0):
+            raise ValueError(
+                "--support_mask values must be binary 0 or 1; "
+                f"column {idx} has {piece!r}"
+            )
+        mask.append(raw_value)
+
+    if sum(mask) <= 0.0:
+        raise ValueError("--support_mask must activate at least one column")
+    return tuple(mask)
+
+
 def _constant_multiplier_like(value: jax.Array, multiplier: float) -> jax.Array:
     """Return an array-shaped update multiplier with one scalar value."""
     return jnp.ones_like(value) * jnp.asarray(multiplier, dtype=value.dtype)
@@ -2185,8 +2223,13 @@ def build_support_mask(
     num_shared: int,
     active_nonshared: int,
     seed: int,
+    explicit_support_mask: str | None = None,
 ) -> Tuple[float, ...]:
     """Build column activation mask."""
+    parsed_support_mask = parse_support_mask(explicit_support_mask, num_columns)
+    if parsed_support_mask is not None:
+        return parsed_support_mask
+
     if num_shared > num_columns:
         raise ValueError("num_shared cannot exceed num_columns")
 
@@ -2452,6 +2495,7 @@ def build_depth_spanning_graph(args):
         args.num_shared,
         args.active_nonshared,
         args.seed,
+        args.support_mask,
     )
     active_column_indices = tuple(
         idx for idx, value in enumerate(support_mask) if value > 0.0
@@ -2850,6 +2894,7 @@ def train_cifar10_depth_spanning(args):
     print(f"Column mode: {args.column_mode}")
     print(f"Shared columns: {args.num_shared}")
     print(f"Active non-shared: {args.active_nonshared}")
+    print(f"Explicit support mask: {args.support_mask or 'none'}")
     print(f"Combiner: {args.combiner}")
     print(f"Column grid: {args.column_grid}")
     print(f"Embed dim: {args.embed_dim}")
@@ -3062,7 +3107,7 @@ def train_cifar10_depth_spanning(args):
             best_val_acc = val_acc
             best_val_epoch = epoch_num
             best_params = params
-        print(f"  Epoch {epoch_num}: val_acc={val_acc:.4f}")
+        print(f"  Epoch {epoch_num}: val_acc={val_acc:.4f}", flush=True)
 
         if args.diagnose_energy and diag_batch is not None:
             energy_breakdown = diagnose_energy_breakdown(
@@ -3141,6 +3186,44 @@ def train_cifar10_depth_spanning(args):
     )
     elapsed = time.time() - start_time
 
+    eval_params = best_params if best_params is not None else final_params
+    if best_params is not None:
+        print(
+            f"\nTraining time: {elapsed:.1f}s"
+            f"\nEvaluating best validation params from epoch {best_val_epoch} on test set...",
+            flush=True,
+        )
+    else:
+        print(f"\nTraining time: {elapsed:.1f}s", flush=True)
+        print("Evaluating final params on test set...", flush=True)
+
+    summary_key = jax.random.PRNGKey(args.seed + 2025)
+    core_test_metrics = evaluate_pcn(
+        eval_params,
+        structure,
+        test_loader,
+        train_config,
+        summary_key,
+    )
+    test_acc = float(core_test_metrics.get("accuracy", 0.0))
+
+    print("\n" + "=" * 70, flush=True)
+    print("Results Summary", flush=True)
+    print("=" * 70, flush=True)
+    print(f"Test Accuracy: {test_acc:.4f} ({test_acc * 100:.2f}%)", flush=True)
+    if best_params is not None:
+        print(f"Best Val Accuracy: {best_val_acc:.4f}", flush=True)
+        print(f"Best Val Epoch: {best_val_epoch}", flush=True)
+    else:
+        print("Best Val Accuracy: not evaluated", flush=True)
+        print("Best Val Epoch: not evaluated", flush=True)
+
+    if args.post_training_diagnostics == "core":
+        print("Post-training diagnostics: core metrics only", flush=True)
+        return test_acc
+
+    print("Post-training diagnostics: full", flush=True)
+
     # Energy + column-output diagnosis: after training
     if args.diagnose_energy:
         print("\n" + "-" * 70)
@@ -3174,16 +3257,6 @@ def train_cifar10_depth_spanning(args):
                 diag_key,
             ),
         )
-
-    eval_params = best_params if best_params is not None else final_params
-    if best_params is not None:
-        print(
-            f"\nTraining time: {elapsed:.1f}s"
-            f"\nEvaluating best validation params from epoch {best_val_epoch} on test set..."
-        )
-    else:
-        print(f"\nTraining time: {elapsed:.1f}s")
-        print("Evaluating final params on test set...")
 
     ablation_key = jax.random.PRNGKey(args.seed + 2026)
     if args.diagnose_composer:
@@ -3458,16 +3531,10 @@ def train_cifar10_depth_spanning(args):
         train_config,
         ablation_key,
     )
-    test_metrics = test_ablation_metrics["combined"]
-    test_acc = float(test_metrics.get("accuracy", 0.0))
 
     print("\n" + "=" * 70)
-    print("Results Summary")
+    print("Detailed Test Diagnostics")
     print("=" * 70)
-    print(f"Test Accuracy: {test_acc:.4f} ({test_acc * 100:.2f}%)")
-    if best_params is not None:
-        print(f"Best Val Accuracy: {best_val_acc:.4f}")
-        print(f"Best Val Epoch: {best_val_epoch}")
     print_ablation_results("Test Readout Ablations", test_ablation_metrics)
     print_ablation_results(
         "Test Column Teacher Head",
@@ -3551,6 +3618,15 @@ def parse_args():
         "--column_mode",
         choices=["all_active", "first_sparse", "random_sparse"],
         default="all_active",
+    )
+    parser.add_argument(
+        "--support_mask",
+        default=None,
+        help=(
+            "Optional explicit comma-separated binary column support mask. "
+            "When provided, this overrides --column_mode, --num_shared, and "
+            "--active_nonshared for support-mask construction."
+        ),
     )
     parser.add_argument(
         "--combiner",
@@ -3641,6 +3717,17 @@ def parse_args():
             "For shell_attention combiner runs, log composer attention, "
             "composer projection norms, output edge norms, and validation "
             "lesions of one composer component at a time."
+        ),
+    )
+    parser.add_argument(
+        "--post_training_diagnostics",
+        choices=["core", "full"],
+        default="full",
+        help=(
+            "'core' prints the selected-checkpoint test accuracy and validation "
+            "summary before returning. 'full' keeps the core summary and then "
+            "runs the expensive composer, shell, teacher-head, and path "
+            "ablation diagnostics."
         ),
     )
     parser.add_argument(

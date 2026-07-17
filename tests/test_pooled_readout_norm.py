@@ -64,6 +64,7 @@ from scripts.train_cifar10_depth_spanning import (
     parse_shell_teacher_weights,
     parse_shell_evidence_cascade_scale,
     parse_shell_inhibition_strengths,
+    parse_support_mask,
     shell_context_prediction_node_name,
     shell_slice_node_name,
     shell_teacher_node_name,
@@ -453,6 +454,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         num_shared=1,
         active_nonshared=1,
         column_mode="all_active",
+        support_mask=None,
         combiner="sum",
         column_grid="stage4",
         embed_dim=16,
@@ -518,6 +520,21 @@ def test_parse_shell_lr_multipliers_maps_values_in_shell_order() -> None:
         parse_shell_lr_multipliers("1,2")
     with pytest.raises(ValueError):
         parse_shell_lr_multipliers("1,-2,3,4")
+
+
+def test_parse_support_mask_accepts_binary_column_mask() -> None:
+    """Explicit support masks are parsed as one binary value per column."""
+    assert parse_support_mask("1,0,1,0", 4) == (1.0, 0.0, 1.0, 0.0)
+    assert parse_support_mask(None, 4) is None
+    assert parse_support_mask("", 4) is None
+    assert parse_support_mask("none", 4) is None
+
+    with pytest.raises(ValueError, match="must contain 4"):
+        parse_support_mask("1,0,1", 4)
+    with pytest.raises(ValueError, match="binary"):
+        parse_support_mask("1,0.5,1,0", 4)
+    with pytest.raises(ValueError, match="at least one"):
+        parse_support_mask("0,0,0,0", 4)
 
 
 def test_parse_shell_inhibition_strengths_maps_values_in_shell_order() -> None:
@@ -1018,6 +1035,29 @@ def test_per_column_shell_teacher_heads_skip_inactive_columns() -> None:
     assert column_shell_teacher_node_name(0, "hard_kernel") in structure.nodes
     assert column_shell_teacher_node_name(1, "hard_kernel") in structure.nodes
     assert column_shell_teacher_node_name(2, "hard_kernel") not in structure.nodes
+
+
+def test_depth_spanning_graph_explicit_support_mask_overrides_column_mode() -> None:
+    """A named support mask controls active per-column graph paths."""
+    args = _tiny_depth_spanning_args(
+        num_columns=3,
+        num_shared=1,
+        active_nonshared=1,
+        column_mode="first_sparse",
+        support_mask="1,0,1",
+        column_teacher_weight=0.0,
+        column_shell_bridge=True,
+        outer_shell_context=True,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+
+    assert support_mask == (1.0, 0.0, 1.0)
+    assert column_shell_bridge_node_name(0) in structure.nodes
+    assert column_shell_bridge_node_name(1) not in structure.nodes
+    assert column_shell_bridge_node_name(2) in structure.nodes
+    assert outer_shell_context_node_name(0) in structure.nodes
+    assert outer_shell_context_node_name(1) not in structure.nodes
+    assert outer_shell_context_node_name(2) in structure.nodes
 
 
 def test_depth_spanning_graph_adds_per_column_shell_readout_edges() -> None:
