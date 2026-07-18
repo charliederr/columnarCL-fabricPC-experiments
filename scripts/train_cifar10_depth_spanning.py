@@ -35,8 +35,9 @@ Architecture::
                          └──── optional shell-local predictors
                                            │
                                            └──── predict pooled shell states
-      optional inward shell-promotion predictors:
+      optional selected inward shell-promotion predictors:
           outer_shell ─► middle_shell ─► inner_shell ─► hard_kernel
+          active adjacent pairs are selected by --inward_shell_promotion_pairs
                                                          │
                                                          ▼
                                                 shell-aware combiner
@@ -130,6 +131,18 @@ INWARD_SHELL_PROMOTION_PAIRS = (
     ("middle_shell", "inner_shell"),
     ("inner_shell", "hard_kernel"),
 )
+INWARD_SHELL_PROMOTION_PAIR_LABELS = {
+    "outer_to_middle": ("outer_shell", "middle_shell"),
+    "middle_to_inner": ("middle_shell", "inner_shell"),
+    "inner_to_hard": ("inner_shell", "hard_kernel"),
+}
+INWARD_SHELL_PROMOTION_PAIR_ALIASES = {
+    **INWARD_SHELL_PROMOTION_PAIR_LABELS,
+    "outer_shell_to_middle_shell": ("outer_shell", "middle_shell"),
+    "middle_shell_to_inner_shell": ("middle_shell", "inner_shell"),
+    "inner_shell_to_hard_kernel": ("inner_shell", "hard_kernel"),
+}
+INWARD_SHELL_PROMOTION_DEFAULT_PAIRS = "all"
 SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 COLUMN_SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 SHELL_LR_DEFAULT_MULTIPLIERS = "1,1,1,1"
@@ -383,6 +396,71 @@ def parse_shell_evidence_cascade_scale(value: str) -> Tuple[float, float, float]
     if any(value < 0.0 for value in scale):
         raise ValueError("--shell_evidence_cascade_scale entries must be >= 0")
     return scale
+
+
+def parse_inward_shell_promotion_pairs(
+    value: str,
+) -> Tuple[Tuple[str, str], ...]:
+    """
+    Parse selected adjacent inward shell-promotion pairs.
+
+    The accepted pair labels are `outer_to_middle`, `middle_to_inner`, and
+    `inner_to_hard`. The value `all` selects all three pairs, and `none`
+    selects no pairs.
+    """
+    stripped = value.strip().lower()
+    if stripped == "" or stripped == "all":
+        return INWARD_SHELL_PROMOTION_PAIRS
+    if stripped in ("none", "off"):
+        return ()
+
+    selected_pairs: List[Tuple[str, str]] = []
+    seen_pairs = set()
+    for piece in stripped.split(","):
+        label = piece.strip()
+        if label == "":
+            raise ValueError("--inward_shell_promotion_pairs cannot contain empty entries")
+        pair = INWARD_SHELL_PROMOTION_PAIR_ALIASES.get(label)
+        if pair is None:
+            valid_labels = ", ".join(INWARD_SHELL_PROMOTION_PAIR_LABELS)
+            raise ValueError(
+                "--inward_shell_promotion_pairs must be 'all', 'none', "
+                f"or comma-separated labels from {valid_labels}; got {value!r}"
+            )
+        if pair in seen_pairs:
+            raise ValueError(
+                f"--inward_shell_promotion_pairs contains duplicate pair {label!r}"
+            )
+        selected_pairs.append(pair)
+        seen_pairs.add(pair)
+    return tuple(selected_pairs)
+
+
+def format_inward_shell_promotion_pairs(
+    pairs: Tuple[Tuple[str, str], ...],
+) -> str:
+    """Return compact labels for selected inward shell-promotion pairs."""
+    if not pairs:
+        return "none"
+    labels_by_pair = {
+        pair: label for label, pair in INWARD_SHELL_PROMOTION_PAIR_LABELS.items()
+    }
+    return ",".join(labels_by_pair[pair] for pair in pairs)
+
+
+def resolve_inward_shell_promotion_pairs(args) -> Tuple[Tuple[str, str], ...]:
+    """Validate inward shell-promotion options and return active pair choices."""
+    if args.inward_shell_promotion_weight < 0.0:
+        raise ValueError("--inward_shell_promotion_weight must be >= 0")
+    selected_pairs = parse_inward_shell_promotion_pairs(
+        args.inward_shell_promotion_pairs
+    )
+    if args.inward_shell_promotion_weight > 0.0 and not selected_pairs:
+        raise ValueError(
+            "--inward_shell_promotion_pairs must select at least one pair when "
+            "--inward_shell_promotion_weight is positive"
+        )
+    return selected_pairs
 
 
 def parse_support_mask(value: str | None, num_columns: int) -> Tuple[float, ...] | None:
@@ -2374,8 +2452,7 @@ def build_depth_spanning_graph(args):
     tokenize each stage's output, and depth-spanning columns receive
     skip connections from all stages.
     """
-    if args.inward_shell_promotion_weight < 0.0:
-        raise ValueError("--inward_shell_promotion_weight must be >= 0")
+    inward_shell_promotion_pairs = resolve_inward_shell_promotion_pairs(args)
     if args.outer_shell_context_shell_prediction_weight < 0.0:
         raise ValueError("--outer_shell_context_shell_prediction_weight must be >= 0")
     if (
@@ -2590,6 +2667,11 @@ def build_depth_spanning_graph(args):
     active_column_indices = tuple(
         idx for idx, value in enumerate(support_mask) if value > 0.0
     )
+    inward_shell_promotion_shells = {
+        shell_name
+        for source_shell, target_shell in inward_shell_promotion_pairs
+        for shell_name in (source_shell, target_shell)
+    }
 
     # Combiner. The shell_attention mode preserves column and shell identity
     # inside one predictive-coding composer node before column_pool.
@@ -2690,7 +2772,10 @@ def build_depth_spanning_graph(args):
                 or args.column_shell_readout
                 or args.column_shell_bridge
                 or args.outer_shell_context
-                or args.inward_shell_promotion_weight > 0.0
+                or (
+                    args.inward_shell_promotion_weight > 0.0
+                    and shell_name in inward_shell_promotion_shells
+                )
             )
             if not needs_shell_pool:
                 continue
@@ -2776,7 +2861,7 @@ def build_depth_spanning_graph(args):
                     ])
 
         if args.inward_shell_promotion_weight > 0.0:
-            for source_shell, target_shell in INWARD_SHELL_PROMOTION_PAIRS:
+            for source_shell, target_shell in inward_shell_promotion_pairs:
                 source_pool = column_shell_pools_by_shell[source_shell]
                 target_pool = column_shell_pools_by_shell[target_shell]
                 promotion_prediction = ShellContextPredictionNode(
@@ -2963,8 +3048,7 @@ def build_depth_spanning_graph(args):
 
 
 def train_cifar10_depth_spanning(args):
-    if args.inward_shell_promotion_weight < 0.0:
-        raise ValueError("--inward_shell_promotion_weight must be >= 0")
+    inward_shell_promotion_pairs = resolve_inward_shell_promotion_pairs(args)
     if args.outer_shell_context_teacher_weight < 0.0:
         raise ValueError("--outer_shell_context_teacher_weight must be >= 0")
     if args.outer_shell_context_evidence_teacher_weight < 0.0:
@@ -3088,6 +3172,10 @@ def train_cifar10_depth_spanning(args):
         f"{args.outer_shell_context_shell_prediction_weight}"
     )
     print(f"Inward shell promotion weight: {args.inward_shell_promotion_weight}")
+    print(
+        "Inward shell promotion pairs: "
+        f"{format_inward_shell_promotion_pairs(inward_shell_promotion_pairs)}"
+    )
     print(
         "Outer shell context evidence: "
         f"{'enabled' if args.outer_shell_context_evidence else 'disabled'}"
@@ -4039,6 +4127,17 @@ def parse_args():
             "prediction pairs are outer_shell to middle_shell, middle_shell "
             "to inner_shell, and inner_shell to hard_kernel. A zero weight "
             "omits these objectives."
+        ),
+    )
+    parser.add_argument(
+        "--inward_shell_promotion_pairs",
+        type=str,
+        default=INWARD_SHELL_PROMOTION_DEFAULT_PAIRS,
+        help=(
+            "Comma-separated adjacent shell-promotion pair labels. Use 'all' "
+            "for outer_to_middle, middle_to_inner, and inner_to_hard; use "
+            "'none' to select no pairs; or pass labels such as "
+            "'outer_to_middle,middle_to_inner' to leave hard_kernel untouched."
         ),
     )
     parser.add_argument(

@@ -12,8 +12,10 @@ num_epochs="${NUM_EPOCHS:-20}"
 diagnose_mode="${DIAGNOSE_MODE:-nodiag}"
 post_training_diagnostics="${POST_TRAINING_DIAGNOSTICS:-core}"
 weights="${WEIGHTS:-0.0 0.00025 0.0005 0.001}"
+promotion_pairs="${PROMOTION_PAIRS:-all}"
+promotion_pairs_label="${promotion_pairs//,/_}"
 support_mask="${SUPPORT_MASK:-1,1,1,1,1,1,1,1,1,1}"
-master_log="${repo_root}/results/codex_inward_shell_promotion_10col3shared_seed${seed}_${hostname_value}_${timestamp}.log"
+master_log="${repo_root}/results/codex_inward_shell_promotion_10col3shared_pairs${promotion_pairs_label}_seed${seed}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -29,6 +31,7 @@ mkdir -p results
     echo "diagnose_mode: $diagnose_mode"
     echo "post_training_diagnostics: $post_training_diagnostics"
     echo "weights: $weights"
+    echo "promotion_pairs: $promotion_pairs"
     echo "support_mask: $support_mask"
     echo "num_columns: 10"
     echo "num_shared: 3"
@@ -95,7 +98,8 @@ mkdir -p results
             "all_active" \
             "$support_mask" \
             "$post_training_diagnostics" \
-            "$weight"
+            "$weight" \
+            "$promotion_pairs"
 
         echo "Finished inward_shell_promotion_weight=${weight} at $(date '+%Y-%m-%d %H:%M:%S %Z')"
     done

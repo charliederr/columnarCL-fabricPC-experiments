@@ -35,6 +35,7 @@ column_mode="${29:-all_active}"
 support_mask="${30:-}"
 post_training_diagnostics="${31:-full}"
 inward_shell_promotion_weight="${32:-0.0}"
+inward_shell_promotion_pairs="${33:-all}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
@@ -311,6 +312,7 @@ mkdir -p results
     echo "outer_shell_context_teacher_weight: $outer_shell_context_teacher_weight"
     echo "outer_shell_context_shell_prediction_weight: $outer_shell_context_shell_prediction_weight"
     echo "inward_shell_promotion_weight: $inward_shell_promotion_weight"
+    echo "inward_shell_promotion_pairs: $inward_shell_promotion_pairs"
     echo "outer_shell_context_evidence: $outer_shell_context_evidence_label"
     echo "outer_shell_context_evidence_teacher_weight: $outer_shell_context_evidence_teacher_weight"
     echo "combiner: $combiner_mode"
@@ -354,6 +356,7 @@ mkdir -p results
         --outer_shell_context_teacher_weight "$outer_shell_context_teacher_weight" \
         --outer_shell_context_shell_prediction_weight "$outer_shell_context_shell_prediction_weight" \
         --inward_shell_promotion_weight "$inward_shell_promotion_weight" \
+        --inward_shell_promotion_pairs "$inward_shell_promotion_pairs" \
         --outer_shell_context_bridge_scale "$outer_shell_context_bridge_scale" \
         --outer_shell_context_evidence_teacher_weight "$outer_shell_context_evidence_teacher_weight" \
         "${column_shell_readout_args[@]}" \

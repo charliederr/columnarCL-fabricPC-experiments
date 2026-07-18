@@ -62,6 +62,7 @@ from scripts.train_cifar10_depth_spanning import (
     outer_shell_context_node_name,
     outer_shell_context_bridge_scale_node_name,
     output_input_edge_sources,
+    parse_inward_shell_promotion_pairs,
     parse_shell_lr_multipliers,
     parse_shell_teacher_weights,
     parse_shell_evidence_cascade_scale,
@@ -476,6 +477,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         outer_shell_context_bridge_scale=0.0,
         outer_shell_context_shell_prediction_weight=0.0,
         inward_shell_promotion_weight=0.0,
+        inward_shell_promotion_pairs="all",
         outer_shell_context_evidence=False,
         outer_shell_context_evidence_teacher_weight=0.0,
         outer_shell_context_teacher_weight=0.0,
@@ -538,6 +540,23 @@ def test_parse_support_mask_accepts_binary_column_mask() -> None:
         parse_support_mask("1,0.5,1,0", 4)
     with pytest.raises(ValueError, match="at least one"):
         parse_support_mask("0,0,0,0", 4)
+
+
+def test_parse_inward_shell_promotion_pairs_selects_adjacent_pairs() -> None:
+    """Inward promotion pair labels select named adjacent shell transitions."""
+    assert parse_inward_shell_promotion_pairs("all") == INWARD_SHELL_PROMOTION_PAIRS
+    assert parse_inward_shell_promotion_pairs("none") == ()
+    assert parse_inward_shell_promotion_pairs(
+        "outer_to_middle,middle_to_inner"
+    ) == (
+        ("outer_shell", "middle_shell"),
+        ("middle_shell", "inner_shell"),
+    )
+
+    with pytest.raises(ValueError, match="duplicate pair"):
+        parse_inward_shell_promotion_pairs("outer_to_middle,outer_to_middle")
+    with pytest.raises(ValueError, match="must be 'all', 'none'"):
+        parse_inward_shell_promotion_pairs("outer_to_hard")
 
 
 def test_parse_shell_inhibition_strengths_maps_values_in_shell_order() -> None:
@@ -1127,6 +1146,50 @@ def test_depth_spanning_graph_adds_inward_shell_promotion_objectives() -> None:
             )
             assert edge_sources_by_slot["context"] == source_pool
             assert edge_sources_by_slot["target"] == target_pool
+
+
+def test_depth_spanning_graph_adds_selected_inward_shell_promotion_pairs() -> None:
+    """Pair selection can leave hard-kernel promotion out of the graph."""
+    selected_pairs = (
+        ("outer_shell", "middle_shell"),
+        ("middle_shell", "inner_shell"),
+    )
+    omitted_pair = ("inner_shell", "hard_kernel")
+    args = _tiny_depth_spanning_args(
+        bypass_columns=False,
+        inward_shell_promotion_weight=0.001,
+        inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+
+    assert active_columns == [0, 1]
+
+    for column_idx in active_columns:
+        for source_shell, target_shell in selected_pairs:
+            node_name = inward_shell_promotion_node_name(
+                column_idx,
+                source_shell,
+                target_shell,
+            )
+            assert node_name in structure.nodes
+
+        omitted_node = inward_shell_promotion_node_name(
+            column_idx,
+            *omitted_pair,
+        )
+        assert omitted_node not in structure.nodes
+
+
+def test_depth_spanning_graph_rejects_positive_promotion_with_no_pairs() -> None:
+    """A positive promotion weight must select at least one pair."""
+    args = _tiny_depth_spanning_args(
+        inward_shell_promotion_weight=0.001,
+        inward_shell_promotion_pairs="none",
+    )
+
+    with pytest.raises(ValueError, match="select at least one pair"):
+        build_depth_spanning_graph(args)
 
 
 def test_depth_spanning_graph_adds_per_column_shell_readout_edges() -> None:

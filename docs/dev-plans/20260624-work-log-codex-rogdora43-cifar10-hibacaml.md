@@ -6183,3 +6183,156 @@ Run command:
 ```bash
 WEIGHTS="0.0005" bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
 ```
+
+## 2026-07-18 Single Active Inward Shell-Promotion Result
+
+Recorded on 2026-07-18 on `rogdora43`.
+
+Logs inspected:
+
+- First attempt master log: `results/codex_inward_shell_promotion_10col3shared_seed42_rogdora43_20260718_151803.log`.
+- First attempt child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0005_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_151803.log`.
+- Completed retry master log: `results/codex_inward_shell_promotion_10col3shared_seed42_rogdora43_20260718_163253.log`.
+- Completed retry child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0005_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_163253.log`.
+
+Execution status:
+
+- The first attempt used commit `d825383dadc94058917af15cbd53382d5f01402e`.
+- The first attempt built the active-promotion graph with 177 nodes, 333 edges, and 3,131,334 parameters, then was killed at the first epoch progress line before any validation result.
+- The completed retry used commit `e74c2aab0374729ee3bf43ff2383116f6dabadd8`.
+- The completed retry reached `completed_at` and printed the core results summary.
+
+Completed retry configuration:
+
+- Seed: `42`.
+- Learning rate: `0.005`.
+- Epochs: `20`.
+- Diagnostics: `DIAGNOSE_MODE=nodiag`, `POST_TRAINING_DIAGNOSTICS=core`.
+- Model path: 10 columns, 3 shared columns, 7 active non-shared columns, explicit support mask `1,1,1,1,1,1,1,1,1,1`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`, `combiner=shell_attention`, outer-shell context on, column shell bridge on, no bypass readout.
+- Inward shell-promotion weight: `0.0005`.
+- `inward_shell_promotion_weight` is the scalar multiplier on the local Gaussian prediction energy added inside each active column.
+- `outer_shell -> middle_shell` means the pooled outer-shell vector predicts the pooled middle-shell vector in the same column.
+- `middle_shell -> inner_shell` means the pooled middle-shell vector predicts the pooled inner-shell vector in the same column.
+- `inner_shell -> hard_kernel` means the pooled inner-shell vector predicts the pooled hard-kernel vector in the same column.
+
+Result:
+
+| Run | Inward shell-promotion weight | Graph | Parameters | Best validation accuracy | Best validation epoch | Test accuracy | Training time |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| Prior all-column control | `0.0` | 147 nodes, 273 edges | 3,125,444 | 32.60% | 18 | 31.93% | 7265.5 seconds |
+| Active promotion retry | `0.0005` | 177 nodes, 333 edges | 3,131,334 | 30.48% | 18 | 29.95% | 7342.0 seconds |
+
+Validation trajectory:
+
+| Epoch | Prior all-column control | Active promotion retry |
+| ---: | ---: | ---: |
+| 1 | 10.86% | 10.96% |
+| 2 | 21.40% | 22.00% |
+| 3 | 19.22% | 20.28% |
+| 4 | 21.28% | 22.78% |
+| 5 | 24.40% | 23.46% |
+| 6 | 25.36% | 22.60% |
+| 7 | 24.08% | 25.06% |
+| 8 | 28.66% | 26.90% |
+| 9 | 26.00% | 16.24% |
+| 10 | 25.90% | 23.12% |
+| 11 | 22.86% | 20.12% |
+| 12 | 25.94% | 22.08% |
+| 13 | 27.32% | 26.02% |
+| 14 | 28.44% | 28.62% |
+| 15 | 27.32% | 24.90% |
+| 16 | 31.44% | 28.32% |
+| 17 | 31.56% | 28.10% |
+| 18 | 32.60% | 30.48% |
+| 19 | 31.00% | 28.46% |
+| 20 | 31.52% | 28.96% |
+
+Interpretation:
+
+- The active-promotion objective did run. The graph grew by 30 nodes and 60 edges, which matches three promotion prediction nodes per active column across 10 active columns.
+- The result is not a collapse. The active-promotion model recovered to 30.48% best validation accuracy and 29.95% test accuracy.
+- The result is a meaningful accuracy regression relative to the prior all-column control: test accuracy fell by 1.98 percentage points and best validation accuracy fell by 2.12 percentage points.
+- The sharp epoch-9 validation drop in the active-promotion run suggests the new local objective made training less stable even though it later recovered.
+- The current implementation promotes all the way into `hard_kernel`. That differs from the earlier conservative plan, which recommended keeping `hard_kernel` untouched in the first pass because it is the strongest central class-bearing shell.
+
+Recommendation:
+
+- Keep inward shell promotion as a research branch, but do not run more full three-pair promotion sweeps yet.
+- Change the promotion mechanism so the active pair set is selectable from the experiment runner.
+- The next tested pair set should include `outer_shell -> middle_shell` and `middle_shell -> inner_shell`, but exclude `inner_shell -> hard_kernel`.
+- Test lower weights first, specifically `0.0001` and `0.00025`, because `0.0005` with the hard-kernel target reduced accuracy.
+- Keep all other settings fixed against the completed control: 10 columns, 3 shared columns, all columns active, `shell_attention`, stage4 column grid, outer-shell context on, column shell bridge on, no bypass, no teacher heads, and `shell_lr_multipliers=1,1.5,2,3`.
+
+Alternatives considered:
+
+| Alternative | Advantage | Reason not chosen |
+| --- | --- | --- |
+| Run lower weights with the existing three-pair objective | No code changes are needed. | It still pushes into `hard_kernel`, which is the part most likely to interfere with the strongest class-bearing shell. |
+| Disable inward promotion entirely | Returns to the current all-column control. | It would abandon a HiBaCaML-aligned local consolidation mechanism after only one overly broad active test. |
+| Add pair-selective promotion and exclude `inner_shell -> hard_kernel` first | Tests the same idea more faithfully against the earlier conservative plan. | This requires a small implementation change before the next experiment. |
+
+Proposed next step, pending confirmation:
+
+- Add an experiment argument that selects which adjacent shell-promotion pairs are active.
+- Add a runner for the conservative pair set `outer_shell -> middle_shell` and `middle_shell -> inner_shell`.
+- Run a two-weight sweep with `0.0001` and `0.00025` on seed 42, using core metrics first.
+
+## 2026-07-18 Pair-Selective Inward Shell-Promotion Implementation
+
+Recorded on 2026-07-18 on `rogdora43`.
+
+Implemented after confirmation:
+
+- Added `--inward_shell_promotion_pairs` to `scripts/train_cifar10_depth_spanning.py`.
+- `inward_shell_promotion_pairs` is the comma-separated set of adjacent shell-promotion prediction pairs used when `inward_shell_promotion_weight` is positive.
+- Valid pair labels are:
+  - `outer_to_middle`, where the pooled `outer_shell` vector predicts the pooled `middle_shell` vector in the same column.
+  - `middle_to_inner`, where the pooled `middle_shell` vector predicts the pooled `inner_shell` vector in the same column.
+  - `inner_to_hard`, where the pooled `inner_shell` vector predicts the pooled `hard_kernel` vector in the same column.
+- The value `all` selects all three adjacent pairs and preserves the previous behavior.
+- The value `none` selects no pairs and is rejected when `inward_shell_promotion_weight` is positive.
+- The conservative pair set is `outer_to_middle,middle_to_inner`, which leaves `hard_kernel` out of the local promotion target path.
+
+Mechanism:
+
+- `parse_inward_shell_promotion_pairs()` parses named pair labels into `(source_shell, target_shell)` tuples.
+- `resolve_inward_shell_promotion_pairs()` validates the scalar weight and selected pairs before graph construction.
+- `build_depth_spanning_graph()` now creates `ShellContextPredictionNode` promotion objectives only for the selected adjacent pairs.
+- Shell-pool construction now uses the selected pair set when promotion is the only reason a shell pool is needed. This prevents an unselected `hard_kernel` pool from being created solely for promotion.
+- `train_cifar10_depth_spanning()` prints both `Inward shell promotion weight` and `Inward shell promotion pairs`, so result logs record whether `inner_to_hard` was active.
+
+Runner changes:
+
+- `scripts/run_codex_cifar10_depth_spanning.sh` now accepts positional argument 33 as `inward_shell_promotion_pairs`.
+- The wrapper writes `inward_shell_promotion_pairs` to each child log header and forwards it to Python.
+- `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh` now accepts the `PROMOTION_PAIRS` environment variable. Its default is `all`.
+- Added `scripts/run_codex_conservative_inward_shell_promotion_10col3shared_sweep.sh`.
+- The conservative runner sets `PROMOTION_PAIRS=outer_to_middle,middle_to_inner` and defaults `WEIGHTS=0.0001 0.00025`.
+
+Test coverage:
+
+- Added parser tests for `all`, `none`, the conservative pair subset, duplicate labels, and invalid labels.
+- Added graph tests showing the default all-pair objective still creates every prior promotion node.
+- Added graph tests showing the conservative pair subset creates `outer_shell -> middle_shell` and `middle_shell -> inner_shell`, but does not create `inner_shell -> hard_kernel`.
+- Added validation coverage that a positive promotion weight with `inward_shell_promotion_pairs=none` is rejected.
+
+Verification:
+
+- `bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh scripts/run_codex_conservative_inward_shell_promotion_10col3shared_sweep.sh`: passed.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py`: passed.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --help`: passed and showed `--inward_shell_promotion_pairs`.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q`: 66 passed in 13.69 seconds.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -q --ignore=tests/test_cifar_data.py`: 188 passed in 30.39 seconds.
+
+Recommended experiment:
+
+- Run the conservative two-pair sweep on seed 42.
+- Keep the same anchor settings used by the completed active-promotion run: 10 columns, 3 shared columns, all columns active, explicit all-column support mask, `shell_attention`, stage4 grid, outer-shell context on, column shell bridge on, no bypass, no teacher heads, and `shell_lr_multipliers=1,1.5,2,3`.
+- Compare both runs against the prior zero-promotion all-column control at 31.93% test accuracy and against the full three-pair `0.0005` run at 29.95% test accuracy.
+- Interpretation target: if `0.0001` or `0.00025` recovers toward the control while avoiding the epoch-9 drop seen with full three-pair `0.0005`, the next step should tune the conservative pair weights. If both remain below 30%, the next step should inspect promotion energy with full diagnostics before changing the mechanism again.
+
+Run command:
+
+```bash
+bash scripts/run_codex_conservative_inward_shell_promotion_10col3shared_sweep.sh
+```
