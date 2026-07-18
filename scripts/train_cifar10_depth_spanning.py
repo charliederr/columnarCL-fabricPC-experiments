@@ -35,6 +35,8 @@ Architecture::
                          └──── optional shell-local predictors
                                            │
                                            └──── predict pooled shell states
+      optional inward shell-promotion predictors:
+          outer_shell ─► middle_shell ─► inner_shell ─► hard_kernel
                                                          │
                                                          ▼
                                                 shell-aware combiner
@@ -122,6 +124,12 @@ OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE = (
     "outer_shell_context_evidence_teacher_output"
 )
 SHELL_CONTEXT_PREDICTION_DEFAULT_WEIGHT = 0.0
+INWARD_SHELL_PROMOTION_DEFAULT_WEIGHT = 0.0
+INWARD_SHELL_PROMOTION_PAIRS = (
+    ("outer_shell", "middle_shell"),
+    ("middle_shell", "inner_shell"),
+    ("inner_shell", "hard_kernel"),
+)
 SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 COLUMN_SHELL_TEACHER_DEFAULT_WEIGHTS = "0,0,0,0"
 SHELL_LR_DEFAULT_MULTIPLIERS = "1,1,1,1"
@@ -173,6 +181,18 @@ def outer_shell_context_bridge_scale_node_name(column_idx: int) -> str:
 def shell_context_prediction_node_name(column_idx: int, shell_name: str) -> str:
     """Return the node name for a context-to-shell prediction objective."""
     return f"column{column_idx:02d}_{shell_name}_context_prediction"
+
+
+def inward_shell_promotion_node_name(
+    column_idx: int,
+    source_shell: str,
+    target_shell: str,
+) -> str:
+    """Return the node name for one inward shell-promotion objective."""
+    return (
+        f"column{column_idx:02d}_{source_shell}_to_"
+        f"{target_shell}_promotion_prediction"
+    )
 
 
 def column_shell_teacher_node_name(column_idx: int, shell_name: str) -> str:
@@ -254,6 +274,13 @@ def is_shell_context_prediction_node(node_name: str) -> bool:
     return node_name.startswith("column") and node_name.endswith("_context_prediction")
 
 
+def is_inward_shell_promotion_node(node_name: str) -> bool:
+    """Return true for an inward shell-promotion prediction objective."""
+    return node_name.startswith("column") and node_name.endswith(
+        "_promotion_prediction"
+    )
+
+
 def shell_context_prediction_shell(node_name: str) -> str | None:
     """Return the target shell encoded in a context-prediction node name."""
     if not is_shell_context_prediction_node(node_name):
@@ -262,6 +289,25 @@ def shell_context_prediction_shell(node_name: str) -> str | None:
         if f"_{shell_name}_context_prediction" in node_name:
             return shell_name
     return None
+
+
+def inward_shell_promotion_pair(node_name: str) -> Tuple[str, str] | None:
+    """Return the `(source_shell, target_shell)` pair encoded in a promotion node."""
+    if not is_inward_shell_promotion_node(node_name):
+        return None
+    for source_shell, target_shell in INWARD_SHELL_PROMOTION_PAIRS:
+        marker = f"_{source_shell}_to_{target_shell}_promotion_prediction"
+        if marker in node_name:
+            return source_shell, target_shell
+    return None
+
+
+def inward_shell_promotion_target_shell(node_name: str) -> str | None:
+    """Return the target shell encoded in a shell-promotion node name."""
+    pair = inward_shell_promotion_pair(node_name)
+    if pair is None:
+        return None
+    return pair[1]
 
 
 def parse_shell_ordered_values(
@@ -535,6 +581,13 @@ def parameter_shell_lr_multiplier(
             shell_lr_multipliers[prediction_shell],
         )
 
+    promotion_shell = inward_shell_promotion_target_shell(node_name)
+    if promotion_shell is not None:
+        return _constant_multiplier_like(
+            value,
+            shell_lr_multipliers[promotion_shell],
+        )
+
     if is_column_shell_bridge_node(node_name):
         shell_slices = get_shell_slices(node_info.shape[-1])
         return _scale_final_axis_by_shell(
@@ -663,6 +716,7 @@ def diagnose_energy_breakdown(
             or is_outer_shell_context_bridge_scale_node(node_name)
             or is_outer_shell_context_evidence_node(node_name)
             or is_shell_context_prediction_node(node_name)
+            or is_inward_shell_promotion_node(node_name)
         ):
             categories["columns"] += energy_sum
         elif node_name.startswith("stage") and ("tap" in node_name or "pool" in node_name):
@@ -732,6 +786,7 @@ def diagnose_column_outputs(
         or is_outer_shell_context_evidence_node(name)
         or is_outer_shell_context_evidence_teacher_node(name)
         or is_shell_context_prediction_node(name)
+        or is_inward_shell_promotion_node(name)
         or name in (
             "combiner",
             "column_pool",
@@ -844,6 +899,39 @@ def diagnose_shell_context_prediction_energies(
     return {
         shell_name: float(sum(values) / len(values))
         for shell_name, values in shell_values.items()
+        if values
+    }
+
+
+def diagnose_inward_shell_promotion_energies(
+    params,
+    structure,
+    batch: Dict[str, jnp.ndarray],
+    rng_key: jax.Array,
+) -> Dict[str, float]:
+    """
+    Average local inward shell-promotion energy by source-target shell pair.
+
+    The reported value for a pair is the mean per-node energy across all active
+    columns whose wider shell predicts the adjacent more central shell.
+    """
+    _, _, final_state = get_graph_param_gradient(params, batch, structure, rng_key)
+    node_energies = extract_node_energies(final_state)
+    pair_values: Dict[str, List[float]] = {
+        f"{source_shell}_to_{target_shell}": []
+        for source_shell, target_shell in INWARD_SHELL_PROMOTION_PAIRS
+    }
+    for node_name, energy_arr in node_energies.items():
+        pair = inward_shell_promotion_pair(node_name)
+        if pair is None:
+            continue
+        source_shell, target_shell = pair
+        pair_values[f"{source_shell}_to_{target_shell}"].append(
+            float(jnp.mean(energy_arr))
+        )
+    return {
+        pair_name: float(sum(values) / len(values))
+        for pair_name, values in pair_values.items()
         if values
     }
 
@@ -2286,6 +2374,8 @@ def build_depth_spanning_graph(args):
     tokenize each stage's output, and depth-spanning columns receive
     skip connections from all stages.
     """
+    if args.inward_shell_promotion_weight < 0.0:
+        raise ValueError("--inward_shell_promotion_weight must be >= 0")
     if args.outer_shell_context_shell_prediction_weight < 0.0:
         raise ValueError("--outer_shell_context_shell_prediction_weight must be >= 0")
     if (
@@ -2600,6 +2690,7 @@ def build_depth_spanning_graph(args):
                 or args.column_shell_readout
                 or args.column_shell_bridge
                 or args.outer_shell_context
+                or args.inward_shell_promotion_weight > 0.0
             )
             if not needs_shell_pool:
                 continue
@@ -2683,6 +2774,32 @@ def build_depth_spanning_graph(args):
                             target=context_prediction.slot("context"),
                         ),
                     ])
+
+        if args.inward_shell_promotion_weight > 0.0:
+            for source_shell, target_shell in INWARD_SHELL_PROMOTION_PAIRS:
+                source_pool = column_shell_pools_by_shell[source_shell]
+                target_pool = column_shell_pools_by_shell[target_shell]
+                promotion_prediction = ShellContextPredictionNode(
+                    shape=target_pool.shape,
+                    name=inward_shell_promotion_node_name(
+                        column_idx,
+                        source_shell,
+                        target_shell,
+                    ),
+                    objective_weight=args.inward_shell_promotion_weight,
+                    weight_init=XavierInitializer(),
+                )
+                nodes.append(promotion_prediction)
+                edges.extend([
+                    Edge(
+                        source=target_pool,
+                        target=promotion_prediction.slot("target"),
+                    ),
+                    Edge(
+                        source=source_pool,
+                        target=promotion_prediction.slot("context"),
+                    ),
+                ])
 
         if args.column_shell_bridge:
             shell_bridge = Linear(
@@ -2846,6 +2963,8 @@ def build_depth_spanning_graph(args):
 
 
 def train_cifar10_depth_spanning(args):
+    if args.inward_shell_promotion_weight < 0.0:
+        raise ValueError("--inward_shell_promotion_weight must be >= 0")
     if args.outer_shell_context_teacher_weight < 0.0:
         raise ValueError("--outer_shell_context_teacher_weight must be >= 0")
     if args.outer_shell_context_evidence_teacher_weight < 0.0:
@@ -2968,6 +3087,7 @@ def train_cifar10_depth_spanning(args):
         "Outer shell context shell prediction weight: "
         f"{args.outer_shell_context_shell_prediction_weight}"
     )
+    print(f"Inward shell promotion weight: {args.inward_shell_promotion_weight}")
     print(
         "Outer shell context evidence: "
         f"{'enabled' if args.outer_shell_context_evidence else 'disabled'}"
@@ -3059,6 +3179,15 @@ def train_cifar10_depth_spanning(args):
         print_scalar_diagnostics(
             "Shell Context Prediction Energy (before training)",
             diagnose_shell_context_prediction_energies(
+                params,
+                structure,
+                diag_batch,
+                diag_key,
+            ),
+        )
+        print_scalar_diagnostics(
+            "Inward Shell Promotion Energy (before training)",
+            diagnose_inward_shell_promotion_energies(
                 params,
                 structure,
                 diag_batch,
@@ -3257,6 +3386,15 @@ def train_cifar10_depth_spanning(args):
                 diag_key,
             ),
         )
+        print_scalar_diagnostics(
+            "Inward Shell Promotion Energy (after training)",
+            diagnose_inward_shell_promotion_energies(
+                final_params,
+                structure,
+                diag_batch,
+                diag_key,
+            ),
+        )
 
     ablation_key = jax.random.PRNGKey(args.seed + 2026)
     if args.diagnose_composer:
@@ -3289,6 +3427,15 @@ def train_cifar10_depth_spanning(args):
         print_scalar_diagnostics(
             "Shell Context Prediction Energy (selected params)",
             diagnose_shell_context_prediction_energies(
+                eval_params,
+                structure,
+                diag_batch,
+                diag_key,
+            ),
+        )
+        print_scalar_diagnostics(
+            "Inward Shell Promotion Energy (selected params)",
+            diagnose_inward_shell_promotion_energies(
                 eval_params,
                 structure,
                 diag_batch,
@@ -3880,6 +4027,18 @@ def parse_args():
             "inner-shell, middle-shell, and outer-shell states. This local "
             "objective is added alongside the direct outer-context-to-output "
             "readout."
+        ),
+    )
+    parser.add_argument(
+        "--inward_shell_promotion_weight",
+        type=float,
+        default=INWARD_SHELL_PROMOTION_DEFAULT_WEIGHT,
+        help=(
+            "Weight on local Gaussian objectives where each active column's "
+            "wider shell predicts the adjacent more central shell. The "
+            "prediction pairs are outer_shell to middle_shell, middle_shell "
+            "to inner_shell, and inner_shell to hard_kernel. A zero weight "
+            "omits these objectives."
         ),
     )
     parser.add_argument(

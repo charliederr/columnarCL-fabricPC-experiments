@@ -6064,3 +6064,74 @@ Run command:
 ```bash
 bash scripts/run_codex_support_leave_one_out_10col3shared.sh
 ```
+
+## 2026-07-18 Inward Shell-Promotion Implementation
+
+Recorded on 2026-07-18 on `rogdora43`.
+
+Implementation goal:
+
+- Keep the 10-column stage4 bridge/context architecture active.
+- Add a HiBaCaML-aligned consolidation pressure inside each active column.
+- Keep the objective predictive-coding native by adding Gaussian prediction nodes to the graph, rather than adding class-supervised heads or plain backpropagation losses.
+
+Mechanism:
+
+- `inward_shell_promotion_weight` is the scalar multiplier on the new local Gaussian objective.
+- `source_shell` is the wider shell whose pooled latent vector provides the prediction context.
+- `target_shell` is the adjacent more central shell whose pooled latent vector is predicted.
+- For each active column, the graph now adds three shell-promotion prediction nodes when `inward_shell_promotion_weight > 0`:
+  - `outer_shell -> middle_shell`.
+  - `middle_shell -> inner_shell`.
+  - `inner_shell -> hard_kernel`.
+- Each prediction node receives the `target_shell` pooled vector through its `target` slot and the `source_shell` pooled vector through its `context` slot.
+- Its energy is `0.5 * inward_shell_promotion_weight * sum((target_shell - predicted_target_shell)^2)`, where `predicted_target_shell` is a learned linear projection of the wider shell vector.
+- The node is terminal with respect to the class readout. It contributes predictive-coding energy and gradients to the shell states and projection weights, but it does not connect to `output`.
+- Optimizer update scaling uses the target shell. For example, the `middle_shell -> inner_shell` promotion weights use the `inner_shell` multiplier from `shell_lr_multipliers`.
+
+Files changed:
+
+- `scripts/train_cifar10_depth_spanning.py`:
+  - Added `--inward_shell_promotion_weight`.
+  - Added `INWARD_SHELL_PROMOTION_PAIRS`.
+  - Added `inward_shell_promotion_node_name()`, `is_inward_shell_promotion_node()`, `inward_shell_promotion_pair()`, and `inward_shell_promotion_target_shell()`.
+  - Added graph construction for the three inward promotion objectives per active column.
+  - Added inward promotion nodes to energy categorization and column-output diagnostics.
+  - Added `diagnose_inward_shell_promotion_energies()`.
+  - Added diagnostic printing for inward promotion energy when `--diagnose_shells` is enabled.
+  - Updated the top-level architecture diagram to include the inward shell-promotion path.
+- `columnar_cl_fabricpc/columns/accuracy_nodes.py`:
+  - Updated `ShellContextPredictionNode` documentation so it covers both the existing outer-context prediction objective and the new wider-shell-to-inner-shell promotion objective.
+- `scripts/run_codex_cifar10_depth_spanning.sh`:
+  - Added positional argument 32 for `inward_shell_promotion_weight`.
+  - Added compact `isp...` labeling in child result filenames.
+  - Added header logging and Python CLI forwarding for `--inward_shell_promotion_weight`.
+- `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`:
+  - Added a sequential sweep script for the current all-column stage4 bridge/context branch.
+  - Default weights are `0.0 0.00025 0.0005 0.001`.
+  - Default diagnostics are `nodiag` and `post_training_diagnostics=core`.
+- `tests/test_pooled_readout_norm.py`:
+  - Added graph-construction coverage for inward promotion nodes and their target/context edges.
+  - Added optimizer multiplier coverage showing promotion parameters use the target shell learning-rate multiplier.
+
+Verification:
+
+- `bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`: passed.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py columnar_cl_fabricpc/columns/accuracy_nodes.py`: passed.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --help | rg -n "inward_shell_promotion|outer_shell_context_shell_prediction|post_training"`: the new CLI flag appears.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q`: 63 passed in 14.70 seconds.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -q --ignore=tests/test_cifar_data.py`: 185 passed in 31.38 seconds.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -q`: 193 passed, 5 failed, and 9 errored. The failures/errors are all in `tests/test_cifar_data.py` because the sandbox cannot create `/home/ni/.local/share/columnar_cl_fabricpc/data`.
+- `git diff --check` on the edited code, script, test, and work-log files: passed.
+
+Recommended experiment:
+
+- Run the new sweep as a seed-42 scalar-weight test.
+- Keep `POST_TRAINING_DIAGNOSTICS=core` so each child records the selected checkpoint accuracy before optional diagnostics.
+- If one promotion weight improves or reduces collapse relative to the zero-weight control, run that weight again with `DIAGNOSE_MODE=composer_shells` and `POST_TRAINING_DIAGNOSTICS=full` to inspect route interaction and promotion energy.
+
+Run command:
+
+```bash
+bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+```

@@ -29,6 +29,7 @@ from columnar_cl_fabricpc.columns import (
 from scripts.train_cifar10_depth_spanning import (
     COLUMN_TEACHER_NODE,
     COLUMN_TEACHER_TARGET,
+    INWARD_SHELL_PROMOTION_PAIRS,
     OUTER_SHELL_CONTEXT_EVIDENCE_NODE,
     OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE,
     OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_TARGET,
@@ -49,6 +50,7 @@ from scripts.train_cifar10_depth_spanning import (
     diagnose_composer_projection_norms,
     diagnose_output_edge_weight_norms,
     has_shell_composer,
+    inward_shell_promotion_node_name,
     mask_column_shell_bridge_inputs,
     mask_column_shell_path_inputs,
     mask_composer_components,
@@ -473,6 +475,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         outer_shell_context_to_bridge=False,
         outer_shell_context_bridge_scale=0.0,
         outer_shell_context_shell_prediction_weight=0.0,
+        inward_shell_promotion_weight=0.0,
         outer_shell_context_evidence=False,
         outer_shell_context_evidence_teacher_weight=0.0,
         outer_shell_context_teacher_weight=0.0,
@@ -881,6 +884,32 @@ def test_shell_lr_multiplier_tree_scales_composer_and_context_paths() -> None:
         assert jnp.allclose(value, 3.0)
 
 
+def test_shell_lr_multiplier_tree_scales_inward_promotion_by_target_shell() -> None:
+    """Inward promotion predictors update with their target shell rate."""
+    args = _tiny_depth_spanning_args(
+        bypass_columns=False,
+        inward_shell_promotion_weight=0.001,
+        shell_lr_multipliers="1,1.5,2,3",
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+
+    multiplier_tree = build_shell_lr_multiplier_tree(
+        params,
+        structure,
+        parse_shell_lr_multipliers(args.shell_lr_multipliers),
+    )
+
+    for source_shell, target_shell in INWARD_SHELL_PROMOTION_PAIRS:
+        node_name = inward_shell_promotion_node_name(0, source_shell, target_shell)
+        expected = parse_shell_lr_multipliers(args.shell_lr_multipliers)[target_shell]
+        promotion_multipliers = multiplier_tree.nodes[node_name]
+        for value in promotion_multipliers.weights.values():
+            assert jnp.allclose(value, expected)
+        for value in promotion_multipliers.biases.values():
+            assert jnp.allclose(value, expected)
+
+
 def test_apply_shell_lr_multipliers_scales_update_tree() -> None:
     """The Optax transform helper multiplies updates with the prepared tree."""
     args = _tiny_depth_spanning_args(
@@ -1058,6 +1087,46 @@ def test_depth_spanning_graph_explicit_support_mask_overrides_column_mode() -> N
     assert outer_shell_context_node_name(0) in structure.nodes
     assert outer_shell_context_node_name(1) not in structure.nodes
     assert outer_shell_context_node_name(2) in structure.nodes
+
+
+def test_depth_spanning_graph_adds_inward_shell_promotion_objectives() -> None:
+    """Inward promotion adds local shell-to-shell prediction nodes per active column."""
+    args = _tiny_depth_spanning_args(
+        bypass_columns=False,
+        inward_shell_promotion_weight=0.001,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+    output_sources = output_input_edge_sources(structure)
+
+    assert active_columns == [0, 1]
+    assert set(output_sources) == {"column_pool"}
+
+    for column_idx in active_columns:
+        for source_shell, target_shell in INWARD_SHELL_PROMOTION_PAIRS:
+            node_name = inward_shell_promotion_node_name(
+                column_idx,
+                source_shell,
+                target_shell,
+            )
+            source_pool = column_shell_pool_node_name(column_idx, source_shell)
+            target_pool = column_shell_pool_node_name(column_idx, target_shell)
+            edge_sources_by_slot = {
+                edge.slot: edge.source
+                for edge in structure.edges.values()
+                if edge.target == node_name
+            }
+
+            assert node_name in structure.nodes
+            assert structure.nodes[node_name].node_info.node_class is (
+                ShellContextPredictionNode
+            )
+            assert (
+                structure.nodes[node_name].node_info.node_config["objective_weight"]
+                == 0.001
+            )
+            assert edge_sources_by_slot["context"] == source_pool
+            assert edge_sources_by_slot["target"] == target_pool
 
 
 def test_depth_spanning_graph_adds_per_column_shell_readout_edges() -> None:

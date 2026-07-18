@@ -599,12 +599,14 @@ class ColumnShellComposerNode(NodeBase):
 
 class ShellContextPredictionNode(NodeBase):
     """
-    Local objective where an outer-context latent predicts one shell state.
+    Local objective where one latent predicts one shell state.
 
     The `target` slot receives a pooled shell vector from one column. The
-    `context` slot receives that column's outer-shell context vector. The node
-    contributes a weighted Gaussian error between the target shell vector and
-    the context-derived prediction, without exposing a class-logit path.
+    `context` slot receives one or more vectors that predict that target. The
+    context can be the same column's outer-shell context vector or a wider
+    shell vector in the inward shell-promotion pathway. The node contributes a
+    weighted Gaussian error between the target shell vector and the prediction,
+    without exposing a class-logit path.
     """
 
     def __init__(
