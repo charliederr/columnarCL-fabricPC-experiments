@@ -1007,3 +1007,1030 @@ Epoch 11/20:  55%|█████▌    | 3872/7040 [1:08:52<38:52,  1.21it/s, e
 ─ Worked for 9m 02s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
  
+1 +                    ),
+    2802 +                ])
+    2803 +
+    2804          if args.column_shell_bridge:
+         ⋮
+    2965  def train_cifar10_depth_spanning(args):
+    2966 +    if args.inward_shell_promotion_weight < 0.0:
+    2967 +        raise ValueError("--inward_shell_promotion_weight must be >= 0")
+    2968      if args.outer_shell_context_teacher_weight < 0.0:
+         ⋮
+    3089      )
+    3090 +    print(f"Inward shell promotion weight: {args.inward_shell_promotion_weight}")
+    3091      print(
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The graph wiring is in. I’m adding diagnostics so shell runs report the new promotion energy separately from the older outer-context prediction energy.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+27 -0)
+    3187          )
+    3188 +        print_scalar_diagnostics(
+    3189 +            "Inward Shell Promotion Energy (before training)",
+    3190 +            diagnose_inward_shell_promotion_energies(
+    3191 +                params,
+    3192 +                structure,
+    3193 +                diag_batch,
+    3194 +                diag_key,
+    3195 +            ),
+    3196 +        )
+    3197
+         ⋮
+    3388          )
+    3389 +        print_scalar_diagnostics(
+    3390 +            "Inward Shell Promotion Energy (after training)",
+    3391 +            diagnose_inward_shell_promotion_energies(
+    3392 +                final_params,
+    3393 +                structure,
+    3394 +                diag_batch,
+    3395 +                diag_key,
+    3396 +            ),
+    3397 +        )
+    3398
+         ⋮
+    3435          )
+    3436 +        print_scalar_diagnostics(
+    3437 +            "Inward Shell Promotion Energy (selected params)",
+    3438 +            diagnose_inward_shell_promotion_energies(
+    3439 +                eval_params,
+    3440 +                structure,
+    3441 +                diag_batch,
+    3442 +                diag_key,
+    3443 +            ),
+    3444 +        )
+    3445
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Now I’m adding the CLI surface. The option is a scalar because the first question is whether the inward consolidation pressure helps at all; per-pair weights can come
+  later if the scalar version gives a signal.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+12 -0)
+    4032      parser.add_argument(
+    4033 +        "--inward_shell_promotion_weight",
+    4034 +        type=float,
+    4035 +        default=INWARD_SHELL_PROMOTION_DEFAULT_WEIGHT,
+    4036 +        help=(
+    4037 +            "Weight on local Gaussian objectives where each active column's "
+    4038 +            "wider shell predicts the adjacent more central shell. The "
+    4039 +            "prediction pairs are outer_shell to middle_shell, middle_shell "
+    4040 +            "to inner_shell, and inner_shell to hard_kernel. A zero weight "
+    4041 +            "omits these objectives."
+    4042 +        ),
+    4043 +    )
+    4044 +    parser.add_argument(
+    4045          "--outer_shell_context_evidence",
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m updating the main run wrapper next. Existing positional arguments stay compatible; the new 32nd argument defaults to zero.
+
+• Edited columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh (+5 -1)
+     36  post_training_diagnostics="${31:-full}"
+     37 +inward_shell_promotion_weight="${32:-0.0}"
+     38  hostname_value="$(hostname)"
+        ⋮
+     52  outer_context_bridge_scale_label="${outer_shell_context_bridge_scale//./p}"
+     53 +inward_shell_promotion_label="${inward_shell_promotion_weight//./p}"
+     54  diagnose_label="nodiag"
+        ⋮
+    273  # the log header; the filename keeps only compact run identifiers.
+    272 -log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_cm${column_mode_label}_sm${support_mask_label}_${combiner_label}_cg
+         ${column_grid_label}_e${embed_dim}_m${microcolumn_dim}_${column_gaussian_energy_short}_gp${column_gaussian_precision_label}_rs${column_gaussian_reference_sites_la
+         bel}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_contex
+         t_shell_prediction_label}_ocet${outer_context_evidence_teacher_label}_ocbs${outer_context_bridge_scale_label}_${column_shell_readout_short}_${column_shell_bridge_
+         short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${ep
+         ochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+    274 +log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_cm${column_mode_label}_sm${support_mask_label}_${combiner_label}_cg
+         ${column_grid_label}_e${embed_dim}_m${microcolumn_dim}_${column_gaussian_energy_short}_gp${column_gaussian_precision_label}_rs${column_gaussian_reference_sites_la
+         bel}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_contex
+         t_shell_prediction_label}_isp${inward_shell_promotion_label}_ocet${outer_context_evidence_teacher_label}_ocbs${outer_context_bridge_scale_label}_${column_shell_re
+         adout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_shor
+         t}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+    275
+        ⋮
+    312      echo "outer_shell_context_shell_prediction_weight: $outer_shell_context_shell_prediction_weight"
+    313 +    echo "inward_shell_promotion_weight: $inward_shell_promotion_weight"
+    314      echo "outer_shell_context_evidence: $outer_shell_context_evidence_label"
+        ⋮
+    355          --outer_shell_context_shell_prediction_weight "$outer_shell_context_shell_prediction_weight" \
+    356 +        --inward_shell_promotion_weight "$inward_shell_promotion_weight" \
+    357          --outer_shell_context_bridge_scale "$outer_shell_context_bridge_scale" \
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The wrapper header now records the new weight, and the Python command passes it through. I’m checking the generated filename length before I add the sweep script,
+  because these result paths have been close to the limit.
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh &&
+  │ name="codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p001_ocet0p0_ocbs0p0
+  │ _sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_120000.log"; printf '%s\n' "$name" | wc -c
+  └ 245
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The filename remains under the usual 255-byte component limit. I’m adding tests for the graph edges and shell-specific optimizer multipliers now.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+69 -0)
+      31      COLUMN_TEACHER_TARGET,
+      32 +    INWARD_SHELL_PROMOTION_PAIRS,
+      33      OUTER_SHELL_CONTEXT_EVIDENCE_NODE,
+         ⋮
+      52      has_shell_composer,
+      53 +    inward_shell_promotion_node_name,
+      54      mask_column_shell_bridge_inputs,
+         ⋮
+     477          outer_shell_context_shell_prediction_weight=0.0,
+     478 +        inward_shell_promotion_weight=0.0,
+     479          outer_shell_context_evidence=False,
+         ⋮
+     886
+     887 +def test_shell_lr_multiplier_tree_scales_inward_promotion_by_target_shell() -> None:
+     888 +    """Inward promotion predictors update with their target shell rate."""
+     889 +    args = _tiny_depth_spanning_args(
+     890 +        bypass_columns=False,
+     891 +        inward_shell_promotion_weight=0.001,
+     892 +        shell_lr_multipliers="1,1.5,2,3",
+     893 +    )
+     894 +    structure, _ = build_depth_spanning_graph(args)
+     895 +    params = initialize_params(structure, jax.random.PRNGKey(0))
+     896 +
+     897 +    multiplier_tree = build_shell_lr_multiplier_tree(
+     898 +        params,
+     899 +        structure,
+     900 +        parse_shell_lr_multipliers(args.shell_lr_multipliers),
+     901 +    )
+     902 +
+     903 +    for source_shell, target_shell in INWARD_SHELL_PROMOTION_PAIRS:
+     904 +        node_name = inward_shell_promotion_node_name(0, source_shell, target_shell)
+     905 +        expected = parse_shell_lr_multipliers(args.shell_lr_multipliers)[target_shell]
+     906 +        promotion_multipliers = multiplier_tree.nodes[node_name]
+     907 +        for value in promotion_multipliers.weights.values():
+     908 +            assert jnp.allclose(value, expected)
+     909 +        for value in promotion_multipliers.biases.values():
+     910 +            assert jnp.allclose(value, expected)
+     911 +
+     912 +
+     913  def test_apply_shell_lr_multipliers_scales_update_tree() -> None:
+         ⋮
+    1091
+    1092 +def test_depth_spanning_graph_adds_inward_shell_promotion_objectives() -> None:
+    1093 +    """Inward promotion adds local shell-to-shell prediction nodes per active column."""
+    1094 +    args = _tiny_depth_spanning_args(
+    1095 +        bypass_columns=False,
+    1096 +        inward_shell_promotion_weight=0.001,
+    1097 +    )
+    1098 +    structure, support_mask = build_depth_spanning_graph(args)
+    1099 +    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+    1100 +    output_sources = output_input_edge_sources(structure)
+    1101 +
+    1102 +    assert active_columns == [0, 1]
+    1103 +    assert set(output_sources) == {"column_pool"}
+    1104 +
+    1105 +    for column_idx in active_columns:
+    1106 +        for source_shell, target_shell in INWARD_SHELL_PROMOTION_PAIRS:
+    1107 +            node_name = inward_shell_promotion_node_name(
+    1108 +                column_idx,
+    1109 +                source_shell,
+    1110 +                target_shell,
+    1111 +            )
+    1112 +            source_pool = column_shell_pool_node_name(column_idx, source_shell)
+    1113 +            target_pool = column_shell_pool_node_name(column_idx, target_shell)
+    1114 +            edge_sources_by_slot = {
+    1115 +                edge.slot: edge.source
+    1116 +                for edge in structure.edges.values()
+    1117 +                if edge.target == node_name
+    1118 +            }
+    1119 +
+    1120 +            assert node_name in structure.nodes
+    1121 +            assert structure.nodes[node_name].node_info.node_class is (
+    1122 +                ShellContextPredictionNode
+    1123 +            )
+    1124 +            assert (
+    1125 +                structure.nodes[node_name].node_info.node_config["objective_weight"]
+    1126 +                == 0.001
+    1127 +            )
+    1128 +            assert edge_sources_by_slot["context"] == source_pool
+    1129 +            assert edge_sources_by_slot["target"] == target_pool
+    1130 +
+    1131 +
+    1132  def test_depth_spanning_graph_adds_per_column_shell_readout_edges() -> None:
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The tests now cover graph construction for promotion nodes and optimizer scaling by target shell. I’m updating the prediction-node docstring so the implementation
+  language matches its expanded use.
+
+• Edited columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/accuracy_nodes.py (+6 -4)
+    601      """
+    602 -    Local objective where an outer-context latent predicts one shell state.
+    602 +    Local objective where one latent predicts one shell state.
+    603
+    604      The `target` slot receives a pooled shell vector from one column. The
+    605 -    `context` slot receives that column's outer-shell context vector. The node
+    606 -    contributes a weighted Gaussian error between the target shell vector and
+    607 -    the context-derived prediction, without exposing a class-logit path.
+    605 +    `context` slot receives one or more vectors that predict that target. The
+    606 +    context can be the same column's outer-shell context vector or a wider
+    607 +    shell vector in the inward shell-promotion pathway. The node contributes a
+    608 +    weighted Gaussian error between the target shell vector and the prediction,
+    609 +    without exposing a class-logit path.
+    610      """
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m adding a one-command sweep script that runs a 20-epoch seed-42 control plus three small promotion weights. At current run times this should fill roughly the same
+  overnight window as four regular 20-epoch cases.
+
+• Added columnarCL-fabricPC-experiments/scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh (+106 -0)
+      1 +#!/usr/bin/env bash
+      2 +set -euo pipefail
+      3 +
+      4 +repo_root="/home/ni/repos/fpc/columnarCL-fabricPC-experiments"
+      5 +run_script="${repo_root}/scripts/run_codex_cifar10_depth_spanning.sh"
+      6 +hostname_value="$(hostname)"
+      7 +timestamp="$(date +%Y%m%d_%H%M%S)"
+      8 +
+      9 +seed="${SEED:-42}"
+     10 +lr="${LR:-0.005}"
+     11 +num_epochs="${NUM_EPOCHS:-20}"
+     12 +diagnose_mode="${DIAGNOSE_MODE:-nodiag}"
+     13 +post_training_diagnostics="${POST_TRAINING_DIAGNOSTICS:-core}"
+     14 +weights="${WEIGHTS:-0.0 0.00025 0.0005 0.001}"
+     15 +support_mask="${SUPPORT_MASK:-1,1,1,1,1,1,1,1,1,1}"
+     16 +master_log="${repo_root}/results/codex_inward_shell_promotion_10col3shared_seed${seed}_${hostname_value}_${timestamp}.log"
+     17 +
+     18 +cd "$repo_root"
+     19 +mkdir -p results
+     20 +
+     21 +{
+     22 +    echo "repo: $repo_root"
+     23 +    echo "git_commit: $(git rev-parse HEAD)"
+     24 +    echo "git_status:"
+     25 +    git status --short --branch
+     26 +    echo "seed: $seed"
+     27 +    echo "lr: $lr"
+     28 +    echo "num_epochs: $num_epochs"
+     29 +    echo "diagnose_mode: $diagnose_mode"
+     30 +    echo "post_training_diagnostics: $post_training_diagnostics"
+     31 +    echo "weights: $weights"
+     32 +    echo "support_mask: $support_mask"
+     33 +    echo "num_columns: 10"
+     34 +    echo "num_shared: 3"
+     35 +    echo "active_nonshared: 7"
+     36 +    echo "column_mode: all_active"
+     37 +    echo "column_grid: stage4"
+     38 +    echo "embed_dim: 64"
+     39 +    echo "microcolumn_dim: 32"
+     40 +    echo "column_gaussian_energy_mode: sum"
+     41 +    echo "column_gaussian_precision: 1.0"
+     42 +    echo "column_gaussian_reference_sites: 16"
+     43 +    echo "combiner: shell_attention"
+     44 +    echo "outer_shell_context: on"
+     45 +    echo "column_shell_bridge: on"
+     46 +    echo "column_shell_readout: off"
+     47 +    echo "outer_shell_context_to_bridge: off"
+     48 +    echo "outer_shell_context_bridge_scale: 0.0"
+     49 +    echo "outer_shell_context_shell_prediction_weight: 0.0"
+     50 +    echo "shell_lr_multipliers: 1,1.5,2,3"
+     51 +    echo "readout_mode: nobypass"
+     52 +    echo "column_teacher_weight: 0.0"
+     53 +    echo "shell_teacher_weights: 0,0,0,0"
+     54 +    echo "column_shell_teacher_weights: 0,0,0,0"
+     55 +    echo "outer_shell_context_teacher_weight: 0.0"
+     56 +    echo "outer_shell_context_evidence: off"
+     57 +    echo "outer_shell_context_evidence_teacher_weight: 0.0"
+     58 +    echo "started_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+     59 +
+     60 +    for weight in $weights; do
+     61 +        echo
+     62 +        echo "======================================================================"
+     63 +        echo "Starting inward_shell_promotion_weight=${weight} at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+     64 +        echo "======================================================================"
+     65 +
+     66 +        bash "$run_script" \
+     67 +            "$seed" \
+     68 +            "$lr" \
+     69 +            "$diagnose_mode" \
+     70 +            "$num_epochs" \
+     71 +            "0.0" \
+     72 +            "0,0,0,0" \
+     73 +            "nobypass" \
+     74 +            "0,0,0,0" \
+     75 +            "off" \
+     76 +            "on" \
+     77 +            "shell_attention" \
+     78 +            "on" \
+     79 +            "10" \
+     80 +            "3" \
+     81 +            "7" \
+     82 +            "1,1.5,2,3" \
+     83 +            "0.0" \
+     84 +            "off" \
+     85 +            "0.0" \
+     86 +            "0.0" \
+     87 +            "off" \
+     88 +            "stage4" \
+     89 +            "64" \
+     90 +            "32" \
+     91 +            "sum" \
+     92 +            "1.0" \
+     93 +            "16" \
+     94 +            "0.0" \
+     95 +            "all_active" \
+     96 +            "$support_mask" \
+     97 +            "$post_training_diagnostics" \
+     98 +            "$weight"
+     99 +
+    100 +        echo "Finished inward_shell_promotion_weight=${weight} at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    101 +    done
+    102 +
+    103 +    echo
+    104 +    echo "completed_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    105 +    echo "master_log: $master_log"
+    106 +} 2>&1 | tee "$master_log"
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The new sweep script calls the main wrapper through bash, so it will not hit the previous nested permission problem. I’m also marking the new file executable so either
+  bash scripts/... or ./scripts/... works.
+
+• Ran chmod +x scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+  └ (no output)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m appending an implementation note to the work log now with the exact mechanism, files touched, and the next run command.
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Ran git diff --stat
+  └  columnar_cl_fabricpc/columns/accuracy_nodes.py |  10 +-
+     scripts/run_codex_cifar10_depth_spanning.sh    |   6 +-
+     scripts/train_cifar10_depth_spanning.py        | 159 +++++++++++++++++++++++++
+     tests/test_pooled_readout_norm.py              |  69 +++++++++++
+     4 files changed, 239 insertions(+), 5 deletions(-)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The log file’s chronology is not perfectly sorted: the full audit section exists earlier in the file, while the current tail still ends at the prior two-mask entry. I’ll
+  append today’s implementation note at the true end so the newest work is easy to find.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+61 -0)
+    5722
+    5723 +## 2026-07-18 Inward Shell-Promotion Implementation
+    5724 +
+    5725 +Recorded on 2026-07-18 on `rogdora43`.
+    5726 +
+    5727 +Implementation goal:
+    5728 +
+    5729 +- Keep the 10-column stage4 bridge/context architecture active.
+    5730 +- Add a HiBaCaML-aligned consolidation pressure inside each active column.
+    5731 +- Keep the objective predictive-coding native by adding Gaussian prediction nodes to the graph, rather than adding class-supervised heads or plain backpropagatio
+          n losses.
+    5732 +
+    5733 +Mechanism:
+    5734 +
+    5735 +- `inward_shell_promotion_weight` is the scalar multiplier on the new local Gaussian objective.
+    5736 +- `source_shell` is the wider shell whose pooled latent vector provides the prediction context.
+    5737 +- `target_shell` is the adjacent more central shell whose pooled latent vector is predicted.
+    5738 +- For each active column, the graph now adds three shell-promotion prediction nodes when `inward_shell_promotion_weight > 0`:
+    5739 +  - `outer_shell -> middle_shell`.
+    5740 +  - `middle_shell -> inner_shell`.
+    5741 +  - `inner_shell -> hard_kernel`.
+    5742 +- Each prediction node receives the `target_shell` pooled vector through its `target` slot and the `source_shell` pooled vector through its `context` slot.
+    5743 +- Its energy is `0.5 * inward_shell_promotion_weight * sum((target_shell - predicted_target_shell)^2)`, where `predicted_target_shell` is a learned linear projec
+          tion of the wider shell vector.
+    5744 +- The node is terminal with respect to the class readout. It contributes predictive-coding energy and gradients to the shell states and projection weights, but i
+          t does not connect to `output`.
+    5745 +- Optimizer update scaling uses the target shell. For example, the `middle_shell -> inner_shell` promotion weights use the `inner_shell` multiplier from `shell_l
+          r_multipliers`.
+    5746 +
+    5747 +Files changed:
+    5748 +
+    5749 +- `scripts/train_cifar10_depth_spanning.py`:
+    5750 +  - Added `--inward_shell_promotion_weight`.
+    5751 +  - Added `INWARD_SHELL_PROMOTION_PAIRS`.
+    5752 +  - Added `inward_shell_promotion_node_name()`, `is_inward_shell_promotion_node()`, `inward_shell_promotion_pair()`, and `inward_shell_promotion_target_shell()`.
+    5753 +  - Added graph construction for the three inward promotion objectives per active column.
+    5754 +  - Added inward promotion nodes to energy categorization and column-output diagnostics.
+    5755 +  - Added `diagnose_inward_shell_promotion_energies()`.
+    5756 +  - Added diagnostic printing for inward promotion energy when `--diagnose_shells` is enabled.
+    5757 +  - Updated the top-level architecture diagram to include the inward shell-promotion path.
+    5758 +- `columnar_cl_fabricpc/columns/accuracy_nodes.py`:
+    5759 +  - Updated `ShellContextPredictionNode` documentation so it covers both the existing outer-context prediction objective and the new wider-shell-to-inner-shell p
+          romotion objective.
+    5760 +- `scripts/run_codex_cifar10_depth_spanning.sh`:
+    5761 +  - Added positional argument 32 for `inward_shell_promotion_weight`.
+    5762 +  - Added compact `isp...` labeling in child result filenames.
+    5763 +  - Added header logging and Python CLI forwarding for `--inward_shell_promotion_weight`.
+    5764 +- `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`:
+    5765 +  - Added a sequential sweep script for the current all-column stage4 bridge/context branch.
+    5766 +  - Default weights are `0.0 0.00025 0.0005 0.001`.
+    5767 +  - Default diagnostics are `nodiag` and `post_training_diagnostics=core`.
+    5768 +- `tests/test_pooled_readout_norm.py`:
+    5769 +  - Added graph-construction coverage for inward promotion nodes and their target/context edges.
+    5770 +  - Added optimizer multiplier coverage showing promotion parameters use the target shell learning-rate multiplier.
+    5771 +
+    5772 +Recommended experiment:
+    5773 +
+    5774 +- Run the new sweep as a seed-42 scalar-weight test.
+    5775 +- Keep `POST_TRAINING_DIAGNOSTICS=core` so each child records the selected checkpoint accuracy before optional diagnostics.
+    5776 +- If one promotion weight improves or reduces collapse relative to the zero-weight control, run that weight again with `DIAGNOSE_MODE=composer_shells` and `POST_
+          TRAINING_DIAGNOSTICS=full` to inspect route interaction and promotion energy.
+    5777 +
+    5778 +Run command:
+    5779 +
+    5780 +```bash
+    5781 +bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+    5782 +```
+    5783 +
+    5784  ## 2026-07-18 Full Leave-One-Out Support Audit Result
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I appended the implementation details, but because that run command appears more than once in the log I’m checking the final placement rather than assuming the patch
+  landed at the end.
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    Search Inward Shell-Promotion Implementation|Full Leave-One-Out Support Audit Result in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The section landed near the earlier full-audit entry, not at the end. I’m going to move it to the actual tail so the log’s newest actionable note is the last section.
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m correcting the work-log placement now by moving that implementation section after the current tail entry. This is only documentation ordering; the code changes are
+  unaffected.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+0 -61)
+    5722
+    5723 -## 2026-07-18 Inward Shell-Promotion Implementation
+    5724 -
+    5725 -Recorded on 2026-07-18 on `rogdora43`.
+    5726 -
+    5727 -Implementation goal:
+    5728 -
+    5729 -- Keep the 10-column stage4 bridge/context architecture active.
+    5730 -- Add a HiBaCaML-aligned consolidation pressure inside each active column.
+    5731 -- Keep the objective predictive-coding native by adding Gaussian prediction nodes to the graph, rather than adding class-supervised heads or plain backpropagatio
+          n losses.
+    5732 -
+    5733 -Mechanism:
+    5734 -
+    5735 -- `inward_shell_promotion_weight` is the scalar multiplier on the new local Gaussian objective.
+    5736 -- `source_shell` is the wider shell whose pooled latent vector provides the prediction context.
+    5737 -- `target_shell` is the adjacent more central shell whose pooled latent vector is predicted.
+    5738 -- For each active column, the graph now adds three shell-promotion prediction nodes when `inward_shell_promotion_weight > 0`:
+    5739 -  - `outer_shell -> middle_shell`.
+    5740 -  - `middle_shell -> inner_shell`.
+    5741 -  - `inner_shell -> hard_kernel`.
+    5742 -- Each prediction node receives the `target_shell` pooled vector through its `target` slot and the `source_shell` pooled vector through its `context` slot.
+    5743 -- Its energy is `0.5 * inward_shell_promotion_weight * sum((target_shell - predicted_target_shell)^2)`, where `predicted_target_shell` is a learned linear projec
+          tion of the wider shell vector.
+    5744 -- The node is terminal with respect to the class readout. It contributes predictive-coding energy and gradients to the shell states and projection weights, but i
+          t does not connect to `output`.
+    5745 -- Optimizer update scaling uses the target shell. For example, the `middle_shell -> inner_shell` promotion weights use the `inner_shell` multiplier from `shell_l
+          r_multipliers`.
+    5746 -
+    5747 -Files changed:
+    5748 -
+    5749 -- `scripts/train_cifar10_depth_spanning.py`:
+    5750 -  - Added `--inward_shell_promotion_weight`.
+    5751 -  - Added `INWARD_SHELL_PROMOTION_PAIRS`.
+    5752 -  - Added `inward_shell_promotion_node_name()`, `is_inward_shell_promotion_node()`, `inward_shell_promotion_pair()`, and `inward_shell_promotion_target_shell()`.
+    5753 -  - Added graph construction for the three inward promotion objectives per active column.
+    5754 -  - Added inward promotion nodes to energy categorization and column-output diagnostics.
+    5755 -  - Added `diagnose_inward_shell_promotion_energies()`.
+    5756 -  - Added diagnostic printing for inward promotion energy when `--diagnose_shells` is enabled.
+    5757 -  - Updated the top-level architecture diagram to include the inward shell-promotion path.
+    5758 -- `columnar_cl_fabricpc/columns/accuracy_nodes.py`:
+    5759 -  - Updated `ShellContextPredictionNode` documentation so it covers both the existing outer-context prediction objective and the new wider-shell-to-inner-shell p
+          romotion objective.
+    5760 -- `scripts/run_codex_cifar10_depth_spanning.sh`:
+    5761 -  - Added positional argument 32 for `inward_shell_promotion_weight`.
+    5762 -  - Added compact `isp...` labeling in child result filenames.
+    5763 -  - Added header logging and Python CLI forwarding for `--inward_shell_promotion_weight`.
+    5764 -- `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`:
+    5765 -  - Added a sequential sweep script for the current all-column stage4 bridge/context branch.
+    5766 -  - Default weights are `0.0 0.00025 0.0005 0.001`.
+    5767 -  - Default diagnostics are `nodiag` and `post_training_diagnostics=core`.
+    5768 -- `tests/test_pooled_readout_norm.py`:
+    5769 -  - Added graph-construction coverage for inward promotion nodes and their target/context edges.
+    5770 -  - Added optimizer multiplier coverage showing promotion parameters use the target shell learning-rate multiplier.
+    5771 -
+    5772 -Recommended experiment:
+    5773 -
+    5774 -- Run the new sweep as a seed-42 scalar-weight test.
+    5775 -- Keep `POST_TRAINING_DIAGNOSTICS=core` so each child records the selected checkpoint accuracy before optional diagnostics.
+    5776 -- If one promotion weight improves or reduces collapse relative to the zero-weight control, run that weight again with `DIAGNOSE_MODE=composer_shells` and `POST_
+          TRAINING_DIAGNOSTICS=full` to inspect route interaction and promotion energy.
+    5777 -
+    5778 -Run command:
+    5779 -
+    5780 -```bash
+    5781 -bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+    5782 -```
+    5783 -
+    5723  ## 2026-07-18 Full Leave-One-Out Support Audit Result
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The misplaced copy is removed. I’m appending the same note after the actual last section.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+61 -0)
+    6066  ```
+    6067 +
+    6068 +## 2026-07-18 Inward Shell-Promotion Implementation
+    6069 +
+    6070 +Recorded on 2026-07-18 on `rogdora43`.
+    6071 +
+    6072 +Implementation goal:
+    6073 +
+    6074 +- Keep the 10-column stage4 bridge/context architecture active.
+    6075 +- Add a HiBaCaML-aligned consolidation pressure inside each active column.
+    6076 +- Keep the objective predictive-coding native by adding Gaussian prediction nodes to the graph, rather than adding class-supervised heads or plain backpropagatio
+          n losses.
+    6077 +
+    6078 +Mechanism:
+    6079 +
+    6080 +- `inward_shell_promotion_weight` is the scalar multiplier on the new local Gaussian objective.
+    6081 +- `source_shell` is the wider shell whose pooled latent vector provides the prediction context.
+    6082 +- `target_shell` is the adjacent more central shell whose pooled latent vector is predicted.
+    6083 +- For each active column, the graph now adds three shell-promotion prediction nodes when `inward_shell_promotion_weight > 0`:
+    6084 +  - `outer_shell -> middle_shell`.
+    6085 +  - `middle_shell -> inner_shell`.
+    6086 +  - `inner_shell -> hard_kernel`.
+    6087 +- Each prediction node receives the `target_shell` pooled vector through its `target` slot and the `source_shell` pooled vector through its `context` slot.
+    6088 +- Its energy is `0.5 * inward_shell_promotion_weight * sum((target_shell - predicted_target_shell)^2)`, where `predicted_target_shell` is a learned linear projec
+          tion of the wider shell vector.
+    6089 +- The node is terminal with respect to the class readout. It contributes predictive-coding energy and gradients to the shell states and projection weights, but i
+          t does not connect to `output`.
+    6090 +- Optimizer update scaling uses the target shell. For example, the `middle_shell -> inner_shell` promotion weights use the `inner_shell` multiplier from `shell_l
+          r_multipliers`.
+    6091 +
+    6092 +Files changed:
+    6093 +
+    6094 +- `scripts/train_cifar10_depth_spanning.py`:
+    6095 +  - Added `--inward_shell_promotion_weight`.
+    6096 +  - Added `INWARD_SHELL_PROMOTION_PAIRS`.
+    6097 +  - Added `inward_shell_promotion_node_name()`, `is_inward_shell_promotion_node()`, `inward_shell_promotion_pair()`, and `inward_shell_promotion_target_shell()`.
+    6098 +  - Added graph construction for the three inward promotion objectives per active column.
+    6099 +  - Added inward promotion nodes to energy categorization and column-output diagnostics.
+    6100 +  - Added `diagnose_inward_shell_promotion_energies()`.
+    6101 +  - Added diagnostic printing for inward promotion energy when `--diagnose_shells` is enabled.
+    6102 +  - Updated the top-level architecture diagram to include the inward shell-promotion path.
+    6103 +- `columnar_cl_fabricpc/columns/accuracy_nodes.py`:
+    6104 +  - Updated `ShellContextPredictionNode` documentation so it covers both the existing outer-context prediction objective and the new wider-shell-to-inner-shell p
+          romotion objective.
+    6105 +- `scripts/run_codex_cifar10_depth_spanning.sh`:
+    6106 +  - Added positional argument 32 for `inward_shell_promotion_weight`.
+    6107 +  - Added compact `isp...` labeling in child result filenames.
+    6108 +  - Added header logging and Python CLI forwarding for `--inward_shell_promotion_weight`.
+    6109 +- `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`:
+    6110 +  - Added a sequential sweep script for the current all-column stage4 bridge/context branch.
+    6111 +  - Default weights are `0.0 0.00025 0.0005 0.001`.
+    6112 +  - Default diagnostics are `nodiag` and `post_training_diagnostics=core`.
+    6113 +- `tests/test_pooled_readout_norm.py`:
+    6114 +  - Added graph-construction coverage for inward promotion nodes and their target/context edges.
+    6115 +  - Added optimizer multiplier coverage showing promotion parameters use the target shell learning-rate multiplier.
+    6116 +
+    6117 +Recommended experiment:
+    6118 +
+    6119 +- Run the new sweep as a seed-42 scalar-weight test.
+    6120 +- Keep `POST_TRAINING_DIAGNOSTICS=core` so each child records the selected checkpoint accuracy before optional diagnostics.
+    6121 +- If one promotion weight improves or reduces collapse relative to the zero-weight control, run that weight again with `DIAGNOSE_MODE=composer_shells` and `POST_
+          TRAINING_DIAGNOSTICS=full` to inspect route interaction and promotion energy.
+    6122 +
+    6123 +Run command:
+    6124 +
+    6125 +```bash
+    6126 +bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+    6127 +```
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll verify that the implementation note is now the final section and then run the compile/unit checks.
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    Search Inward Shell-Promotion Implementation|Full Leave-One-Out Support Audit Result in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work-log note is now the final section. I’m running the focused verification: shell script syntax, Python compile, CLI help, and the targeted pytest file.
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py columnar_cl_fabricpc/
+  │ columns/accuracy_nodes.py
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --help | rg -n "inward_shell_promotion|
+  │ outer_shell_context_shell_prediction|post_training"
+  └ 27:                                       [--post_training_diagnostics {core,full}]
+    41:                                       [--outer_shell_context_shell_prediction_weight OUTER_SHELL_CONTEXT_SHELL_PREDICTION_WEIGHT]
+    … +2 lines (ctrl + t to view transcript)
+    211:  --outer_shell_context_shell_prediction_weight OUTER_SHELL_CONTEXT_SHELL_PREDICTION_WEIGHT
+    217:  --inward_shell_promotion_weight INWARD_SHELL_PROMOTION_WEIGHT
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+  └ ...............................................................          [100%]
+    63 passed in 14.70s
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The focused tests passed: 63 tests in the targeted file. I’m running a whitespace check on only the files I edited, since generated result logs already contain tqdm
+  carriage-return whitespace.
+
+• Ran git diff --check -- scripts/train_cifar10_depth_spanning.py scripts/run_codex_cifar10_depth_spanning.sh scripts/
+  │ run_codex_inward_shell_promotion_10col3shared_sweep.sh columnar_cl_fabricpc/columns/accuracy_nodes.py tests/test_pooled_readout_norm.py docs/
+  │ dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ (no output)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M columnar_cl_fabricpc/columns/accuracy_nodes.py
+    … +3 lines (ctrl + t to view transcript)
+     M tests/test_pooled_readout_norm.py
+    ?? scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+
+• Ran git diff --stat
+  └  columnar_cl_fabricpc/columns/accuracy_nodes.py     |  10 +-
+     ...24-work-log-codex-rogdora43-cifar10-hibacaml.md |  61 ++++++++
+    … +2 lines (ctrl + t to view transcript)
+     tests/test_pooled_readout_norm.py                  |  69 +++++++++
+     5 files changed, 300 insertions(+), 5 deletions(-)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The edited-file whitespace check passed. I’m adding those verification results to the same work-log entry before I close out with the command to run.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+8 -0)
+    6116
+    6117 +Verification:
+    6118 +
+    6119 +- `bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`: passed.
+    6120 +- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py columnar_cl_fabricpc
+          /columns/accuracy_nodes.py`: passed.
+    6121 +- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --help | rg -n "inward_shell_promotion|outer_shell_context_shell_pre
+          diction|post_training"`: the new CLI flag appears.
+    6122 +- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q`: 63 passed in 14.70 seconds.
+    6123 +- `git diff --check` on the edited code, script, test, and work-log files: passed.
+    6124 +
+    6125  Recommended experiment:
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Because the changed graph builder is used by several tests outside the targeted file, I’m running the full test suite as a final check.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -q
+  └ ...........EEEEEEEEEFF......FFF......................................... [ 34%]
+    ........................................................................ [ 69%]
+    … +741 lines (ctrl + t to view transcript)
+    ERROR tests/test_cifar_data.py::TestLoadCIFAR10::test_all_classes_present - O...
+    5 failed, 193 passed, 9 errors in 33.38s
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The full suite uncovered failures outside the focused file, so I’m waiting for the complete failure report before deciding whether these are from my changes or existing
+  tests that need the new default field.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The full suite failure is environmental: CIFAR data tests try to create /home/ni/.local/share/..., which is read-only in this sandbox. I’m checking whether there is an
+  existing repo-local data path we can point those tests at without downloading anything.
+
+• Explored
+  └ Read cifar.py
+    Search *cifar* in .
+    Search XDG_DATA_HOME|COLUMNAR|data_dir|get_data_dir|cifar-10 in tests
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The data tests need a writable or prepopulated CIFAR data directory, so they are outside what this sandbox can complete. I’m running the rest of the suite excluding
+  those data-download tests to confirm the code paths I changed.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -q --ignore=tests/test_cifar_data.py
+  └ ........................................................................ [ 38%]
+    ........................................................................ [ 77%]
+    .........................................                                [100%]
+    185 passed in 31.38s
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The non-data suite is still running and progressing normally.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The suite excluding CIFAR data-download tests passed. I’m recording both the sandbox limitation and the successful non-data run in the work log.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+2 -0)
+    6122  - `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q`: 63 passed in 14.70 seconds.
+    6123 +- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -q --ignore=tests/test_cifar_data.py`: 185 passed in 31.38 seconds.
+    6124 +- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -q`: 193 passed, 5 failed, and 9 errored. The failures/errors are all in `tests/test_cifar_data.py
+          ` because the sandbox cannot create `/home/ni/.local/share/columnar_cl_fabricpc/data`.
+    6125  - `git diff --check` on the edited code, script, test, and work-log files: passed.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m doing one final edited-file whitespace check after the work-log update, then I’ll summarize the implementation and give the run command.
+
+• Ran git diff --check -- scripts/train_cifar10_depth_spanning.py scripts/run_codex_cifar10_depth_spanning.sh scripts/
+  │ run_codex_inward_shell_promotion_10col3shared_sweep.sh columnar_cl_fabricpc/columns/accuracy_nodes.py tests/test_pooled_readout_norm.py docs/
+  │ dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ (no output)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M columnar_cl_fabricpc/columns/accuracy_nodes.py
+    … +3 lines (ctrl + t to view transcript)
+     M tests/test_pooled_readout_norm.py
+    ?? scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+
+• Ran git diff --stat -- scripts/train_cifar10_depth_spanning.py scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+  │ columnar_cl_fabricpc/columns/accuracy_nodes.py tests/test_pooled_readout_norm.py docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └  columnar_cl_fabricpc/columns/accuracy_nodes.py     |  10 +-
+     ...24-work-log-codex-rogdora43-cifar10-hibacaml.md |  71 +++++++++
+    … +2 lines (ctrl + t to view transcript)
+     tests/test_pooled_readout_norm.py                  |  69 +++++++++
+     5 files changed, 310 insertions(+), 5 deletions(-)
+
+• Updated Plan
+  └ ✔ Inspect current shell graph and CLI wiring
+    ✔ Implement inward shell-promotion objective
+    ✔ Update run scripts and work log
+    ✔ Run compile/tests and provide GPU command
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The implementation and tests are complete. I’m doing a compact self-review of the new symbols and call sites before the final response.
+
+• Explored
+  └ Search inward_shell_promotion|INWARD_SHELL_PROMOTION|promotion_prediction|Inward Shell Promotion in train_cifar10_depth_spanning.py
+    Read train_cifar10_depth_spanning.py, run_codex_inward_shell_promotion_10col3shared_sweep.sh
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the inward shell-promotion path and recorded it in the work log: columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-
+  hibacaml.md:6068.
+
+  What changed:
+
+  - Added --inward_shell_promotion_weight to columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py:4033.
+  - When positive, each active column gets predictive-coding shell objectives:
+    outer_shell -> middle_shell, middle_shell -> inner_shell, inner_shell -> hard_kernel.
+
+  - Added diagnostics for inward promotion energy.
+  - Updated the architecture diagram at the top of the training script.
+  - Added the sweep wrapper columnarCL-fabricPC-experiments/scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh:1.
+
+  Verification:
+
+  - py_compile: passed.
+  - tests/test_pooled_readout_norm.py: 63 passed.
+  - Full suite excluding CIFAR data-download tests: 185 passed.
+  - Full suite failed only because sandbox cannot create /home/ni/.local/share/columnar_cl_fabricpc/data.
+
+  Run this from the repo root:
+
+  bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+
+  It runs seed 42 for weights 0.0 0.00025 0.0005 0.001 with POST_TRAINING_DIAGNOSTICS=core.
+
+─ Worked for 9m 54s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› this run has finished
+
+
+• I’ll inspect the newest inward-promotion sweep logs, extract the core metrics for each weight, update the work log, and then stop at a recommendation for your review.
+
+• Explored
+  └ Search Starting inward_shell_promotion_weight|Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|completed_at|master_log in
+           codex_inward_shell_promotion_10col3shared_seed42_*.log
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+    ?? results/
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0_ocet0p0_ocbs0p0_sr0_br1_o
+    c1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_081208.log
+    ?? results/codex_inward_shell_promotion_10col3shared_seed42_rogdora43_20260718_081208.log
+
+• Explored
+  └ List results
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The sweep master log only shows the first weight starting. I’m checking whether the first child aborted, because “finished” here may mean the script exited early rather
+  than completing the four planned cases.
+
+• Explored
+  └ Read codex_inward_shell_promotion_10col3shared_seed42_rogdora43_20260718_081208.log,
+
+         codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0_ocet0p0_ocbs0p0_sr0_
+         br1_
+         oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_081208.log
+    Search Traceback|ERROR|Error|File name too long|No such file|Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|Post-training|Finished inward|completed_at|
+           log_path in codex_inward_shell_promotion_10col3shared_seed42_rogdora43_20260718_081208.log
+    Search *isp*20260718* in results
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• This was not a usable result set: the first child was killed during epoch 2 before any Results Summary, so none of the promotion weights ran. I’m comparing the graph/
+  header against the prior completed control to identify what changed enough to make this fail.
+
+• Explored
+  └ Search Graph:|Parameters:|Training for|Epoch 1:|Epoch 2:|Results Summary|Test Accuracy|Best Val in
+
+           codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0_ocet0p0_ocbs0p0_sr
+           0_br
+           1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_081208.log
+    Search Graph:|Parameters:|Training for|Epoch 1:|Epoch 2:|Results Summary|Test Accuracy|Best Val in
+
+           codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_o
+           c1_o
+           ce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_134042.log
+    Search git_commit|post_training_diagnostics|inward_shell_promotion_weight|completed_at|Killed|Finished inward in
+           codex_inward_shell_promotion_10col3shared_seed42_rogdora43_20260718_081208.log
+    List codex_inward_shell_promotion_10col3shared_seed42_rogdora43_20260718_081208.log
+
+• Context compacted
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll inspect the new result logs and the current work log, then I’ll record the outcome before recommending the next step. Since the latest run may have failed before
+  reaching a summary, I’ll separate execution status from model conclusions.
+
+• Explored
+  └ Search Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|Killed|Starting inward_shell_promotion_weight|Finished inward_shell_promotion_weight|
+  completed_at|
+           inward_shell_promotion_weight|Graph:|Parameters:|Epoch 1:|Epoch 2: in codex_inward_shell_promotion_10col3shared_seed42_rogdora43_20260718_081208.log
+
+• Ran pwd && git status --short --branch
+  └ /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+    ## improve/plain-cifar10...origin/improve/plain-cifar10
+    … +2 lines (ctrl + t to view transcript)
+    c1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_081208.log
+    ?? results/codex_inward_shell_promotion_10col3shared_seed42_rogdora43_20260718_081208.log
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    Search Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|Graph:|Parameters: in
+
+           codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_o
+           c1_o
+           ce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_134042.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The master and child logs show an early termination rather than completed metrics. I’m going to normalize the progress-line carriage returns so the work-log entry can
+  record the actual stopping point cleanly.
+
+• Ran tr '\r' '\n' < results/codex_inward_shell_promotion_10col3shared_seed42_rogdora43_20260718_081208.log | rg -n "git_commit|seed:|lr:|num_epochs:|diagnose_mode:|
+  │ post_training_diagnostics:|weights:|started_at|Starting inward_shell_promotion_weight|Finished inward_shell_promotion_weight|completed_at|Epoch 1: val_acc|Epoch
+  │ 2/20|Killed|Results Summary|Test Accuracy|Best Val"
+  └ 2:git_commit: d825383dadc94058917af15cbd53382d5f01402e
+    6:seed: 42
+    … +61 lines (ctrl + t to view transcript)
+    --outer_shell_context_evidence_teacher_weight "$outer_shell_context_evidence_teacher_weight" "${column_shell_readout_args[@]}" "${column_shell_bridge_args[@]}"
+    "${outer_shell_context_args[@]}" "${outer_shell_context_to_bridge_args[@]}" "${outer_shell_context_evidence_args[@]}" "${readout_args[@]}" "${extra_args[@]}"
+
+• Ran tr '\r' '\n' < results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0_ocet0p0_ocbs0p0_sr0_br1
+  │ _oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_081208.log | rg -n "inward_shell_promotion_weight:|Graph:|Parameters:|Train batches|Val batches|
+  │ … +1 lines
+  └ 36:inward_shell_promotion_weight: 0.0
+    105:Graph: 147 nodes, 273 edges
+    … +47 lines (ctrl + t to view transcript)
+    --outer_shell_context_evidence_teacher_weight "$outer_shell_context_evidence_teacher_weight" "${column_shell_readout_args[@]}" "${column_shell_bridge_args[@]}"
+    "${outer_shell_context_args[@]}" "${outer_shell_context_to_bridge_args[@]}" "${outer_shell_context_evidence_args[@]}" "${readout_args[@]}" "${extra_args[@]}"
+
+• Ran wc -l docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ 6137 docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The run stopped inside the zero-weight control, so it did not test the new inward-promotion mechanism. I’m updating the work log to make that distinction explicit and to
+  avoid treating the abort as model evidence.
+
+• Explored
+  └ Read run_codex_inward_shell_promotion_10col3shared_sweep.sh, 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I found the sweep script already supports a WEIGHTS environment override, so we can test the active promotion objective without editing the runner. That gives us a clean
+  next action after documenting the abort.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+48 -0)
+    6137  ```
+    6138 +
+    6139 +## 2026-07-18 Inward Shell-Promotion Sweep Abort
+    6140 +
+    6141 +Recorded on 2026-07-18 on `rogdora43`.
+    6142 +
+    6143 +Logs inspected:
+    6144 +
+    6145 +- `results/codex_inward_shell_promotion_10col3shared_seed42_rogdora43_20260718_081208.log`.
+    6146 +- `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0_ocet0p0_
+          ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_081208.log`.
+    6147 +
+    6148 +Configuration attempted:
+    6149 +
+    6150 +- Commit: `d825383dadc94058917af15cbd53382d5f01402e`.
+    6151 +- Seed: `42`.
+    6152 +- Learning rate: `0.005`.
+    6153 +- Epochs: `20`.
+    6154 +- Diagnostics: `DIAGNOSE_MODE=nodiag`, `POST_TRAINING_DIAGNOSTICS=core`.
+    6155 +- Model path: 10 columns, 3 shared columns, 7 nonshared active columns, explicit support mask `1,1,1,1,1,1,1,1,1,1`, `column_grid=stage4`, `embed_dim=64`, `micro
+          column_dim=32`, `combiner=shell_attention`, outer-shell context on, column shell bridge on, no bypass readout.
+    6156 +- Inward shell-promotion weights planned: `0.0`, `0.00025`, `0.0005`, `0.001`.
+    6157 +
+    6158 +Outcome:
+    6159 +
+    6160 +| Inward shell-promotion weight | Status | Last observed training point | Summary metrics |
+    6161 +| --- | --- | --- | --- |
+    6162 +| `0.0` | Killed during epoch 2 | Batch 368 of 7040; epoch 1 validation accuracy was 11.32% | None |
+    6163 +| `0.00025` | Not started | The prior child process exited nonzero | None |
+    6164 +| `0.0005` | Not started | The prior child process exited nonzero | None |
+    6165 +| `0.001` | Not started | The prior child process exited nonzero | None |
+    6166 +
+    6167 +Interpretation:
+    6168 +
+    6169 +- The sweep did not produce a usable CIFAR-10 classification result.
+    6170 +- The process died during the zero-weight control. Inward shell promotion was inactive in that child run because `inward_shell_promotion_weight=0.0`.
+    6171 +- The child graph had 147 nodes, 273 edges, and 3,125,444 parameters. That matches the previous completed all-column control from `results/codex_dspan_10c_3s_7a_
+          cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nob
+          yp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_134042.log`, which reached 31.93% test accuracy and 32.60% best validation accuracy.
+    6172 +- Because the abort happened before any nonzero inward shell-promotion weight ran, this result is evidence about experiment execution only. It is not evidence fo
+          r or against the new promotion objective.
+    6173 +
+    6174 +Recommended next step:
+    6175 +
+    6176 +- Do not change architecture based on this run.
+    6177 +- Skip the already-tested zero-weight control and run one active promotion case first.
+    6178 +- Use `inward_shell_promotion_weight=0.0005` as the first active case. This weight is small enough to act as a local consolidation pressure rather than dominatin
+          g classification energy.
+    6179 +- If the single active case completes, compare it to the prior completed zero-weight control. If it aborts again, add runner-level failure handling and host/GPU
+          memory snapshots before continuing the sweep.
+    6180 +
+    6181 +Run command:
+    6182 +
+    6183 +```bash
+    6184 +WEIGHTS="0.0005" bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+    6185 +```
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now records the abort as an execution result, not a model result. I’m doing a quick formatting check and grabbing the final line references for the report.
+
+• Ran git diff --check -- docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ (no output)
+
+• Explored
+  └ Search 2026-07-18 Inward Shell-Promotion Sweep Abort|Run command:|WEIGHTS=\"0.0005\"|d825383dadc94058917af15cbd53382d5f01402e|31.93% in 20260624-work-log-codex-
+  rogdora43-
+           cifar10-hibacaml.md
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +2 lines (ctrl + t to view transcript)
+    c1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_081208.log
+    ?? results/codex_inward_shell_promotion_10col3shared_seed42_rogdora43_20260718_081208.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The run ended by process kill before producing experiment results. I updated the work log here: columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-
+  rogdora43-cifar10-hibacaml.md:6139.
+
+  Key result: only the inward_shell_promotion_weight=0.0 control started, and it was killed during epoch 2 at batch 368/7040. It had one validation result before dying:
+  epoch 1 val_acc=0.1132. The nonzero promotion weights 0.00025, 0.0005, and 0.001 never started, so this tells us nothing yet about inward shell promotion.
+
+  My recommendation is not to change architecture from this. The previous completed zero-weight all-column control already reached 31.93% test accuracy, so we should skip
+  rerunning the zero-weight case and run one active promotion case directly:
+
+  WEIGHTS="0.0005" bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+
+  Verification: git diff --check passed for the work-log update.
+
+─ Worked for 3m 21s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Token usage: total=23,104,576 input=21,959,072 (+ 213,117,568 cached) output=1,145,504 (reasoning 393,216)
+To continue this session, run codex resume 019edead-5bfc-79e0-8c41-d2d37ed1d8c7
+ni@rogdora43:~/repos/fpc$ cat resume-codex 
+To continue this session, run codex resume 019defb2-720b-7fb1-8cc5-2e0f81232288
+
+
+i apparently started another session too:
+
+codex resume 019edead-5bfc-79e0-8c41-d2d37ed1d8c7
+codex resume 019edead-5bfc-79e0-8c41-d2d37ed1d8c7

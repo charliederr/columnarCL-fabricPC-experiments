@@ -6135,3 +6135,51 @@ Run command:
 ```bash
 bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
 ```
+
+## 2026-07-18 Inward Shell-Promotion Sweep Abort
+
+Recorded on 2026-07-18 on `rogdora43`.
+
+Logs inspected:
+
+- `results/codex_inward_shell_promotion_10col3shared_seed42_rogdora43_20260718_081208.log`.
+- `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_081208.log`.
+
+Configuration attempted:
+
+- Commit: `d825383dadc94058917af15cbd53382d5f01402e`.
+- Seed: `42`.
+- Learning rate: `0.005`.
+- Epochs: `20`.
+- Diagnostics: `DIAGNOSE_MODE=nodiag`, `POST_TRAINING_DIAGNOSTICS=core`.
+- Model path: 10 columns, 3 shared columns, 7 nonshared active columns, explicit support mask `1,1,1,1,1,1,1,1,1,1`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`, `combiner=shell_attention`, outer-shell context on, column shell bridge on, no bypass readout.
+- Inward shell-promotion weights planned: `0.0`, `0.00025`, `0.0005`, `0.001`.
+
+Outcome:
+
+| Inward shell-promotion weight | Status | Last observed training point | Summary metrics |
+| --- | --- | --- | --- |
+| `0.0` | Killed during epoch 2 | Batch 368 of 7040; epoch 1 validation accuracy was 11.32% | None |
+| `0.00025` | Not started | The prior child process exited nonzero | None |
+| `0.0005` | Not started | The prior child process exited nonzero | None |
+| `0.001` | Not started | The prior child process exited nonzero | None |
+
+Interpretation:
+
+- The sweep did not produce a usable CIFAR-10 classification result.
+- The process died during the zero-weight control. Inward shell promotion was inactive in that child run because `inward_shell_promotion_weight=0.0`.
+- The child graph had 147 nodes, 273 edges, and 3,125,444 parameters. That matches the previous completed all-column control from `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_134042.log`, which reached 31.93% test accuracy and 32.60% best validation accuracy.
+- Because the abort happened before any nonzero inward shell-promotion weight ran, this result is evidence about experiment execution only. It is not evidence for or against the new promotion objective.
+
+Recommended next step:
+
+- Do not change architecture based on this run.
+- Skip the already-tested zero-weight control and run one active promotion case first.
+- Use `inward_shell_promotion_weight=0.0005` as the first active case. This weight is small enough to act as a local consolidation pressure rather than dominating classification energy.
+- If the single active case completes, compare it to the prior completed zero-weight control. If it aborts again, add runner-level failure handling and host/GPU memory snapshots before continuing the sweep.
+
+Run command:
+
+```bash
+WEIGHTS="0.0005" bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+```
