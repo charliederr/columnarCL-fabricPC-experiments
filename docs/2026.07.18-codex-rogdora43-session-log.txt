@@ -1,0 +1,1009 @@
+
+    3506 -    test_metrics = test_ablation_metrics["combined"]
+    3507 -    test_acc = float(test_metrics.get("accuracy", 0.0))
+    3534
+    3535      print("\n" + "=" * 70)
+    3510 -    print("Results Summary")
+    3536 +    print("Detailed Test Diagnostics")
+    3537      print("=" * 70)
+    3512 -    print(f"Test Accuracy: {test_acc:.4f} ({test_acc * 100:.2f}%)")
+    3513 -    if best_params is not None:
+    3514 -        print(f"Best Val Accuracy: {best_val_acc:.4f}")
+    3515 -        print(f"Best Val Epoch: {best_val_epoch}")
+    3538      print_ablation_results("Test Readout Ablations", test_ablation_metrics)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The key ordering is in place. Next I’m adding the parser option and carrying it through the runner so long sweeps can select the core-only mode without changing older
+  command positions.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+11 -0)
+    3722      parser.add_argument(
+    3723 +        "--post_training_diagnostics",
+    3724 +        choices=["core", "full"],
+    3725 +        default="full",
+    3726 +        help=(
+    3727 +            "'core' prints the selected-checkpoint test accuracy and validation "
+    3728 +            "summary before returning. 'full' keeps the core summary and then "
+    3729 +            "runs the expensive composer, shell, teacher-head, and path "
+    3730 +            "ablation diagnostics."
+    3731 +        ),
+    3732 +    )
+    3733 +    parser.add_argument(
+    3734          "--bypass_columns",
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m updating the shell wrapper with a 31st positional argument, core or full. Existing calls still default to full, and the audit script will pass core.
+
+• Edited columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh (+13 -0)
+     35  support_mask="${30:-}"
+     36 +post_training_diagnostics="${31:-full}"
+     37  hostname_value="$(hostname)"
+        ⋮
+     68
+     69 +case "$post_training_diagnostics" in
+     70 +    core|full)
+     71 +        ;;
+     72 +    *)
+     73 +        echo "Unknown post-training diagnostics mode: $post_training_diagnostics" >&2
+     74 +        echo "Use 'core' or 'full'." >&2
+     75 +        exit 2
+     76 +        ;;
+     77 +esac
+     78 +
+     79  case "$column_mode" in
+        ⋮
+    298      echo "diagnose: $diagnose_label"
+    299 +    echo "post_training_diagnostics: $post_training_diagnostics"
+    300      echo "column_teacher_head: enabled"
+        ⋮
+    344          --seed "$seed" \
+    345 +        --post_training_diagnostics "$post_training_diagnostics" \
+    346          --layer_norm_tokens \
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Now I’m changing the support-mask audit script itself: default diagnostic mode becomes nodiag, and the post-training path becomes core. That keeps the audit focused on
+  completing comparable accuracy measurements.
+
+• Edited columnarCL-fabricPC-experiments/scripts/run_codex_support_leave_one_out_10col3shared.sh (+5 -2)
+     11  num_epochs="${NUM_EPOCHS:-20}"
+     12 -diagnose_mode="${DIAGNOSE_MODE:-composer_shells}"
+     12 +diagnose_mode="${DIAGNOSE_MODE:-nodiag}"
+     13 +post_training_diagnostics="${POST_TRAINING_DIAGNOSTICS:-core}"
+     14
+        ⋮
+     43      echo "diagnose_mode: $diagnose_mode"
+     44 +    echo "post_training_diagnostics: $post_training_diagnostics"
+     45      echo "num_columns: 10"
+        ⋮
+    115              "all_active" \
+    114 -            "$support_mask"
+    116 +            "$support_mask" \
+    117 +            "$post_training_diagnostics"
+    118
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The runners are now wired. I’m going to inspect the altered blocks and then add tests around the new core diagnostic path at the lightest practical level.
+
+• Updated Plan
+  └ ✔ Inspect current post-training evaluation flow and runner arguments
+    ✔ Add durable core metric path before diagnostics
+    □ Gate expensive post-training ablations for long sweeps
+    □ Update support-mask audit runner and work log
+    □ Run focused verification
+
+• Explored
+  └ Read train_cifar10_depth_spanning.py, run_codex_cifar10_depth_spanning.sh, run_codex_support_leave_one_out_10col3shared.sh
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The core/full gate is implemented. I’m updating the work log next with the exact mechanism and the new recovery run command, then I’ll run syntax and focused tests.
+
+• Updated Plan
+  └ ✔ Inspect current post-training evaluation flow and runner arguments
+    ✔ Add durable core metric path before diagnostics
+    ✔ Gate expensive post-training ablations for long sweeps
+    □ Update support-mask audit runner and work log
+    □ Run focused verification
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll append a new dated implementation note rather than revising the prior failure note, so the log preserves both the failure and the fix that followed it.
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z'
+  └ 2026-07-17 06:17:03 EDT
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+47 -0)
+    5831  - Then rerun the support-mask audit with a lighter default diagnostic setting. The first rerun should include only the all-column control and one leave-one-out m
+          ask to verify that the script writes complete metrics before committing another overnight run.
+    5832 +
+    5833 +## 2026-07-17 Durable Core Metrics Implementation
+    5834 +
+    5835 +Recorded on 2026-07-17 06:17 EDT on `rogdora43`.
+    5836 +
+    5837 +Implemented after confirmation:
+    5838 +
+    5839 +- Added `--post_training_diagnostics` to `scripts/train_cifar10_depth_spanning.py`.
+    5840 +- `post_training_diagnostics = core` means the script evaluates the selected checkpoint on the test loader, prints `Results Summary`, and returns before after-tr
+          aining diagnostics.
+    5841 +- `post_training_diagnostics = full` keeps the new early `Results Summary` and then runs the expensive composer, shell, teacher-head, readout, bridge, context, a
+          nd path ablation diagnostics.
+    5842 +- The selected checkpoint is `best_params` when validation evaluation has selected one; otherwise it is `final_params`.
+    5843 +- The core metric path calls FabricPC `evaluate_pcn(eval_params, structure, test_loader, train_config, summary_key)`, where `eval_params` is the selected paramet
+          er tree and `summary_key` is the deterministic JAX pseudo-random key derived from the experiment seed.
+    5844 +- The script now prints `Training time`, `Test Accuracy`, `Best Val Accuracy`, and `Best Val Epoch` before any post-training shell norms, composer diagnostics, o
+          r ablation evaluations can start.
+    5845 +- Epoch validation lines now use `flush=True`, so `val_acc` entries are more likely to survive if a later post-training step is killed.
+    5846 +- The previous full diagnostic output is now labeled `Detailed Test Diagnostics` so it is distinct from the early durable `Results Summary`.
+    5847 +
+    5848 +Runner changes:
+    5849 +
+    5850 +- Added trailing positional argument 31 to `scripts/run_codex_cifar10_depth_spanning.sh`.
+    5851 +- Argument 31 is `post_training_diagnostics`, with valid values `core` and `full`.
+    5852 +- Existing calls keep the default `full`.
+    5853 +- The wrapper records `post_training_diagnostics` in each child log header.
+    5854 +- Updated `scripts/run_codex_support_leave_one_out_10col3shared.sh` to default to `DIAGNOSE_MODE=nodiag`.
+    5855 +- Updated `scripts/run_codex_support_leave_one_out_10col3shared.sh` to default to `POST_TRAINING_DIAGNOSTICS=core`.
+    5856 +- The support-mask audit still accepts `DIAGNOSE_MODE` and `POST_TRAINING_DIAGNOSTICS` environment overrides for targeted full diagnostic runs.
+    5857 +
+    5858 +Recommended recovery run:
+    5859 +
+    5860 +```bash
+    5861 +bash scripts/run_codex_support_leave_one_out_10col3shared.sh all:1,1,1,1,1,1,1,1,1,1 drop_col04:1,1,1,1,0,1,1,1,1,1
+    5862 +```
+    5863 +
+    5864 +Interpretation target:
+    5865 +
+    5866 +- Confirm that both child logs print `Results Summary`, `Test Accuracy`, `Best Val Accuracy`, and `Best Val Epoch`.
+    5867 +- Confirm that the master log reaches `completed_at`.
+    5868 +- If this two-mask recovery run completes, run the full default leave-one-out audit:
+    5869 +
+    5870 +```bash
+    5871 +bash scripts/run_codex_support_leave_one_out_10col3shared.sh
+    5872 +```
+    5873 +
+    5874 +If a specific support mask later looks promising, run diagnostics on that mask only:
+    5875 +
+    5876 +```bash
+    5877 +DIAGNOSE_MODE=composer_shells POST_TRAINING_DIAGNOSTICS=full bash scripts/run_codex_support_leave_one_out_10col3shared.sh all:1,1,1,1,1,1,1,1,1,1
+    5878 +```
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now has the implementation note and the pasteable recovery commands. I’m moving to verification: shell syntax, Python compile, CLI help, focused tests, and
+  whitespace checks.
+
+• Updated Plan
+  └ ✔ Inspect current post-training evaluation flow and runner arguments
+    ✔ Add durable core metric path before diagnostics
+    ✔ Gate expensive post-training ablations for long sweeps
+    ✔ Update support-mask audit runner and work log
+    □ Run focused verification
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m running only local verification, not a CIFAR training smoke. For the GPU-backed recovery run, I’ll give you the exact command after these checks pass.
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh
+  └ (no output)
+
+• Ran bash -n scripts/run_codex_support_leave_one_out_10col3shared.sh
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --help | rg -n "post_training_diagnostics|support_mask|column_mode"
+  └ 7:                                       [--column_mode {all_active,first_sparse,random_sparse}]
+    8:                                       [--support_mask SUPPORT_MASK]
+    … +3 lines (ctrl + t to view transcript)
+    80:                        --column_mode, --num_shared, and --active_nonshared
+    130:  --post_training_diagnostics {core,full}
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Syntax and CLI checks passed. I’m running the focused unit test file now; this is the same test file that covers the support mask and graph construction path.
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+  └ .............................................................            [100%]
+    61 passed in 13.67s
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The focused tests passed: 61 passed. I’m adding those verification results to the work log so the implementation note is complete.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+50 -0)
+    5878  ```
+    5879 +
+    5880 +Verification:
+    5881 +
+    5882 +```bash
+    5883 +bash -n scripts/run_codex_cifar10_depth_spanning.sh
+    5884 +```
+    5885 +
+    5886 +Result:
+    5887 +
+    5888 +- Passed.
+    5889 +
+    5890 +```bash
+    5891 +bash -n scripts/run_codex_support_leave_one_out_10col3shared.sh
+    5892 +```
+    5893 +
+    5894 +Result:
+    5895 +
+    5896 +- Passed.
+    5897 +
+    5898 +```bash
+    5899 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+    5900 +```
+    5901 +
+    5902 +Result:
+    5903 +
+    5904 +- Passed.
+    5905 +
+    5906 +```bash
+    5907 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --help | rg -n "post_training_diagnostics|support_mask|column_mode"
+    5908 +```
+    5909 +
+    5910 +Result:
+    5911 +
+    5912 +- `--post_training_diagnostics`, `--support_mask`, and `--column_mode` appear in the CLI help.
+    5913 +
+    5914 +```bash
+    5915 +/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q
+    5916 +```
+    5917 +
+    5918 +Result:
+    5919 +
+    5920 +- 61 passed in 13.67 seconds.
+    5921 +
+    5922 +```bash
+    5923 +git diff --check
+    5924 +```
+    5925 +
+    5926 +Result:
+    5927 +
+    5928 +- Passed.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The verification results are recorded. I’ll do one final status and whitespace check, then I’ll give you the command for the GPU run.
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +6 lines (ctrl + t to view transcript)
+    ?? results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260716_204115.log
+    ?? scripts/run_codex_support_leave_one_out_10col3shared.sh
+
+• Ran git diff --stat
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md | 247 +++++++++++++++++++++
+     scripts/run_codex_cifar10_depth_spanning.sh        |  26 ++-
+     scripts/train_cifar10_depth_spanning.py            | 123 ++++++++--
+     tests/test_pooled_readout_norm.py                  |  40 ++++
+     4 files changed, 417 insertions(+), 19 deletions(-)
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Updated Plan
+  └ ✔ Inspect current post-training evaluation flow and runner arguments
+    ✔ Add durable core metric path before diagnostics
+    ✔ Gate expensive post-training ablations for long sweeps
+    ✔ Update support-mask audit runner and work log
+    ✔ Run focused verification
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ve finished the implementation and verification. I’m just grabbing line references for the final note so you can jump directly to the changed mechanisms.
+
+• Explored
+  └ Search post_training_diagnostics|POST_TRAINING_DIAGNOSTICS|diagnose_mode in run_codex_cifar10_depth_spanning.sh
+    Search post_training_diagnostics|Results Summary|Detailed Test Diagnostics|Training time in train_cifar10_depth_spanning.py
+    Search Durable Core Metrics Implementation|Recommended recovery run|Verification: in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented.
+
+  Key changes:
+
+  - columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py:3192 now prints durable core metrics immediately after training, before expensive diagnostics.
+  - Added --post_training_diagnostics {core,full} at columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py:3723.
+  - columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh:36 now accepts trailing argument 31 for core or full.
+  - columnarCL-fabricPC-experiments/scripts/run_codex_support_leave_one_out_10col3shared.sh:12 now defaults to DIAGNOSE_MODE=nodiag and POST_TRAINING_DIAGNOSTICS=core.
+  - Updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:5833.
+
+  Verification passed:
+
+  - bash -n for both runner scripts
+  - py_compile
+  - CLI help includes the new option
+  - pytest tests/test_pooled_readout_norm.py -q: 61 passed
+  - git diff --check
+
+  Please run this two-mask recovery check on the GPU:
+
+  bash scripts/run_codex_support_leave_one_out_10col3shared.sh all:1,1,1,1,1,1,1,1,1,1 drop_col04:1,1,1,1,0,1,1,1,1,1
+
+─ Worked for 4m 07s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› This run has completed.
+
+
+• I’ll inspect the newest support-mask master log and its child logs, then record the outcome in the work log before recommending whether to run the full audit or adjust
+  the script again.
+
+• Explored
+  └ List codex_support_leave_one_out_10col3shared_seed42_*
+    List codex_dspan_10c_3s_7a_cmall_sm*_shatt_cgstage4_*
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+    ?? results/
+    … +4 lines (ctrl + t to view transcript)
+    _ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_062131.log
+    ?? results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_062131.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The recovery run produced a new master log and two child logs. I can see the intended all mask and drop_col04 mask; now I’m extracting the durable summaries and checking
+  that the master reached completed_at.
+
+• Explored
+  └ Search started_at|Starting support_mask_label|Finished support_mask_label|completed_at|master_log|Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|Post-
+           training diagnostics|Killed|Traceback|Error in codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_062131.log
+    Search support_mask:|post_training_diagnostics|Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|Post-training diagnostics|Epoch [0-9]+: val_acc|Killed|
+           Traceback|Error in
+
+           codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_o
+           c1_o
+           ce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_062131.log
+    Search support_mask:|post_training_diagnostics|Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|Post-training diagnostics|Epoch [0-9]+: val_acc|Killed|
+           Traceback|Error in
+
+           codex_dspan_10c_3s_7a_cmall_sm1111011111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_o
+           c1_o
+           ce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_082358.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Both child processes finished and wrote core summaries. I’m extracting the validation curves now so the work log records whether the two masks differed only at test
+  accuracy or also during validation.
+
+• Ran tr '\r' '\n' < results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oc
+  │ e0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_062131.log | rg -o "Epoch [0-9]+: val_acc=[0-9.]+"
+  └ Epoch 1: val_acc=0.1134
+    Epoch 2: val_acc=0.2176
+    … +16 lines (ctrl + t to view transcript)
+    Epoch 19: val_acc=0.3080
+    Epoch 20: val_acc=0.3138
+
+• Ran tr '\r' '\n' < results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111011111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oc
+  │ e0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_082358.log | rg -o "Epoch [0-9]+: val_acc=[0-9.]+"
+  └ Epoch 1: val_acc=0.1114
+    Epoch 2: val_acc=0.2130
+    … +16 lines (ctrl + t to view transcript)
+    Epoch 19: val_acc=0.3176
+    Epoch 20: val_acc=0.3190
+
+• Explored
+  └ Read codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_062131.log, 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The two-mask recovery did what it was supposed to do: both child logs reached Results Summary, and the master log reached completed_at. I’m appending the result table
+  and recommendation to the work log now.
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z'
+  └ 2026-07-17 13:35:24 EDT
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll keep this section concise but include the key mechanism-level interpretation: the infrastructure is fixed enough for the audit, and drop_col04 is not measurably
+  different from all columns in this seed.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+79 -0)
+    4486
+    4487 +## 2026-07-17 Two-Mask Support Audit Recovery Result
+    4488 +
+    4489 +Recorded on 2026-07-17 13:35 EDT on `rogdora43`.
+    4490 +
+    4491 +Run inspected:
+    4492 +
+    4493 +- Master log: `results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_062131.log`.
+    4494 +- All-column child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_o
+          csp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_062131.log`.
+    4495 +- `drop_col04` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111011111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0
+          _ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_082358.log`.
+    4496 +- Commit recorded by the master log: `38e08fdbe0ab9ae2ab315bda1294e9149b5cad22`.
+    4497 +
+    4498 +Configuration:
+    4499 +
+    4500 +- Seed 42, learning rate 0.005, 20 epochs.
+    4501 +- 10 columns, 3 shared columns, 7 active non-shared columns, `column_mode=all_active`.
+    4502 +- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, and `microcolumn_dim=32`.
+    4503 +- `outer_shell_context=on`, `column_shell_bridge=on`, `column_shell_readout=off`, `outer_shell_context_to_bridge=off`, and no backbone bypass.
+    4504 +- `shell_lr_multipliers=1,1.5,2,3`, where the four values apply to `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell`.
+    4505 +- `diagnose_mode=nodiag`.
+    4506 +- `post_training_diagnostics=core`.
+    4507 +
+    4508 +Result:
+    4509 +
+    4510 +| Mask label | `support_mask` | Best validation accuracy | Best validation epoch | Test accuracy |
+    4511 +| --- | --- | ---: | ---: | ---: |
+    4512 +| `all` | `1,1,1,1,1,1,1,1,1,1` | 33.66% | 18 | 33.40% |
+    4513 +| `drop_col04` | `1,1,1,1,0,1,1,1,1,1` | 33.92% | 18 | 33.41% |
+    4514 +
+    4515 +Validation trajectory:
+    4516 +
+    4517 +| Epoch | `all` validation accuracy | `drop_col04` validation accuracy |
+    4518 +| ---: | ---: | ---: |
+    4519 +| 1 | 11.34% | 11.14% |
+    4520 +| 2 | 21.76% | 21.30% |
+    4521 +| 3 | 20.30% | 22.16% |
+    4522 +| 4 | 24.56% | 19.74% |
+    4523 +| 5 | 25.88% | 25.84% |
+    4524 +| 6 | 24.12% | 24.70% |
+    4525 +| 7 | 25.88% | 24.66% |
+    4526 +| 8 | 27.14% | 27.90% |
+    4527 +| 9 | 30.18% | 22.74% |
+    4528 +| 10 | 23.86% | 28.16% |
+    4529 +| 11 | 22.70% | 23.36% |
+    4530 +| 12 | 27.18% | 27.32% |
+    4531 +| 13 | 25.80% | 28.48% |
+    4532 +| 14 | 28.06% | 26.98% |
+    4533 +| 15 | 26.82% | 27.18% |
+    4534 +| 16 | 29.22% | 28.50% |
+    4535 +| 17 | 29.14% | 30.12% |
+    4536 +| 18 | 33.66% | 33.92% |
+    4537 +| 19 | 30.80% | 31.76% |
+    4538 +| 20 | 31.38% | 31.90% |
+    4539 +
+    4540 +Infrastructure conclusion:
+    4541 +
+    4542 +- The durable core metric path works for this recovery run.
+    4543 +- Both child logs printed `Results Summary`, `Test Accuracy`, `Best Val Accuracy`, and `Best Val Epoch`.
+    4544 +- The master log reached `completed_at`.
+    4545 +- This fixes the immediate measurement failure from the prior support-mask audit.
+    4546 +
+    4547 +Model interpretation:
+    4548 +
+    4549 +- Dropping column 4 did not materially change test accuracy in seed 42.
+    4550 +- The all-column and `drop_col04` results differ by 0.01 percentage points on test accuracy.
+    4551 +- The best validation score is slightly higher for `drop_col04`, but the difference is small enough that it should be treated as support neutrality until the rem
+          aining leave-one-out masks are tested.
+    4552 +- The two completed masks are slightly above the previous 10-column random-support current-code control of 32.47% test accuracy, but this comparison is not defin
+          itive because the recovery run used the all-column support construction and only one seed.
+    4553 +
+    4554 +Recommended next step:
+    4555 +
+    4556 +- Run the full default leave-one-out support audit now that core metrics survive.
+    4557 +- Keep `DIAGNOSE_MODE=nodiag` and `POST_TRAINING_DIAGNOSTICS=core` for this audit.
+    4558 +- After the full audit identifies any promising or harmful masks, run full diagnostics only for the all-column control and the most informative leave-one-out mas
+          k.
+    4559 +
+    4560 +Run command:
+    4561 +
+    4562 +```bash
+    4563 +bash scripts/run_codex_support_leave_one_out_10col3shared.sh
+    4564 +```
+    4565 +
+    4566  ```bash
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The result section is in the work log. I’m doing a final whitespace/status check before I report back with the recommendation and command.
+
+• Ran git diff --check
+  └ (no output)
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +5 lines (ctrl + t to view transcript)
+    _ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_062131.log
+    ?? results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_062131.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The whitespace check passed, but the tail did not show the new section, which means the patch matched an earlier repeated Result: Passed block again. I’m moving the
+  section to the actual end of the work log before I report back.
+
+• Explored
+  └ Search Two-Mask Support Audit Recovery Result|Recommended next step:|Run command: in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The inserted recovery section is at line 4487, inside older chronology. I’ll remove that block from there and re-append it after the current final section.
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m applying the relocation as one patch: delete the misplaced block and append the same block after the final verification block.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The relocation patch missed because the surrounding context has changed. I’m narrowing the block boundaries and will remove it with smaller hunks.
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I have the exact line range now. I’ll delete that block and re-add it after the final verification block using the unique 61 passed in 13.67 seconds tail.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+8 -8)
+    4486
+    4487 +```bash
+    4488 +cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash -n scripts/run_codex_cifar10_depth_spanning.sh
+    4489 +```
+    4490 +
+    4491 +Result:
+    4492 +
+    4493 +- Passed.
+    4494 +
+    4495  ## 2026-07-17 Two-Mask Support Audit Recovery Result
+         ⋮
+    4572  ```
+    4565 -
+    4566 -```bash
+    4567 -cd /home/ni/repos/fpc/columnarCL-fabricPC-experiments && bash -n scripts/run_codex_cifar10_depth_spanning.sh
+    4568 -```
+    4569 -
+    4570 -Result:
+    4571 -
+    4572 -- Passed.
+    4573
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The relocation is applied. I’m checking that the section now appears once and at the end.
+
+• Explored
+  └ Search Two-Mask Support Audit Recovery Result in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Ran git diff --check
+  └ (no output)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• It still matched the local Result: Passed near the older section. I’ll split this into two patches: first remove the misplaced block, then append using the unique final
+  verification text.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+0 -79)
+    4494
+    4495 -## 2026-07-17 Two-Mask Support Audit Recovery Result
+    4496 -
+    4497 -Recorded on 2026-07-17 13:35 EDT on `rogdora43`.
+    4498 -
+    4499 -Run inspected:
+    4500 -
+    4501 -- Master log: `results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_062131.log`.
+    4502 -- All-column child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_o
+          csp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_062131.log`.
+    4503 -- `drop_col04` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111011111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0
+          _ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_082358.log`.
+    4504 -- Commit recorded by the master log: `38e08fdbe0ab9ae2ab315bda1294e9149b5cad22`.
+    4505 -
+    4506 -Configuration:
+    4507 -
+    4508 -- Seed 42, learning rate 0.005, 20 epochs.
+    4509 -- 10 columns, 3 shared columns, 7 active non-shared columns, `column_mode=all_active`.
+    4510 -- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, and `microcolumn_dim=32`.
+    4511 -- `outer_shell_context=on`, `column_shell_bridge=on`, `column_shell_readout=off`, `outer_shell_context_to_bridge=off`, and no backbone bypass.
+    4512 -- `shell_lr_multipliers=1,1.5,2,3`, where the four values apply to `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell`.
+    4513 -- `diagnose_mode=nodiag`.
+    4514 -- `post_training_diagnostics=core`.
+    4515 -
+    4516 -Result:
+    4517 -
+    4518 -| Mask label | `support_mask` | Best validation accuracy | Best validation epoch | Test accuracy |
+    4519 -| --- | --- | ---: | ---: | ---: |
+    4520 -| `all` | `1,1,1,1,1,1,1,1,1,1` | 33.66% | 18 | 33.40% |
+    4521 -| `drop_col04` | `1,1,1,1,0,1,1,1,1,1` | 33.92% | 18 | 33.41% |
+    4522 -
+    4523 -Validation trajectory:
+    4524 -
+    4525 -| Epoch | `all` validation accuracy | `drop_col04` validation accuracy |
+    4526 -| ---: | ---: | ---: |
+    4527 -| 1 | 11.34% | 11.14% |
+    4528 -| 2 | 21.76% | 21.30% |
+    4529 -| 3 | 20.30% | 22.16% |
+    4530 -| 4 | 24.56% | 19.74% |
+    4531 -| 5 | 25.88% | 25.84% |
+    4532 -| 6 | 24.12% | 24.70% |
+    4533 -| 7 | 25.88% | 24.66% |
+    4534 -| 8 | 27.14% | 27.90% |
+    4535 -| 9 | 30.18% | 22.74% |
+    4536 -| 10 | 23.86% | 28.16% |
+    4537 -| 11 | 22.70% | 23.36% |
+    4538 -| 12 | 27.18% | 27.32% |
+    4539 -| 13 | 25.80% | 28.48% |
+    4540 -| 14 | 28.06% | 26.98% |
+    4541 -| 15 | 26.82% | 27.18% |
+    4542 -| 16 | 29.22% | 28.50% |
+    4543 -| 17 | 29.14% | 30.12% |
+    4544 -| 18 | 33.66% | 33.92% |
+    4545 -| 19 | 30.80% | 31.76% |
+    4546 -| 20 | 31.38% | 31.90% |
+    4547 -
+    4548 -Infrastructure conclusion:
+    4549 -
+    4550 -- The durable core metric path works for this recovery run.
+    4551 -- Both child logs printed `Results Summary`, `Test Accuracy`, `Best Val Accuracy`, and `Best Val Epoch`.
+    4552 -- The master log reached `completed_at`.
+    4553 -- This fixes the immediate measurement failure from the prior support-mask audit.
+    4554 -
+    4555 -Model interpretation:
+    4556 -
+    4557 -- Dropping column 4 did not materially change test accuracy in seed 42.
+    4558 -- The all-column and `drop_col04` results differ by 0.01 percentage points on test accuracy.
+    4559 -- The best validation score is slightly higher for `drop_col04`, but the difference is small enough that it should be treated as support neutrality until the rem
+          aining leave-one-out masks are tested.
+    4560 -- The two completed masks are slightly above the previous 10-column random-support current-code control of 32.47% test accuracy, but this comparison is not defin
+          itive because the recovery run used the all-column support construction and only one seed.
+    4561 -
+    4562 -Recommended next step:
+    4563 -
+    4564 -- Run the full default leave-one-out support audit now that core metrics survive.
+    4565 -- Keep `DIAGNOSE_MODE=nodiag` and `POST_TRAINING_DIAGNOSTICS=core` for this audit.
+    4566 -- After the full audit identifies any promising or harmful masks, run full diagnostics only for the all-column control and the most informative leave-one-out mas
+          k.
+    4567 -
+    4568 -Run command:
+    4569 -
+    4570 -```bash
+    4571 -bash scripts/run_codex_support_leave_one_out_10col3shared.sh
+    4572 -```
+    4573 -
+    4495  ```bash
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The misplaced block is removed. Now I’ll append it after the final verification block using the unique test result line as the anchor.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+79 -0)
+    5928  - Passed.
+    5929 +
+    5930 +## 2026-07-17 Two-Mask Support Audit Recovery Result
+    5931 +
+    5932 +Recorded on 2026-07-17 13:35 EDT on `rogdora43`.
+    5933 +
+    5934 +Run inspected:
+    5935 +
+    5936 +- Master log: `results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_062131.log`.
+    5937 +- All-column child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_o
+          csp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_062131.log`.
+    5938 +- `drop_col04` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111011111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0
+          _ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_082358.log`.
+    5939 +- Commit recorded by the master log: `38e08fdbe0ab9ae2ab315bda1294e9149b5cad22`.
+    5940 +
+    5941 +Configuration:
+    5942 +
+    5943 +- Seed 42, learning rate 0.005, 20 epochs.
+    5944 +- 10 columns, 3 shared columns, 7 active non-shared columns, `column_mode=all_active`.
+    5945 +- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, and `microcolumn_dim=32`.
+    5946 +- `outer_shell_context=on`, `column_shell_bridge=on`, `column_shell_readout=off`, `outer_shell_context_to_bridge=off`, and no backbone bypass.
+    5947 +- `shell_lr_multipliers=1,1.5,2,3`, where the four values apply to `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell`.
+    5948 +- `diagnose_mode=nodiag`.
+    5949 +- `post_training_diagnostics=core`.
+    5950 +
+    5951 +Result:
+    5952 +
+    5953 +| Mask label | `support_mask` | Best validation accuracy | Best validation epoch | Test accuracy |
+    5954 +| --- | --- | ---: | ---: | ---: |
+    5955 +| `all` | `1,1,1,1,1,1,1,1,1,1` | 33.66% | 18 | 33.40% |
+    5956 +| `drop_col04` | `1,1,1,1,0,1,1,1,1,1` | 33.92% | 18 | 33.41% |
+    5957 +
+    5958 +Validation trajectory:
+    5959 +
+    5960 +| Epoch | `all` validation accuracy | `drop_col04` validation accuracy |
+    5961 +| ---: | ---: | ---: |
+    5962 +| 1 | 11.34% | 11.14% |
+    5963 +| 2 | 21.76% | 21.30% |
+    5964 +| 3 | 20.30% | 22.16% |
+    5965 +| 4 | 24.56% | 19.74% |
+    5966 +| 5 | 25.88% | 25.84% |
+    5967 +| 6 | 24.12% | 24.70% |
+    5968 +| 7 | 25.88% | 24.66% |
+    5969 +| 8 | 27.14% | 27.90% |
+    5970 +| 9 | 30.18% | 22.74% |
+    5971 +| 10 | 23.86% | 28.16% |
+    5972 +| 11 | 22.70% | 23.36% |
+    5973 +| 12 | 27.18% | 27.32% |
+    5974 +| 13 | 25.80% | 28.48% |
+    5975 +| 14 | 28.06% | 26.98% |
+    5976 +| 15 | 26.82% | 27.18% |
+    5977 +| 16 | 29.22% | 28.50% |
+    5978 +| 17 | 29.14% | 30.12% |
+    5979 +| 18 | 33.66% | 33.92% |
+    5980 +| 19 | 30.80% | 31.76% |
+    5981 +| 20 | 31.38% | 31.90% |
+    5982 +
+    5983 +Infrastructure conclusion:
+    5984 +
+    5985 +- The durable core metric path works for this recovery run.
+    5986 +- Both child logs printed `Results Summary`, `Test Accuracy`, `Best Val Accuracy`, and `Best Val Epoch`.
+    5987 +- The master log reached `completed_at`.
+    5988 +- This fixes the immediate measurement failure from the prior support-mask audit.
+    5989 +
+    5990 +Model interpretation:
+    5991 +
+    5992 +- Dropping column 4 did not materially change test accuracy in seed 42.
+    5993 +- The all-column and `drop_col04` results differ by 0.01 percentage points on test accuracy.
+    5994 +- The best validation score is slightly higher for `drop_col04`, but the difference is small enough that it should be treated as support neutrality until the rem
+          aining leave-one-out masks are tested.
+    5995 +- The two completed masks are slightly above the previous 10-column random-support current-code control of 32.47% test accuracy, but this comparison is not defin
+          itive because the recovery run used the all-column support construction and only one seed.
+    5996 +
+    5997 +Recommended next step:
+    5998 +
+    5999 +- Run the full default leave-one-out support audit now that core metrics survive.
+    6000 +- Keep `DIAGNOSE_MODE=nodiag` and `POST_TRAINING_DIAGNOSTICS=core` for this audit.
+    6001 +- After the full audit identifies any promising or harmful masks, run full diagnostics only for the all-column control and the most informative leave-one-out mas
+          k.
+    6002 +
+    6003 +Run command:
+    6004 +
+    6005 +```bash
+    6006 +bash scripts/run_codex_support_leave_one_out_10col3shared.sh
+    6007 +```
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The section is appended. I’m checking once more that it appears once and at the tail of the work log.
+
+• Explored
+  └ Search Two-Mask Support Audit Recovery Result in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Ran git diff --check
+  └ (no output)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Recorded the results in columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:5930.
+
+  The recovery run completed correctly. Both child logs wrote Results Summary, and the master log reached completed_at.
+
+   Mask                    Best val      Test
+  ━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━  ━━━━━━━━
+   all           33.66% at epoch 18    33.40%
+  ────────────  ────────────────────  ────────
+   drop_col04    33.92% at epoch 18    33.41%
+
+  Interpretation: dropping column 4 is effectively neutral in this seed. The important result is that the durable core-metric path works, so we can now run the full leave-
+  one-out support audit.
+
+  Recommended next command:
+
+  bash scripts/run_codex_support_leave_one_out_10col3shared.sh
+
+  git diff --check passes.
+
+─ Worked for 5m 17s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› This experimental run finished.
+
+
+• I’ll inspect the newest full support-audit log, extract the per-mask summaries, then update the work log with the results and a next-step recommendation.
+
+• Explored
+  └ List codex_support_leave_one_out_10col3shared_seed42_*
+    List codex_dspan_10c_3s_7a_cmall_sm*_shatt_cgstage4_*
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M results/
+    … +22 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_cmall_sm1111111110_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0
+    _ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_040818.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The full audit generated the expected eight child logs. I’m extracting the summary table directly from the master log first, then I’ll inspect whether any child log was
+  incomplete or killed.
+
+• Explored
+  └ Search started_at|Starting support_mask_label|Finished support_mask_label|completed_at|master_log|Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|Post-
+           training diagnostics|Killed|Traceback|Error in codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_134042.log
+    Read codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_134042.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The audit completed cleanly. The pattern is clear in the master log: all-column support was best in the full audit, and every leave-one-out mask reduced test accuracy,
+  so I’m checking the recent work-log context before I write the conclusion and next recommendation.
+
+• Explored
+  └ Search Recommended next step|Model interpretation|support|shell promotion|all-column|leave-one-out|column in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    List dev-plans
+
+• Ran rg -n "Shell promotion|support controller|leave-one-out|column support|outer-shell|evidence|bridge" docs/dev-plans/codex-architechture-review-2026.07.01.md docs/
+  │ dev-plans/*codex* 2>/dev/null | tail -n 160
+  └ docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:5736:- Compare every leave-one-out mask against the current-code all-column control from the same
+    script.
+    … +162 lines (ctrl + t to view transcript)
+    docs/dev-plans/2026.06.01-rogdora-codex-session-transcript.txt:3414:    2368 +- Each run uses `--combiner shell_attention`, no bypass, no direct per-column shell
+    readout, no per-column shell bridge, zero teacher weights, shell diagnostics,
+
+• Context compacted
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll pull the completed run details from the result logs, append the analysis to the work log, and then stop at a recommendation rather than making implementation
+  changes.
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    Search Starting support|Results Summary|Test Accuracy|Best Val Accuracy|Best Val Epoch|Completed in
+           codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_134042.log
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M results/
+    … +22 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_cmall_sm1111111110_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0
+    _ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_040818.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I found the completed full leave-one-out audit and it did finish cleanly for every mask. I’m going to append a results section to the work log that separates the
+  infrastructure result from the model conclusion, since those point in different directions here.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+59 -0)
+    5722
+    5723 +## 2026-07-18 Full Leave-One-Out Support Audit Result
+    5724 +
+    5725 +Recorded on 2026-07-18 after the overnight run completed on `rogdora43`.
+    5726 +
+    5727 +Run inspected:
+    5728 +
+    5729 +- Master log: `results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_134042.log`.
+    5730 +- Commit recorded by the master log: `38e08fdbe0ab9ae2ab315bda1294e9149b5cad22`.
+    5731 +- Started at `2026-07-17 13:40:42 EDT`.
+    5732 +- Completed at `2026-07-18 06:11:53 EDT`.
+    5733 +
+    5734 +Configuration:
+    5735 +
+    5736 +- Seed 42, learning rate 0.005, and 20 epochs.
+    5737 +- 10 columns, 3 shared columns, 7 active non-shared columns, and `column_mode=all_active`.
+    5738 +- `support_mask` is the binary vector that selects which of the 10 columns participate in the predictive coding graph for the run. A value of 1 means the column
+          is active. A value of 0 means the column is omitted.
+    5739 +- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, and `microcolumn_dim=32`.
+    5740 +- `outer_shell_context=on`, `column_shell_bridge=on`, `column_shell_readout=off`, `outer_shell_context_to_bridge=off`, and no backbone bypass.
+    5741 +- `shell_lr_multipliers=1,1.5,2,3`, where the four values apply to `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell`.
+    5742 +- `diagnose_mode=nodiag`.
+    5743 +- `post_training_diagnostics=core`.
+    5744 +
+    5745 +Result:
+    5746 +
+    5747 +| Mask label | `support_mask` | Best validation accuracy | Best validation epoch | Test accuracy | Test delta from all columns |
+    5748 +| --- | --- | ---: | ---: | ---: | ---: |
+    5749 +| `all` | `1,1,1,1,1,1,1,1,1,1` | 32.60% | 18 | 31.93% | baseline |
+    5750 +| `drop_col03` | `1,1,1,0,1,1,1,1,1,1` | 26.46% | 5 | 26.61% | -5.32 percentage points |
+    5751 +| `drop_col04` | `1,1,1,1,0,1,1,1,1,1` | 28.78% | 9 | 28.23% | -3.70 percentage points |
+    5752 +| `drop_col05` | `1,1,1,1,1,0,1,1,1,1` | 26.46% | 5 | 26.13% | -5.80 percentage points |
+    5753 +| `drop_col06` | `1,1,1,1,1,1,0,1,1,1` | 29.32% | 18 | 29.02% | -2.91 percentage points |
+    5754 +| `drop_col07` | `1,1,1,1,1,1,1,0,1,1` | 28.56% | 16 | 28.68% | -3.25 percentage points |
+    5755 +| `drop_col08` | `1,1,1,1,1,1,1,1,0,1` | 27.72% | 9 | 27.06% | -4.87 percentage points |
+    5756 +| `drop_col09` | `1,1,1,1,1,1,1,1,1,0` | 28.62% | 20 | 27.89% | -4.04 percentage points |
+    5757 +
+    5758 +Infrastructure conclusion:
+    5759 +
+    5760 +- The full support audit completed all eight child runs.
+    5761 +- Each child run printed `Results Summary`, `Test Accuracy`, `Best Val Accuracy`, and `Best Val Epoch`.
+    5762 +- The `post_training_diagnostics=core` setting solved the immediate measurement issue by recording the selected checkpoint metrics before any optional detailed d
+          iagnostics.
+    5763 +
+    5764 +Model interpretation:
+    5765 +
+    5766 +- The all-column control was the best result within this audit.
+    5767 +- Every leave-one-out support mask reduced test accuracy relative to the all-column control.
+    5768 +- Dropping column 6 was the least harmful omission in this run, with test accuracy falling from 31.93% to 29.02%.
+    5769 +- Dropping column 5 was the most harmful omission in this run, with test accuracy falling from 31.93% to 26.13%.
+    5770 +- The earlier two-mask recovery run found `drop_col04` nearly tied with the all-column control, but this full audit found `drop_col04` 3.70 percentage points bel
+          ow the all-column control. This difference shows that the single-seed support-mask ranking is noisy.
+    5771 +- These results do not support pruning columns or adding a static support-selection rule as the next accuracy step.
+    5772 +
+    5773 +Recommended next step:
+    5774 +
+    5775 +- Keep all 10 columns active for the next architectural change.
+    5776 +- Move the next experiment back inside each column rather than changing which columns participate.
+    5777 +- Add a graph-native inward shell-promotion objective. For each active column, the `outer_shell` state should predict the `middle_shell` state, the `middle_shell
+          ` state should predict the `inner_shell` state, and the `inner_shell` state should predict the `hard_kernel` state.
+    5778 +- This keeps the experiment within predictive coding dynamics because each promotion pathway is a prediction edge inside the graph, not a separate backpropagatio
+          n classifier.
+    5779 +- The intended mechanism is to make each wider shell explain the more central shell in the same column, so deeper shell states are trained to consolidate informa
+          tion inward while the class readout still uses the existing shell-preserving column representation.
+    5780 +- The first test should keep the strongest current all-column settings: 10 columns, 3 shared columns, all columns active, `combiner=shell_attention`, stage4 colu
+          mn bridge, outer shell context enabled, column shell bridge enabled, no bypass, no teacher heads, and shell learning-rate multipliers `1,1.5,2,3`.
+    5781 +
+    5782  Optional targeted subset syntax:
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now has the full audit table and interpretation. I’m doing a quick check that the markdown update landed where intended and that the diff is clean.
+
+• Explored
+  └ Search Full Leave-One-Out Support Audit Result|graph-native inward shell-promotion in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +21 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_cmall_sm1111111110_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0
+    _ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_040818.log
+
+• Ran git diff --check
+  └ results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_134042.log:1087: trailing whitespace.
+Epoch 11/20:  50%|█████     | 3520/7040 [1:02:06<43:28,  1.35it/s, energy=0.0036, epoch=10/20]
+    … +409 lines (ctrl + t to view transcript)
+Epoch 11/20:  55%|█████▌    | 3872/7040 [1:08:52<38:52,  1.21it/s, energy=0.0035, epoch=11/20]
+    1.36it/s, energy=0.0035, epoch=11/20]E0718 03:05:01.370994 2703939 slow_operation_alarm.cc:73]
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The markdown insertion is in the expected section. The repository-wide whitespace check is failing on generated tqdm output already present in a result log, so I’m
+  narrowing the check to the work log I edited.
+
+• Ran git diff --check -- docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ (no output)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I analyzed the finished audit and updated the work log here: columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:5723.
+
+  Key result: the full leave-one-out audit completed cleanly, and the all-column control won.
+
+   Mask           Test accuracy
+  ━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━
+   all columns           31.93%
+  ─────────────  ───────────────
+   drop_col03            26.61%
+  ─────────────  ───────────────
+   drop_col04            28.23%
+  ─────────────  ───────────────
+   drop_col05            26.13%
+  ─────────────  ───────────────
+   drop_col06            29.02%
+  ─────────────  ───────────────
+   drop_col07            28.68%
+  ─────────────  ───────────────
+   drop_col08            27.06%
+  ─────────────  ───────────────
+   drop_col09            27.89%
+
+  Conclusion: static column pruning does not look like the right next move. Every omitted-column run was worse than the all-column control in this audit. The earlier
+  drop_col04 result was nearly tied with all columns, so the exact column ranking is noisy, but this run argues against dropping columns as an accuracy improvement.
+
+  My recommendation is to keep all 10 columns active and implement an inward shell-promotion predictive objective: outer_shell predicts middle_shell, middle_shell predicts
+  inner_shell, and inner_shell predicts hard_kernel inside each active column. That is more faithful to the columnar consolidation idea than adding another classifier
+  head, because the added learning pressure stays inside the predictive coding graph.
+
+  I only edited the work log. The markdown diff check passed. The repo-wide git diff --check still reports trailing whitespace in generated result logs from tqdm output,
+  which I did not change. I’m ready to proceed when you confirm the shell-promotion direction.
+
+─ Worked for 9m 02s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ 

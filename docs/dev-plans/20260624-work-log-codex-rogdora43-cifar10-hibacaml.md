@@ -5720,6 +5720,65 @@ Run command:
 bash scripts/run_codex_support_leave_one_out_10col3shared.sh
 ```
 
+## 2026-07-18 Full Leave-One-Out Support Audit Result
+
+Recorded on 2026-07-18 after the overnight run completed on `rogdora43`.
+
+Run inspected:
+
+- Master log: `results/codex_support_leave_one_out_10col3shared_seed42_rogdora43_20260717_134042.log`.
+- Commit recorded by the master log: `38e08fdbe0ab9ae2ab315bda1294e9149b5cad22`.
+- Started at `2026-07-17 13:40:42 EDT`.
+- Completed at `2026-07-18 06:11:53 EDT`.
+
+Configuration:
+
+- Seed 42, learning rate 0.005, and 20 epochs.
+- 10 columns, 3 shared columns, 7 active non-shared columns, and `column_mode=all_active`.
+- `support_mask` is the binary vector that selects which of the 10 columns participate in the predictive coding graph for the run. A value of 1 means the column is active. A value of 0 means the column is omitted.
+- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, and `microcolumn_dim=32`.
+- `outer_shell_context=on`, `column_shell_bridge=on`, `column_shell_readout=off`, `outer_shell_context_to_bridge=off`, and no backbone bypass.
+- `shell_lr_multipliers=1,1.5,2,3`, where the four values apply to `hard_kernel`, `inner_shell`, `middle_shell`, and `outer_shell`.
+- `diagnose_mode=nodiag`.
+- `post_training_diagnostics=core`.
+
+Result:
+
+| Mask label | `support_mask` | Best validation accuracy | Best validation epoch | Test accuracy | Test delta from all columns |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `all` | `1,1,1,1,1,1,1,1,1,1` | 32.60% | 18 | 31.93% | baseline |
+| `drop_col03` | `1,1,1,0,1,1,1,1,1,1` | 26.46% | 5 | 26.61% | -5.32 percentage points |
+| `drop_col04` | `1,1,1,1,0,1,1,1,1,1` | 28.78% | 9 | 28.23% | -3.70 percentage points |
+| `drop_col05` | `1,1,1,1,1,0,1,1,1,1` | 26.46% | 5 | 26.13% | -5.80 percentage points |
+| `drop_col06` | `1,1,1,1,1,1,0,1,1,1` | 29.32% | 18 | 29.02% | -2.91 percentage points |
+| `drop_col07` | `1,1,1,1,1,1,1,0,1,1` | 28.56% | 16 | 28.68% | -3.25 percentage points |
+| `drop_col08` | `1,1,1,1,1,1,1,1,0,1` | 27.72% | 9 | 27.06% | -4.87 percentage points |
+| `drop_col09` | `1,1,1,1,1,1,1,1,1,0` | 28.62% | 20 | 27.89% | -4.04 percentage points |
+
+Infrastructure conclusion:
+
+- The full support audit completed all eight child runs.
+- Each child run printed `Results Summary`, `Test Accuracy`, `Best Val Accuracy`, and `Best Val Epoch`.
+- The `post_training_diagnostics=core` setting solved the immediate measurement issue by recording the selected checkpoint metrics before any optional detailed diagnostics.
+
+Model interpretation:
+
+- The all-column control was the best result within this audit.
+- Every leave-one-out support mask reduced test accuracy relative to the all-column control.
+- Dropping column 6 was the least harmful omission in this run, with test accuracy falling from 31.93% to 29.02%.
+- Dropping column 5 was the most harmful omission in this run, with test accuracy falling from 31.93% to 26.13%.
+- The earlier two-mask recovery run found `drop_col04` nearly tied with the all-column control, but this full audit found `drop_col04` 3.70 percentage points below the all-column control. This difference shows that the single-seed support-mask ranking is noisy.
+- These results do not support pruning columns or adding a static support-selection rule as the next accuracy step.
+
+Recommended next step:
+
+- Keep all 10 columns active for the next architectural change.
+- Move the next experiment back inside each column rather than changing which columns participate.
+- Add a graph-native inward shell-promotion objective. For each active column, the `outer_shell` state should predict the `middle_shell` state, the `middle_shell` state should predict the `inner_shell` state, and the `inner_shell` state should predict the `hard_kernel` state.
+- This keeps the experiment within predictive coding dynamics because each promotion pathway is a prediction edge inside the graph, not a separate backpropagation classifier.
+- The intended mechanism is to make each wider shell explain the more central shell in the same column, so deeper shell states are trained to consolidate information inward while the class readout still uses the existing shell-preserving column representation.
+- The first test should keep the strongest current all-column settings: 10 columns, 3 shared columns, all columns active, `combiner=shell_attention`, stage4 column bridge, outer shell context enabled, column shell bridge enabled, no bypass, no teacher heads, and shell learning-rate multipliers `1,1.5,2,3`.
+
 Optional targeted subset syntax:
 
 ```bash
