@@ -13,9 +13,11 @@ diagnose_mode="${DIAGNOSE_MODE:-nodiag}"
 post_training_diagnostics="${POST_TRAINING_DIAGNOSTICS:-core}"
 weights="${WEIGHTS:-0.0 0.00025 0.0005 0.001}"
 promotion_pairs="${PROMOTION_PAIRS:-all}"
+target_gradient_scale="${INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE:-1.0}"
 promotion_pairs_label="${promotion_pairs//,/_}"
+target_gradient_scale_label="${target_gradient_scale//./p}"
 support_mask="${SUPPORT_MASK:-1,1,1,1,1,1,1,1,1,1}"
-master_log="${repo_root}/results/codex_inward_shell_promotion_10col3shared_pairs${promotion_pairs_label}_seed${seed}_${hostname_value}_${timestamp}.log"
+master_log="${repo_root}/results/codex_inward_shell_promotion_10col3shared_pairs${promotion_pairs_label}_iptg${target_gradient_scale_label}_seed${seed}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -32,6 +34,7 @@ mkdir -p results
     echo "post_training_diagnostics: $post_training_diagnostics"
     echo "weights: $weights"
     echo "promotion_pairs: $promotion_pairs"
+    echo "inward_shell_promotion_target_gradient_scale: $target_gradient_scale"
     echo "support_mask: $support_mask"
     echo "num_columns: 10"
     echo "num_shared: 3"
@@ -99,7 +102,8 @@ mkdir -p results
             "$support_mask" \
             "$post_training_diagnostics" \
             "$weight" \
-            "$promotion_pairs"
+            "$promotion_pairs" \
+            "$target_gradient_scale"
 
         echo "Finished inward_shell_promotion_weight=${weight} at $(date '+%Y-%m-%d %H:%M:%S %Z')"
     done

@@ -38,6 +38,8 @@ Architecture::
       optional selected inward shell-promotion predictors:
           outer_shell ─► middle_shell ─► inner_shell ─► hard_kernel
           active adjacent pairs are selected by --inward_shell_promotion_pairs
+          target-slot inference gradients are scaled by
+          --inward_shell_promotion_target_gradient_scale
                                                          │
                                                          ▼
                                                 shell-aware combiner
@@ -126,6 +128,7 @@ OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_NODE = (
 )
 SHELL_CONTEXT_PREDICTION_DEFAULT_WEIGHT = 0.0
 INWARD_SHELL_PROMOTION_DEFAULT_WEIGHT = 0.0
+INWARD_SHELL_PROMOTION_DEFAULT_TARGET_GRADIENT_SCALE = 1.0
 INWARD_SHELL_PROMOTION_PAIRS = (
     ("outer_shell", "middle_shell"),
     ("middle_shell", "inner_shell"),
@@ -461,6 +464,16 @@ def resolve_inward_shell_promotion_pairs(args) -> Tuple[Tuple[str, str], ...]:
             "--inward_shell_promotion_weight is positive"
         )
     return selected_pairs
+
+
+def resolve_inward_shell_promotion_target_gradient_scale(args) -> float:
+    """Validate the target-slot inference gradient scale for shell promotion."""
+    scale = float(args.inward_shell_promotion_target_gradient_scale)
+    if scale < 0.0 or scale > 1.0:
+        raise ValueError(
+            "--inward_shell_promotion_target_gradient_scale must be in [0, 1]"
+        )
+    return scale
 
 
 def parse_support_mask(value: str | None, num_columns: int) -> Tuple[float, ...] | None:
@@ -2453,6 +2466,9 @@ def build_depth_spanning_graph(args):
     skip connections from all stages.
     """
     inward_shell_promotion_pairs = resolve_inward_shell_promotion_pairs(args)
+    inward_shell_promotion_target_gradient_scale = (
+        resolve_inward_shell_promotion_target_gradient_scale(args)
+    )
     if args.outer_shell_context_shell_prediction_weight < 0.0:
         raise ValueError("--outer_shell_context_shell_prediction_weight must be >= 0")
     if (
@@ -2846,6 +2862,7 @@ def build_depth_spanning_graph(args):
                         objective_weight=(
                             args.outer_shell_context_shell_prediction_weight
                         ),
+                        target_gradient_scale=1.0,
                         weight_init=XavierInitializer(),
                     )
                     nodes.append(context_prediction)
@@ -2872,6 +2889,9 @@ def build_depth_spanning_graph(args):
                         target_shell,
                     ),
                     objective_weight=args.inward_shell_promotion_weight,
+                    target_gradient_scale=(
+                        inward_shell_promotion_target_gradient_scale
+                    ),
                     weight_init=XavierInitializer(),
                 )
                 nodes.append(promotion_prediction)
@@ -3049,6 +3069,9 @@ def build_depth_spanning_graph(args):
 
 def train_cifar10_depth_spanning(args):
     inward_shell_promotion_pairs = resolve_inward_shell_promotion_pairs(args)
+    inward_shell_promotion_target_gradient_scale = (
+        resolve_inward_shell_promotion_target_gradient_scale(args)
+    )
     if args.outer_shell_context_teacher_weight < 0.0:
         raise ValueError("--outer_shell_context_teacher_weight must be >= 0")
     if args.outer_shell_context_evidence_teacher_weight < 0.0:
@@ -3175,6 +3198,10 @@ def train_cifar10_depth_spanning(args):
     print(
         "Inward shell promotion pairs: "
         f"{format_inward_shell_promotion_pairs(inward_shell_promotion_pairs)}"
+    )
+    print(
+        "Inward shell promotion target gradient scale: "
+        f"{inward_shell_promotion_target_gradient_scale}"
     )
     print(
         "Outer shell context evidence: "
@@ -4138,6 +4165,17 @@ def parse_args():
             "for outer_to_middle, middle_to_inner, and inner_to_hard; use "
             "'none' to select no pairs; or pass labels such as "
             "'outer_to_middle,middle_to_inner' to leave hard_kernel untouched."
+        ),
+    )
+    parser.add_argument(
+        "--inward_shell_promotion_target_gradient_scale",
+        type=float,
+        default=INWARD_SHELL_PROMOTION_DEFAULT_TARGET_GRADIENT_SCALE,
+        help=(
+            "Scale applied to the inference gradient sent from each inward "
+            "shell-promotion objective into its target shell. Use 0.0 to anchor "
+            "the target shell while keeping prediction error, predictor weights, "
+            "and source-shell context gradients active."
         ),
     )
     parser.add_argument(

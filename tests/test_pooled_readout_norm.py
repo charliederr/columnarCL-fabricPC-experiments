@@ -394,6 +394,7 @@ def test_shell_context_prediction_node_keeps_terminal_local_energy() -> None:
         shape=(2,),
         name="prediction",
         objective_weight=0.5,
+        target_gradient_scale=1.0,
     )
     structure = graph(
         nodes=[target, context, prediction],
@@ -448,6 +449,69 @@ def test_shell_context_prediction_node_keeps_terminal_local_energy() -> None:
     assert jnp.allclose(self_grad, 0.0)
 
 
+def test_shell_context_prediction_node_can_anchor_target_gradient() -> None:
+    """Target anchoring removes target-slot gradients and keeps context gradients."""
+    target = IdentityNode(shape=(2,), name="target")
+    context = IdentityNode(shape=(2,), name="context")
+    prediction = ShellContextPredictionNode(
+        shape=(2,),
+        name="prediction",
+        objective_weight=0.5,
+        target_gradient_scale=0.0,
+    )
+    structure = graph(
+        nodes=[target, context, prediction],
+        edges=[
+            Edge(source=target, target=prediction.slot("target")),
+            Edge(source=context, target=prediction.slot("context")),
+        ],
+        task_map=TaskMap(x=target),
+        inference=InferenceSGD(),
+    )
+    target_edge = next(
+        edge_key
+        for edge_key, edge in structure.edges.items()
+        if edge.target == "prediction" and edge.slot == "target"
+    )
+    context_edge = next(
+        edge_key
+        for edge_key, edge in structure.edges.items()
+        if edge.target == "prediction" and edge.slot == "context"
+    )
+    node_info = structure.nodes["prediction"].node_info
+    params = NodeParams(
+        weights={context_edge: jnp.eye(2, dtype=jnp.float32)},
+        biases={"b": jnp.zeros((2,), dtype=jnp.float32)},
+    )
+    state = NodeState(
+        z_latent=jnp.zeros((1, 2), dtype=jnp.float32),
+        z_mu=jnp.zeros((1, 2), dtype=jnp.float32),
+        error=jnp.zeros((1, 2), dtype=jnp.float32),
+        energy=jnp.zeros((1,), dtype=jnp.float32),
+        pre_activation=jnp.zeros((1, 2), dtype=jnp.float32),
+        latent_grad=jnp.zeros((1, 2), dtype=jnp.float32),
+    )
+    inputs = {
+        target_edge: jnp.asarray([[1.0, -1.0]], dtype=jnp.float32),
+        context_edge: jnp.asarray([[0.25, 0.5]], dtype=jnp.float32),
+    }
+
+    new_state, input_grads, self_grad = (
+        ShellContextPredictionNode.forward_and_latent_grads(
+            params,
+            inputs,
+            state,
+            node_info,
+            is_clamped=False,
+        )
+    )
+
+    assert float(new_state.energy[0]) > 0.0
+    assert jnp.allclose(input_grads[target_edge], 0.0)
+    assert not jnp.allclose(input_grads[context_edge], 0.0)
+    assert jnp.allclose(self_grad, 0.0)
+
+
 def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
     defaults = dict(
         model="tiny",
@@ -478,6 +542,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         outer_shell_context_shell_prediction_weight=0.0,
         inward_shell_promotion_weight=0.0,
         inward_shell_promotion_pairs="all",
+        inward_shell_promotion_target_gradient_scale=1.0,
         outer_shell_context_evidence=False,
         outer_shell_context_evidence_teacher_weight=0.0,
         outer_shell_context_teacher_weight=0.0,
@@ -1179,6 +1244,46 @@ def test_depth_spanning_graph_adds_selected_inward_shell_promotion_pairs() -> No
             *omitted_pair,
         )
         assert omitted_node not in structure.nodes
+
+
+def test_depth_spanning_graph_sets_inward_promotion_target_gradient_scale() -> None:
+    """Inward-promotion nodes carry the configured target-gradient scale."""
+    args = _tiny_depth_spanning_args(
+        bypass_columns=False,
+        inward_shell_promotion_weight=0.001,
+        inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
+        inward_shell_promotion_target_gradient_scale=0.0,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+
+    for column_idx in active_columns:
+        for source_shell, target_shell in (
+            ("outer_shell", "middle_shell"),
+            ("middle_shell", "inner_shell"),
+        ):
+            node_name = inward_shell_promotion_node_name(
+                column_idx,
+                source_shell,
+                target_shell,
+            )
+            assert (
+                structure.nodes[node_name]
+                .node_info
+                .node_config["target_gradient_scale"]
+                == 0.0
+            )
+
+
+def test_depth_spanning_graph_rejects_invalid_promotion_target_gradient_scale() -> None:
+    """The inward-promotion target-gradient scale is an attenuation factor."""
+    args = _tiny_depth_spanning_args(
+        inward_shell_promotion_weight=0.001,
+        inward_shell_promotion_target_gradient_scale=1.5,
+    )
+
+    with pytest.raises(ValueError, match="target_gradient_scale"):
+        build_depth_spanning_graph(args)
 
 
 def test_depth_spanning_graph_rejects_positive_promotion_with_no_pairs() -> None:

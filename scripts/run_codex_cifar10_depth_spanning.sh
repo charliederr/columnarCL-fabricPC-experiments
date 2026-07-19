@@ -36,6 +36,7 @@ support_mask="${30:-}"
 post_training_diagnostics="${31:-full}"
 inward_shell_promotion_weight="${32:-0.0}"
 inward_shell_promotion_pairs="${33:-all}"
+inward_shell_promotion_target_gradient_scale="${34:-1.0}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
@@ -52,6 +53,7 @@ outer_context_evidence_teacher_label="${outer_shell_context_evidence_teacher_wei
 outer_context_shell_prediction_label="${outer_shell_context_shell_prediction_weight//./p}"
 outer_context_bridge_scale_label="${outer_shell_context_bridge_scale//./p}"
 inward_shell_promotion_label="${inward_shell_promotion_weight//./p}"
+inward_shell_promotion_target_gradient_label="${inward_shell_promotion_target_gradient_scale//./p}"
 diagnose_label="nodiag"
 extra_args=()
 readout_label="bypass"
@@ -272,7 +274,7 @@ fi
 # Capacity and context labels made the original descriptive filename exceed
 # common 255-byte filename limits. The full configuration is still written in
 # the log header; the filename keeps only compact run identifiers.
-log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_cm${column_mode_label}_sm${support_mask_label}_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolumn_dim}_${column_gaussian_energy_short}_gp${column_gaussian_precision_label}_rs${column_gaussian_reference_sites_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_isp${inward_shell_promotion_label}_ocet${outer_context_evidence_teacher_label}_ocbs${outer_context_bridge_scale_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_cm${column_mode_label}_sm${support_mask_label}_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolumn_dim}_${column_gaussian_energy_short}_gp${column_gaussian_precision_label}_rs${column_gaussian_reference_sites_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_isp${inward_shell_promotion_label}_iptg${inward_shell_promotion_target_gradient_label}_ocet${outer_context_evidence_teacher_label}_ocbs${outer_context_bridge_scale_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -313,6 +315,7 @@ mkdir -p results
     echo "outer_shell_context_shell_prediction_weight: $outer_shell_context_shell_prediction_weight"
     echo "inward_shell_promotion_weight: $inward_shell_promotion_weight"
     echo "inward_shell_promotion_pairs: $inward_shell_promotion_pairs"
+    echo "inward_shell_promotion_target_gradient_scale: $inward_shell_promotion_target_gradient_scale"
     echo "outer_shell_context_evidence: $outer_shell_context_evidence_label"
     echo "outer_shell_context_evidence_teacher_weight: $outer_shell_context_evidence_teacher_weight"
     echo "combiner: $combiner_mode"
@@ -357,6 +360,7 @@ mkdir -p results
         --outer_shell_context_shell_prediction_weight "$outer_shell_context_shell_prediction_weight" \
         --inward_shell_promotion_weight "$inward_shell_promotion_weight" \
         --inward_shell_promotion_pairs "$inward_shell_promotion_pairs" \
+        --inward_shell_promotion_target_gradient_scale "$inward_shell_promotion_target_gradient_scale" \
         --outer_shell_context_bridge_scale "$outer_shell_context_bridge_scale" \
         --outer_shell_context_evidence_teacher_weight "$outer_shell_context_evidence_teacher_weight" \
         "${column_shell_readout_args[@]}" \

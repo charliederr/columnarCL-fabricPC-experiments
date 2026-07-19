@@ -6421,3 +6421,77 @@ Recommended next step, pending confirmation:
 - In code terms, this means adding a `target_gradient_scale` or equivalent precision control to `ShellContextPredictionNode`, where `target_gradient_scale=0.0` leaves the prediction-weight and source-context learning active but removes the promotion objective's direct gradient on the target shell state.
 - First test the conservative pair set with `target_gradient_scale=0.0` and weights `0.00025` and `0.0005`.
 - This keeps the mechanism predictive-coding native because the graph still contains prediction-error nodes and learned prediction weights, but it changes which state is allowed to absorb the local promotion error.
+
+## 2026-07-19 Promotion Target-Anchoring Implementation
+
+Recorded on 2026-07-19 at `2026-07-19 03:02:23 EDT` on `rogdora43`.
+
+Base commit before these uncommitted changes:
+
+- `8a10f825a4d52ef50f061395e675af5849578c92`.
+
+Goal:
+
+- Implement the confirmed next step from the conservative inward shell-promotion sweep.
+- Keep the inward shell-promotion objective in the predictive-coding graph, but stop that local objective from directly moving the target shell state during inference when target anchoring is enabled.
+
+Mechanism:
+
+- `target_gradient_scale` means the scalar multiplier applied to the inference gradient returned through the `target` slot of `ShellContextPredictionNode`.
+- `target` means the pooled shell vector that the local prediction objective tries to explain.
+- `context` means the pooled shell or context latent that is linearly projected to predict the target shell.
+- With `target_gradient_scale=1.0`, `ShellContextPredictionNode` has its previous behavior. The local Gaussian prediction error sends gradients to both the target shell and the context shell.
+- With `target_gradient_scale=0.0`, the local Gaussian prediction error still exists, the prediction weights still learn, and the context shell still receives the prediction-error gradient. The target shell does not receive that local objective's inference gradient through the prediction node.
+
+Implementation details:
+
+- Updated `columnar_cl_fabricpc/columns/accuracy_nodes.py`.
+- `ShellContextPredictionNode` now requires an explicit `target_gradient_scale` constructor argument.
+- `ShellContextPredictionNode.forward_and_latent_grads()` scales only input gradients whose edge key ends with `:target`.
+- The target-gradient scale is constrained to `[0, 1]`.
+- Updated `scripts/train_cifar10_depth_spanning.py`.
+- Added `INWARD_SHELL_PROMOTION_DEFAULT_TARGET_GRADIENT_SCALE=1.0`.
+- Added `--inward_shell_promotion_target_gradient_scale`.
+- Added validation through `resolve_inward_shell_promotion_target_gradient_scale()`.
+- Inward shell-promotion predictors receive the CLI value.
+- Outer-shell-context shell predictors now pass `target_gradient_scale=1.0` explicitly, so that existing context-prediction dynamics remain unanchored.
+- Updated the architecture docstring to note that inward shell-promotion target-slot gradients can be scaled. The graph topology is unchanged because the same nodes and edges are still created.
+- Updated `scripts/run_codex_cifar10_depth_spanning.sh`.
+- Positional argument 34 is now `inward_shell_promotion_target_gradient_scale`.
+- Child log filenames include `iptg<value>`, where `iptg` means inward-promotion target-gradient scale.
+- Child log headers print `inward_shell_promotion_target_gradient_scale`.
+- Updated `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`.
+- Added the `INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE` environment variable.
+- Master log filenames include the target-gradient scale.
+- Added `scripts/run_codex_anchored_inward_shell_promotion_10col3shared_sweep.sh`.
+- The anchored runner uses `PROMOTION_PAIRS=outer_to_middle,middle_to_inner`, `WEIGHTS=0.00025 0.0005`, and `INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE=0.0` by default.
+
+Test coverage:
+
+- Added `test_shell_context_prediction_node_can_anchor_target_gradient()`.
+- This test confirms that `target_gradient_scale=0.0` zeros the target-slot input gradient while keeping the context-slot input gradient nonzero.
+- Added `test_depth_spanning_graph_sets_inward_promotion_target_gradient_scale()`.
+- This test confirms that graph-built inward-promotion nodes carry the configured scale.
+- Added `test_depth_spanning_graph_rejects_invalid_promotion_target_gradient_scale()`.
+- This test confirms that values outside `[0, 1]` are rejected.
+
+Verification:
+
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py columnar_cl_fabricpc/columns/accuracy_nodes.py tests/test_pooled_readout_norm.py`: passed.
+- `bash -n scripts/run_codex_cifar10_depth_spanning.sh scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh scripts/run_codex_conservative_inward_shell_promotion_10col3shared_sweep.sh scripts/run_codex_anchored_inward_shell_promotion_10col3shared_sweep.sh`: passed.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -q`: 69 passed in 13.94 seconds.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --help`: passed and showed `--inward_shell_promotion_target_gradient_scale`.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest -q --ignore=tests/test_cifar_data.py`: 191 passed in 31.00 seconds.
+- `git diff --check`: passed.
+
+Next experiment:
+
+- Run the anchored conservative promotion sweep.
+- Compare against the prior zero-promotion all-column control at 31.93% test accuracy and the unanchored conservative promotion results at 28.45% and 29.58% test accuracy.
+- The key question is whether target anchoring prevents local promotion error from moving class-bearing target shell states away from the CIFAR-10 classifier objective.
+
+Run command:
+
+```bash
+bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_sweep.sh
+```

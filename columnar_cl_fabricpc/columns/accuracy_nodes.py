@@ -606,7 +606,10 @@ class ShellContextPredictionNode(NodeBase):
     context can be the same column's outer-shell context vector or a wider
     shell vector in the inward shell-promotion pathway. The node contributes a
     weighted Gaussian error between the target shell vector and the prediction,
-    without exposing a class-logit path.
+    without exposing a class-logit path. The `target_gradient_scale` value
+    multiplies only the inference gradient returned through the `target` slot.
+    A value of 0.0 keeps the prediction error and context-slot gradient active
+    while anchoring the target shell state against this local objective.
     """
 
     def __init__(
@@ -614,6 +617,7 @@ class ShellContextPredictionNode(NodeBase):
         shape: Tuple[int, ...],
         name: str,
         objective_weight: float,
+        target_gradient_scale: float,
         activation=IdentityActivation(),
         energy=GaussianEnergy(),
         weight_init: Optional[InitializerBase] = KaimingInitializer(),
@@ -625,6 +629,8 @@ class ShellContextPredictionNode(NodeBase):
             )
         if objective_weight < 0.0:
             raise ValueError("objective_weight must be >= 0")
+        if target_gradient_scale < 0.0 or target_gradient_scale > 1.0:
+            raise ValueError("target_gradient_scale must be in [0, 1]")
         super().__init__(
             shape=shape,
             name=name,
@@ -633,6 +639,7 @@ class ShellContextPredictionNode(NodeBase):
             latent_init=latent_init,
             weight_init=weight_init,
             objective_weight=float(objective_weight),
+            target_gradient_scale=float(target_gradient_scale),
         )
 
     @staticmethod
@@ -751,6 +758,15 @@ class ShellContextPredictionNode(NodeBase):
             has_aux=True,
         )(inputs, state.z_latent)
         del total_energy
+        target_gradient_scale = float(node_info.node_config["target_gradient_scale"])
+        input_grads = {
+            edge_key: (
+                grad * target_gradient_scale
+                if edge_key.endswith(":target")
+                else grad
+            )
+            for edge_key, grad in input_grads.items()
+        }
         return new_state, input_grads, self_grad
 
 
