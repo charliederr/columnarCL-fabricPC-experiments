@@ -6336,3 +6336,88 @@ Run command:
 ```bash
 bash scripts/run_codex_conservative_inward_shell_promotion_10col3shared_sweep.sh
 ```
+
+## 2026-07-19 Conservative Inward Shell-Promotion Sweep Result
+
+Recorded on 2026-07-19 on `rogdora43`.
+
+Logs inspected:
+
+- Master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_seed42_rogdora43_20260718_194619.log`.
+- Weight `0.0001` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0001_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_194619.log`.
+- Weight `0.00025` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p00025_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260718_215001.log`.
+
+Execution status:
+
+- Commit: `3e4d05e82b08d8e12161af19a7ff9af1070a3b10`.
+- Started at `2026-07-18 19:46:19 EDT`.
+- Completed at `2026-07-18 23:53:34 EDT`.
+- Both child logs printed `Results Summary`, `Test Accuracy`, `Best Val Accuracy`, and `Best Val Epoch`.
+
+Configuration:
+
+- Seed: `42`.
+- Learning rate: `0.005`.
+- Epochs: `20`.
+- Diagnostics: `DIAGNOSE_MODE=nodiag`, `POST_TRAINING_DIAGNOSTICS=core`.
+- Model path: 10 columns, 3 shared columns, 7 active non-shared columns, explicit support mask `1,1,1,1,1,1,1,1,1,1`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`, `combiner=shell_attention`, outer-shell context on, column shell bridge on, no bypass readout.
+- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+- `outer_to_middle` is the local prediction objective where the pooled `outer_shell` vector predicts the pooled `middle_shell` vector in the same column.
+- `middle_to_inner` is the local prediction objective where the pooled `middle_shell` vector predicts the pooled `inner_shell` vector in the same column.
+- `inner_to_hard` was not active. The pooled `hard_kernel` vector was not a target of the inward shell-promotion objective.
+
+Result:
+
+| Run | Promotion pairs | Inward shell-promotion weight | Graph | Parameters | Best validation accuracy | Best validation epoch | Test accuracy | Training time |
+| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| Prior zero-promotion all-column control | none | `0.0` | 147 nodes, 273 edges | 3,125,444 | 32.60% | 18 | 31.93% | 7265.5 seconds |
+| Full three-pair promotion | `outer_to_middle,middle_to_inner,inner_to_hard` | `0.0005` | 177 nodes, 333 edges | 3,131,334 | 30.48% | 18 | 29.95% | 7342.0 seconds |
+| Conservative promotion | `outer_to_middle,middle_to_inner` | `0.0001` | 167 nodes, 313 edges | 3,129,574 | 30.24% | 17 | 28.45% | 7316.4 seconds |
+| Conservative promotion | `outer_to_middle,middle_to_inner` | `0.00025` | 167 nodes, 313 edges | 3,129,574 | 30.22% | 18 | 29.58% | 7308.1 seconds |
+
+Validation trajectory:
+
+| Epoch | Zero-promotion control | Full three-pair `0.0005` | Conservative `0.0001` | Conservative `0.00025` |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 10.86% | 10.96% | 11.22% | 11.42% |
+| 2 | 21.40% | 22.00% | 21.36% | 21.48% |
+| 3 | 19.22% | 20.28% | 21.14% | 19.06% |
+| 4 | 21.28% | 22.78% | 26.54% | 24.32% |
+| 5 | 24.40% | 23.46% | 24.32% | 23.30% |
+| 6 | 25.36% | 22.60% | 27.28% | 20.08% |
+| 7 | 24.08% | 25.06% | 22.36% | 21.76% |
+| 8 | 28.66% | 26.90% | 26.32% | 22.52% |
+| 9 | 26.00% | 16.24% | 24.32% | 22.88% |
+| 10 | 25.90% | 23.12% | 24.68% | 22.88% |
+| 11 | 22.86% | 20.12% | 20.94% | 20.20% |
+| 12 | 25.94% | 22.08% | 22.14% | 25.46% |
+| 13 | 27.32% | 26.02% | 27.86% | 25.96% |
+| 14 | 28.44% | 28.62% | 28.80% | 25.38% |
+| 15 | 27.32% | 24.90% | 26.14% | 27.52% |
+| 16 | 31.44% | 28.32% | 26.72% | 30.00% |
+| 17 | 31.56% | 28.10% | 30.24% | 28.46% |
+| 18 | 32.60% | 30.48% | 29.58% | 30.22% |
+| 19 | 31.00% | 28.46% | 29.46% | 28.50% |
+| 20 | 31.52% | 28.96% | 29.08% | 29.14% |
+
+Interpretation:
+
+- The pair selector worked. The conservative graph had 167 nodes and 313 edges, which is 10 fewer nodes and 20 fewer edges than the full three-pair graph. That difference corresponds to leaving out one promotion node per active column and its two incoming edges.
+- The conservative objective did not solve the accuracy regression. The best conservative result was 29.58% test accuracy at weight `0.00025`, which is 2.35 percentage points below the zero-promotion control and 0.37 percentage points below the full three-pair `0.0005` run.
+- The full three-pair epoch-9 validation drop did not repeat in the conservative runs, but that stability improvement did not recover accuracy.
+- The regression is therefore not explained only by `inner_shell -> hard_kernel`. Removing the hard-kernel target reduced the graph pressure on the central shell, but the selected local prediction objective still failed to improve the classifier path.
+- The current local objective may be pulling shell states toward cross-shell predictability without guaranteeing that the transferred content is useful for CIFAR-10 class separation. In the current graph, the same local Gaussian prediction energy updates the source shell state, target shell state, and prediction weights.
+
+Conclusion:
+
+- Do not continue scalar weight tuning of the current inward-promotion objective.
+- Keep the branch, because it is graph-native and HiBaCaML-aligned in intent, but treat the present local mean-squared prediction form as incomplete.
+- The next useful step should inspect or change the mechanism that couples local promotion energy to the class-bearing path, not run more weights of the same objective.
+
+Recommended next step, pending confirmation:
+
+- Add a promotion-target anchoring option before running more overnight experiments.
+- The anchoring mechanism should make the local promotion predictor learn to explain the inner target shell without letting the target shell move primarily to satisfy the promotion predictor.
+- In code terms, this means adding a `target_gradient_scale` or equivalent precision control to `ShellContextPredictionNode`, where `target_gradient_scale=0.0` leaves the prediction-weight and source-context learning active but removes the promotion objective's direct gradient on the target shell state.
+- First test the conservative pair set with `target_gradient_scale=0.0` and weights `0.00025` and `0.0005`.
+- This keeps the mechanism predictive-coding native because the graph still contains prediction-error nodes and learned prediction weights, but it changes which state is allowed to absorb the local promotion error.
