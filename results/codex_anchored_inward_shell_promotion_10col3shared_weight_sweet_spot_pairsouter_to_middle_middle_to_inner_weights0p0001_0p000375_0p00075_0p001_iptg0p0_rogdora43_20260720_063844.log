@@ -1,0 +1,117 @@
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 1afdcb816d7c8c4f515e7cc0ffa618ca1122ddb0
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+?? results/codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_weights0p0001_0p000375_0p00075_0p001_iptg0p0_rogdora43_20260720_063844.log
+?? scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+seeds: 42
+weights: 0.0001 0.000375 0.00075 0.001
+promotion_pairs: outer_to_middle,middle_to_inner
+inward_shell_promotion_target_gradient_scale: 0.0
+lr: 0.005
+num_epochs: 20
+diagnose_mode: nodiag
+post_training_diagnostics: core
+started_at: 2026-07-20 06:38:44 EDT
+
+======================================================================
+Starting seed=42 at 2026-07-20 06:38:44 EDT
+======================================================================
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 1afdcb816d7c8c4f515e7cc0ffa618ca1122ddb0
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+?? results/codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_weights0p0001_0p000375_0p00075_0p001_iptg0p0_rogdora43_20260720_063844.log
+?? results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260720_063844.log
+?? scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+seed: 42
+lr: 0.005
+num_epochs: 20
+diagnose_mode: nodiag
+post_training_diagnostics: core
+weights: 0.0001 0.000375 0.00075 0.001
+promotion_pairs: outer_to_middle,middle_to_inner
+inward_shell_promotion_target_gradient_scale: 0.0
+support_mask: 1,1,1,1,1,1,1,1,1,1
+num_columns: 10
+num_shared: 3
+active_nonshared: 7
+column_mode: all_active
+column_grid: stage4
+embed_dim: 64
+microcolumn_dim: 32
+column_gaussian_energy_mode: sum
+column_gaussian_precision: 1.0
+column_gaussian_reference_sites: 16
+combiner: shell_attention
+outer_shell_context: on
+column_shell_bridge: on
+column_shell_readout: off
+outer_shell_context_to_bridge: off
+outer_shell_context_bridge_scale: 0.0
+outer_shell_context_shell_prediction_weight: 0.0
+shell_lr_multipliers: 1,1.5,2,3
+readout_mode: nobypass
+column_teacher_weight: 0.0
+shell_teacher_weights: 0,0,0,0
+column_shell_teacher_weights: 0,0,0,0
+outer_shell_context_teacher_weight: 0.0
+outer_shell_context_evidence: off
+outer_shell_context_evidence_teacher_weight: 0.0
+started_at: 2026-07-20 06:38:44 EDT
+
+======================================================================
+Starting inward_shell_promotion_weight=0.0001 at 2026-07-20 06:38:44 EDT
+======================================================================
+repo: /home/ni/repos/fpc/columnarCL-fabricPC-experiments
+git_commit: 1afdcb816d7c8c4f515e7cc0ffa618ca1122ddb0
+git_status:
+## improve/plain-cifar10...origin/improve/plain-cifar10
+ M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+?? results/codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_weights0p0001_0p000375_0p00075_0p001_iptg0p0_rogdora43_20260720_063844.log
+?? results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0001_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_063844.log
+?? results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260720_063844.log
+?? scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+python: /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python
+seed: 42
+num_columns: 10
+num_shared: 3
+active_nonshared: 7
+column_mode: all_active
+support_mask: 1,1,1,1,1,1,1,1,1,1
+lr: 0.005
+column_grid: stage4
+embed_dim: 64
+microcolumn_dim: 32
+column_gaussian_energy_mode: sum
+column_gaussian_precision: 1.0
+column_gaussian_reference_sites: 16
+shell_lr_multipliers: 1,1.5,2,3
+num_epochs: 20
+diagnose: nodiag
+post_training_diagnostics: core
+column_teacher_head: enabled
+column_teacher_weight: 0.0
+shell_teacher_weights: 0,0,0,0
+column_shell_teacher_weights: 0,0,0,0
+column_shell_readout: off
+column_shell_bridge: on
+outer_shell_context: on
+outer_shell_context_to_bridge: off
+outer_shell_context_bridge_scale: 0.0
+outer_shell_context_teacher_weight: 0.0
+outer_shell_context_shell_prediction_weight: 0.0
+inward_shell_promotion_weight: 0.0001
+inward_shell_promotion_pairs: outer_to_middle,middle_to_inner
+inward_shell_promotion_target_gradient_scale: 0.0
+outer_shell_context_evidence: off
+outer_shell_context_evidence_teacher_weight: 0.0
+combiner: shell_attention
+shell_evidence_cascade: on
+shell_evidence_cascade_scale: 0.05,0.05,0.05
+shell_inhibition_strengths: 0,0.35,0.22,0.10
+readout_mode: nobypass
+[CudaDevice(id=0)]
+gpu

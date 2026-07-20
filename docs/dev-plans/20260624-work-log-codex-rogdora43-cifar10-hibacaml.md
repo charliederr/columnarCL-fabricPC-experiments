@@ -6759,3 +6759,65 @@ Alternatives considered:
 - Increasing promotion weight was rejected for now because seed `99` already collapsed at weight `0.0005`.
 - A lower-weight sweep was deferred because it would not distinguish whether `outer_to_middle` or `middle_to_inner` caused the failure.
 - Full per-batch energy logging was deferred until the failing edge is isolated, because the current result already identifies the failing seed and epoch window.
+
+## 2026-07-20 Anchored Promotion Nearby-Weight Sweep Setup
+
+Recorded on 2026-07-20 at `2026-07-20 06:37:22 EDT` on `rogdora43`.
+
+Current repository commit before this uncommitted setup change:
+
+- `1afdcb816d7c8c4f515e7cc0ffa618ca1122ddb0`.
+
+Direction change:
+
+- The prior recommendation was to isolate the seed-99 collapse before sweeping higher weights.
+- The user redirected the next step toward nearby-weight exploration, because the immediate priority is finding whether anchored inward promotion has a better operating point near `0.0005`.
+- This setup follows that direction and keeps the architecture fixed.
+
+Implementation:
+
+- Added `scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh`.
+- The script is a wrapper around `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`.
+- It runs the anchored conservative promotion path with `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+- It keeps `inward_shell_promotion_target_gradient_scale=0.0`.
+- It defaults to seed `42` so the four 20-epoch runs are a practical first pass.
+- It defaults to weights `0.0001 0.000375 0.00075 0.001`.
+- It writes an outer master log named `results/codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_weights0p0001_0p000375_0p00075_0p001_iptg0p0_<hostname>_<timestamp>.log`.
+- Each child call still writes a seed-specific inward-promotion master log and child training logs through the existing sweep runner.
+
+Fixed configuration inherited from the inward-promotion runner:
+
+- 10 columns.
+- 3 shared columns.
+- 7 active non-shared columns.
+- Explicit all-column support mask `1,1,1,1,1,1,1,1,1,1`.
+- `combiner=shell_attention`.
+- `column_grid=stage4`.
+- `embed_dim=64`.
+- `microcolumn_dim=32`.
+- Outer-shell context on.
+- Column shell bridge on.
+- No bypass readout.
+- No teacher heads.
+- `shell_lr_multipliers=1,1.5,2,3`.
+- `POST_TRAINING_DIAGNOSTICS=core`.
+
+Primary run command:
+
+```bash
+bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+```
+
+Optional overrides:
+
+- `SEEDS="42 99 7"` runs the same weight list over all three seeds.
+- `WEIGHTS="0.0001 0.000375 0.00075 0.001"` changes the weight list.
+- `PROMOTION_PAIRS="outer_to_middle,middle_to_inner"` changes the promotion pairs.
+- `INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE="0.0"` changes the target-gradient scale.
+
+Interpretation plan:
+
+- Compare each weight against the completed anchored `0.0005` seed-42 result, which reached 33.54% validation accuracy and 32.83% test accuracy.
+- If one nearby weight beats `0.0005` on seed `42`, replicate that weight on seeds `99` and `7`.
+- If the best nearby weight is still near `0.0005`, narrow the next search rather than changing architecture.
+- If all nearby weights are worse than `0.0005`, keep `0.0005` as the active anchored-promotion setting and consider a schedule or pair-specific weights next.
