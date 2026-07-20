@@ -6495,3 +6495,145 @@ Run command:
 ```bash
 bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_sweep.sh
 ```
+
+## 2026-07-19 Anchored Inward Shell-Promotion Sweep Result
+
+Recorded on 2026-07-19 at `2026-07-19 20:43:01 EDT` on `rogdora43`.
+
+Logs inspected:
+
+- Master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260719_031054.log`.
+- Weight `0.00025` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p00025_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260719_031054.log`.
+- Weight `0.0005` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260719_051423.log`.
+
+Execution status:
+
+- Commit: `2eef43e1978ff5b6d79979af23ebe1ab105e93d9`.
+- Started at `2026-07-19 03:10:54 EDT`.
+- Completed at `2026-07-19 07:17:13 EDT`.
+- Both child logs printed `Results Summary`, `Test Accuracy`, `Best Val Accuracy`, and `Best Val Epoch`.
+
+Configuration:
+
+- Seed: `42`.
+- Learning rate: `0.005`.
+- Epochs: `20`.
+- Diagnostics: `DIAGNOSE_MODE=nodiag`, `POST_TRAINING_DIAGNOSTICS=core`.
+- Model path: 10 columns, 3 shared columns, 7 active non-shared columns, explicit support mask `1,1,1,1,1,1,1,1,1,1`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`, `combiner=shell_attention`, outer-shell context on, column shell bridge on, no bypass readout.
+- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+- `inward_shell_promotion_target_gradient_scale=0.0`.
+- `inward_shell_promotion_target_gradient_scale` is the scalar multiplier applied to the inference gradient sent from a shell-promotion prediction node into its target shell. The value `0.0` anchors the target shell against that local objective while leaving prediction error, prediction weights, and source-shell context gradients active.
+
+Result:
+
+| Run | Promotion pairs | Weight | Target-gradient scale | Graph | Parameters | Best validation accuracy | Best validation epoch | Test accuracy | Training time |
+| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| Prior zero-promotion all-column control | none | `0.0` | none | 147 nodes, 273 edges | 3,125,444 | 32.60% | 18 | 31.93% | 7265.5 seconds |
+| Prior unanchored conservative promotion | `outer_to_middle,middle_to_inner` | `0.00025` | `1.0` | 167 nodes, 313 edges | 3,129,574 | 30.22% | 18 | 29.58% | 7308.1 seconds |
+| Anchored conservative promotion | `outer_to_middle,middle_to_inner` | `0.00025` | `0.0` | 167 nodes, 313 edges | 3,129,574 | 29.16% | 18 | 29.46% | 7302.4 seconds |
+| Anchored conservative promotion | `outer_to_middle,middle_to_inner` | `0.0005` | `0.0` | 167 nodes, 313 edges | 3,129,574 | 33.54% | 18 | 32.83% | 7267.0 seconds |
+
+Validation trajectory:
+
+| Epoch | Zero-promotion control | Unanchored conservative `0.00025` | Anchored conservative `0.00025` | Anchored conservative `0.0005` |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 10.86% | 11.42% | 10.86% | 10.92% |
+| 2 | 21.40% | 21.48% | 21.72% | 20.90% |
+| 3 | 19.22% | 19.06% | 20.26% | 20.68% |
+| 4 | 21.28% | 24.32% | 25.46% | 24.90% |
+| 5 | 24.40% | 23.30% | 24.22% | 24.94% |
+| 6 | 25.36% | 20.08% | 26.72% | 27.58% |
+| 7 | 24.08% | 21.76% | 19.68% | 25.38% |
+| 8 | 28.66% | 22.52% | 25.38% | 28.14% |
+| 9 | 26.00% | 22.88% | 24.80% | 29.62% |
+| 10 | 25.90% | 22.88% | 26.96% | 26.88% |
+| 11 | 22.86% | 20.20% | 20.38% | 20.76% |
+| 12 | 25.94% | 25.46% | 23.04% | 28.16% |
+| 13 | 27.32% | 25.96% | 22.50% | 28.44% |
+| 14 | 28.44% | 25.38% | 24.50% | 29.34% |
+| 15 | 27.32% | 27.52% | 24.60% | 30.46% |
+| 16 | 31.44% | 30.00% | 25.68% | 33.30% |
+| 17 | 31.56% | 28.46% | 28.16% | 30.82% |
+| 18 | 32.60% | 30.22% | 29.16% | 33.54% |
+| 19 | 31.00% | 28.50% | 27.80% | 32.10% |
+| 20 | 31.52% | 29.14% | 28.98% | 33.32% |
+
+Interpretation:
+
+- Target anchoring changed the outcome at `inward_shell_promotion_weight=0.0005`.
+- The anchored `0.0005` run reached 32.83% test accuracy, which is 0.90 percentage points above the zero-promotion all-column control and 3.25 percentage points above the best unanchored conservative run at weight `0.00025`.
+- The anchored `0.0005` run also avoided the severe epoch-9 validation drop seen in the prior full three-pair unanchored `0.0005` run. Its epoch-9 validation accuracy was 29.62%.
+- The anchored `0.00025` run did not improve. Its 29.46% test accuracy was essentially tied with the unanchored `0.00025` conservative result and below the zero-promotion control.
+- The result supports the mechanism-level hypothesis that unanchored promotion harmed the classifier path by moving target shell states to satisfy local shell-prediction error. At `target_gradient_scale=0.0`, the target shell remains governed by the rest of the graph while the source shell and predictor weights still receive local predictive-coding pressure.
+- The result also suggests that the promotion weight must be large enough to train the source-shell predictor path. Anchoring alone did not make the `0.00025` objective useful.
+
+Conclusion:
+
+- Keep the target-anchored promotion mechanism.
+- Treat anchored conservative promotion at weight `0.0005` as the new active candidate for the 10-column, 3-shared, all-active branch.
+- Do not add a new mechanism before checking robustness. This is the first promotion variant in this branch that exceeded the zero-promotion all-column control on seed 42.
+
+Recommended next step:
+
+- Run a multi-seed replicate of the anchored conservative `0.0005` setting on seeds `99` and `7`, keeping seed `42` as the completed reference.
+- The main question is whether anchored promotion improves the average result and avoids collapse across seeds.
+- If seed `99` and seed `7` are stable, then the next mechanism change should tune the anchored promotion family around weight `0.0005`, with candidate weights `0.000375`, `0.00075`, and `0.001`.
+- If either replicate collapses, then inspect promotion and classifier energy traces before increasing weight.
+
+## 2026-07-19 Anchored Promotion Replicate Runner Setup
+
+Recorded on 2026-07-19 at `2026-07-19 20:45:56 EDT` on `rogdora43`.
+
+Base commit before these uncommitted setup changes:
+
+- `2eef43e1978ff5b6d79979af23ebe1ab105e93d9`.
+
+Goal:
+
+- Run the robustness check recommended after the positive anchored seed-42 result.
+- Keep seed `42` as the completed reference.
+- Run seeds `99` and `7` sequentially with the exact active anchored-promotion setting that reached 32.83% test accuracy on seed `42`.
+
+Implementation:
+
+- Added `scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh`.
+- The script calls `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh` once per seed.
+- Default seeds are `99 7`.
+- Default weight is `0.0005`.
+- Default promotion pairs are `outer_to_middle,middle_to_inner`.
+- Default `inward_shell_promotion_target_gradient_scale` is `0.0`.
+- The script writes an outer master log named `results/codex_anchored_inward_shell_promotion_10col3shared_replicate_pairsouter_to_middle_middle_to_inner_iptg0p0_<hostname>_<timestamp>.log`.
+- Each child call still writes its own seed-specific master log and child training log through the existing inward-promotion sweep runner.
+
+Configuration inherited from the existing sweep runner:
+
+- 10 columns.
+- 3 shared columns.
+- 7 active non-shared columns.
+- Explicit all-column support mask `1,1,1,1,1,1,1,1,1,1`.
+- `combiner=shell_attention`.
+- `column_grid=stage4`.
+- `embed_dim=64`.
+- `microcolumn_dim=32`.
+- Outer-shell context on.
+- Column shell bridge on.
+- No bypass readout.
+- No teacher heads.
+- `shell_lr_multipliers=1,1.5,2,3`.
+- `POST_TRAINING_DIAGNOSTICS=core`.
+
+Verification:
+
+- `bash -n scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh scripts/run_codex_cifar10_depth_spanning.sh`: passed.
+
+Run command:
+
+```bash
+bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh
+```
+
+Optional overrides:
+
+- `SEEDS="99 7"` changes the seed list.
+- `WEIGHTS="0.0005"` changes the promotion-weight list.
+- `INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE="0.0"` changes the target-gradient scale.
