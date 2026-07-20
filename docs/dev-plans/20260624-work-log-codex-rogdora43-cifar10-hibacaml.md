@@ -6821,3 +6821,94 @@ Interpretation plan:
 - If one nearby weight beats `0.0005` on seed `42`, replicate that weight on seeds `99` and `7`.
 - If the best nearby weight is still near `0.0005`, narrow the next search rather than changing architecture.
 - If all nearby weights are worse than `0.0005`, keep `0.0005` as the active anchored-promotion setting and consider a schedule or pair-specific weights next.
+
+## 2026-07-20 Anchored Promotion Nearby-Weight Sweep Result
+
+Recorded on 2026-07-20 at `2026-07-20 15:22:26 EDT` on `rogdora43`.
+
+Current repository commit after the completed run:
+
+- `c3da437000307578eb110ad70f8b5c8ee08ff8c1`.
+
+Logs analyzed:
+
+- Outer master log: `results/codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_weights0p0001_0p000375_0p00075_0p001_iptg0p0_rogdora43_20260720_063844.log`.
+- Inner master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260720_063844.log`.
+- Weight `0.0001` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0001_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_063844.log`.
+- Weight `0.000375` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p000375_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_084211.log`.
+- Weight `0.00075` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p00075_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_104543.log`.
+- Weight `0.001` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p001_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_124918.log`.
+
+Execution note:
+
+- The outer master log started at commit `1afdcb816d7c8c4f515e7cc0ffa618ca1122ddb0`.
+- The first child run, weight `0.0001`, also ran at commit `1afdcb816d7c8c4f515e7cc0ffa618ca1122ddb0`.
+- The remaining child runs, weights `0.000375`, `0.00075`, and `0.001`, ran at commit `c3da437000307578eb110ad70f8b5c8ee08ff8c1`.
+- The diff between those commits contains only the work log, result logs, and the nearby-weight sweep wrapper. It does not contain model or training-code changes.
+
+Configuration:
+
+- `inward_shell_promotion_weight` is the scalar multiplier on the shell-context prediction energy that predicts a more central shell state from a more outer shell state inside each column.
+- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+- `inward_shell_promotion_target_gradient_scale` is the multiplier on gradient flowing into the target shell state from the local inward-promotion objective.
+- `inward_shell_promotion_target_gradient_scale=0.0`.
+- Seed `42`, 20 epochs, learning rate `0.005`.
+- 10 columns, 3 shared columns, 7 active non-shared columns.
+- Explicit all-column support mask `1,1,1,1,1,1,1,1,1,1`.
+- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+- Outer-shell context on, column shell bridge on, no bypass readout, no teacher heads.
+- Shell learning-rate multipliers `1,1.5,2,3`.
+- Graph size was 167 nodes and 313 edges.
+- Parameter count was 3,129,574.
+
+Primary results:
+
+| Inward shell promotion weight | Best validation accuracy | Best epoch | Test accuracy | Delta from current zero-promotion control | Delta from prior `0.0005` |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.0 current control | 32.60% | 18 | 31.93% | 0.00 pp | -0.90 pp |
+| 0.0001 | 33.14% | 18 | 31.72% | -0.21 pp | -1.11 pp |
+| 0.000375 | 33.80% | 18 | 33.74% | +1.81 pp | +0.91 pp |
+| 0.0005 prior anchored reference | 33.54% | 18 | 32.83% | +0.90 pp | 0.00 pp |
+| 0.00075 | 30.42% | 19 | 29.94% | -1.99 pp | -2.89 pp |
+| 0.001 | 27.92% | 18 | 28.41% | -3.52 pp | -4.42 pp |
+
+Validation trajectory for the new sweep:
+
+| Epoch | Weight 0.0001 | Weight 0.000375 | Weight 0.00075 | Weight 0.001 |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 10.90% | 11.34% | 11.86% | 11.14% |
+| 2 | 22.12% | 20.74% | 22.38% | 22.24% |
+| 3 | 20.84% | 20.88% | 20.34% | 20.68% |
+| 4 | 26.10% | 26.16% | 25.56% | 21.80% |
+| 5 | 24.26% | 24.78% | 24.46% | 20.46% |
+| 6 | 26.32% | 27.24% | 26.84% | 20.96% |
+| 7 | 24.72% | 24.74% | 22.68% | 22.42% |
+| 8 | 26.40% | 26.34% | 25.58% | 23.60% |
+| 9 | 28.54% | 24.70% | 23.68% | 17.46% |
+| 10 | 28.02% | 25.90% | 22.74% | 22.32% |
+| 11 | 21.44% | 21.08% | 20.44% | 20.40% |
+| 12 | 26.40% | 26.10% | 25.22% | 23.02% |
+| 13 | 28.92% | 29.54% | 27.58% | 22.34% |
+| 14 | 28.70% | 31.32% | 28.54% | 21.28% |
+| 15 | 29.70% | 29.94% | 26.74% | 24.92% |
+| 16 | 30.42% | 27.66% | 28.50% | 24.78% |
+| 17 | 30.36% | 32.06% | 28.70% | 25.78% |
+| 18 | 33.14% | 33.80% | 29.04% | 27.92% |
+| 19 | 30.38% | 31.92% | 30.42% | 27.66% |
+| 20 | 31.46% | 32.42% | 30.36% | 27.82% |
+
+Interpretation:
+
+- Weight `0.000375` is the best seed-42 result in this nearby-weight sweep.
+- Weight `0.000375` improved test accuracy by 0.91 percentage points over the previous anchored `0.0005` reference and by 1.81 percentage points over the current explicit-mask zero-promotion control.
+- Weight `0.0001` did not improve test accuracy over the zero-promotion control, despite reaching a slightly higher best validation accuracy than the control.
+- Weights `0.00075` and `0.001` degraded substantially. The higher-weight side of the curve is not promising under this anchored conservative two-pair setup.
+- The useful region appears to be below `0.0005`, with `0.000375` currently the best point. This supports the idea that inward shell promotion is useful when it is present but weak enough not to dominate the classifier pathway.
+- Post-training diagnostics did not emit additional core metrics beyond the marker line in these child logs.
+
+Recommended next step:
+
+- Replicate weight `0.000375` on seeds `99` and `7` before changing architecture.
+- Keep promotion pairs `outer_to_middle,middle_to_inner`, `inward_shell_promotion_target_gradient_scale=0.0`, and the same 10-column/3-shared setup.
+- Compare the three-seed mean for weight `0.000375` against the completed weight `0.0005` three-seed mean of 30.52%.
+- If weight `0.000375` holds seed `42` and improves either seed `99` or seed `7`, it should replace `0.0005` as the active anchored-promotion baseline.
