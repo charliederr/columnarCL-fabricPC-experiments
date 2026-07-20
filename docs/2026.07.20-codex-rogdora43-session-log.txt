@@ -1,0 +1,1027 @@
+
+           codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260719_03
+           1054
+           .log
+    Search inward_shell_promotion_weight:|inward_shell_promotion_pairs:|inward_shell_promotion_target_gradient_scale:|Inward
+    shell
+           promotion weight|Inward shell promotion pairs|Inward shell promotion target gradient scale|Graph:|Parameters:|
+           Epoch [0-
+           9]+: val_acc|Training time|Test Accuracy|Best Val Accuracy|Best Val Epoch|Killed|Traceback|error: in
+
+           codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5
+           _2_3
+
+           _oct0p0_ocsp0p0_isp0p00025_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43
+           _202
+           60719_031054.log
+    Search inward_shell_promotion_weight:|inward_shell_promotion_pairs:|inward_shell_promotion_target_gradient_scale:|Inward
+    shell
+           promotion weight|Inward shell promotion pairs|Inward shell promotion target gradient scale|Graph:|Parameters:|
+           Epoch [0-
+           9]+: val_acc|Training time|Test Accuracy|Best Val Accuracy|Best Val Epoch|Killed|Traceback|error: in
+
+           codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5
+           _2_3
+
+           _oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_
+           2026
+           0719_051423.log
+
+• Ran wc -l results/
+  │ codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260719_031054.
+  │ log results/
+  │ … +6 lines
+  └     354 results/
+    codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260719_031054.lo
+    … +8 lines (ctrl + t to view transcript)
+    51423.log
+        653 total
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The anchored sweep completed cleanly. The key result is already visible: weight=0.0005 with target anchoring reached 32.83%
+  test accuracy, which is above the prior zero-promotion control at 31.93%; I’m extracting the epoch trajectories before
+  writing the work-log conclusion.
+
+• Ran perl -0ne 'while (/Epoch (\d+): val_acc=([0-9.]+)/g) { printf "%s %.4f\n", $1, $2 }' results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_
+  │ oct0p0_ocsp0p0_isp0p00025_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260
+  │ … +1 lines
+  └ 1 0.1086
+    2 0.2172
+    … +16 lines (ctrl + t to view transcript)
+    19 0.2780
+    20 0.2898
+
+• Ran perl -0ne 'while (/Epoch (\d+): val_acc=([0-9.]+)/g) { printf "%s %.4f\n", $1, $2 }' results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_
+  │ oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_202607
+  │ … +1 lines
+  └ 1 0.1092
+    2 0.2090
+    … +16 lines (ctrl + t to view transcript)
+    19 0.3210
+    20 0.3332
+
+• Ran perl -0ne 'while (/(Test Accuracy|Best Val Accuracy|Best Val Epoch|Training time):\s*([^\n]+)/g) { print "$1: $2\n" }'
+  │ results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_
+  │ … +5 lines
+  └ Training time: 7302.4s
+    Test Accuracy: 0.2946 (29.46%)
+    … +4 lines (ctrl + t to view transcript)
+    Best Val Accuracy: 0.3354
+    Best Val Epoch: 18
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z' && hostname && git rev-parse HEAD
+  └ 2026-07-19 20:43:01 EDT
+    rogdora43
+    2eef43e1978ff5b6d79979af23ebe1ab105e93d9
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The trajectory supports the target-anchoring hypothesis at the higher weight. I’m adding the result table, epoch trajectory,
+  interpretation, and a next-step recommendation to the work log now, without changing implementation code.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+84 -0)
+    6497  ```
+    6498 +
+    6499 +## 2026-07-19 Anchored Inward Shell-Promotion Sweep Result
+    6500 +
+    6501 +Recorded on 2026-07-19 at `2026-07-19 20:43:01 EDT` on `rogdora43`.
+    6502 +
+    6503 +Logs inspected:
+    6504 +
+    6505 +- Master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42
+          _rogdora43_20260719_031054.log`.
+    6506 +- Weight `0.00025` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs
+          16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p00025_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_n
+          obyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260719_031054.log`.
+    6507 +- Weight `0.0005` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs1
+          6_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nob
+          yp_seed42_lr0p005_ep20_nodiag_rogdora43_20260719_051423.log`.
+    6508 +
+    6509 +Execution status:
+    6510 +
+    6511 +- Commit: `2eef43e1978ff5b6d79979af23ebe1ab105e93d9`.
+    6512 +- Started at `2026-07-19 03:10:54 EDT`.
+    6513 +- Completed at `2026-07-19 07:17:13 EDT`.
+    6514 +- Both child logs printed `Results Summary`, `Test Accuracy`, `Best Val Accuracy`, and `Best Val Epoch`.
+    6515 +
+    6516 +Configuration:
+    6517 +
+    6518 +- Seed: `42`.
+    6519 +- Learning rate: `0.005`.
+    6520 +- Epochs: `20`.
+    6521 +- Diagnostics: `DIAGNOSE_MODE=nodiag`, `POST_TRAINING_DIAGNOSTICS=core`.
+    6522 +- Model path: 10 columns, 3 shared columns, 7 active non-shared columns, explicit support mask `1,1,1,1,1,1,1,1,1,1`
+          , `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`, `combiner=shell_attention`, outer-shell context on, co
+          lumn shell bridge on, no bypass readout.
+    6523 +- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+    6524 +- `inward_shell_promotion_target_gradient_scale=0.0`.
+    6525 +- `inward_shell_promotion_target_gradient_scale` is the scalar multiplier applied to the inference gradient sent fro
+          m a shell-promotion prediction node into its target shell. The value `0.0` anchors the target shell against that loc
+          al objective while leaving prediction error, prediction weights, and source-shell context gradients active.
+    6526 +
+    6527 +Result:
+    6528 +
+    6529 +| Run | Promotion pairs | Weight | Target-gradient scale | Graph | Parameters | Best validation accuracy | Best vali
+          dation epoch | Test accuracy | Training time |
+    6530 +| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+    6531 +| Prior zero-promotion all-column control | none | `0.0` | none | 147 nodes, 273 edges | 3,125,444 | 32.60% | 18 | 3
+          1.93% | 7265.5 seconds |
+    6532 +| Prior unanchored conservative promotion | `outer_to_middle,middle_to_inner` | `0.00025` | `1.0` | 167 nodes, 313 e
+          dges | 3,129,574 | 30.22% | 18 | 29.58% | 7308.1 seconds |
+    6533 +| Anchored conservative promotion | `outer_to_middle,middle_to_inner` | `0.00025` | `0.0` | 167 nodes, 313 edges | 3
+          ,129,574 | 29.16% | 18 | 29.46% | 7302.4 seconds |
+    6534 +| Anchored conservative promotion | `outer_to_middle,middle_to_inner` | `0.0005` | `0.0` | 167 nodes, 313 edges | 3,
+          129,574 | 33.54% | 18 | 32.83% | 7267.0 seconds |
+    6535 +
+    6536 +Validation trajectory:
+    6537 +
+    6538 +| Epoch | Zero-promotion control | Unanchored conservative `0.00025` | Anchored conservative `0.00025` | Anchored co
+          nservative `0.0005` |
+    6539 +| ---: | ---: | ---: | ---: | ---: |
+    6540 +| 1 | 10.86% | 11.42% | 10.86% | 10.92% |
+    6541 +| 2 | 21.40% | 21.48% | 21.72% | 20.90% |
+    6542 +| 3 | 19.22% | 19.06% | 20.26% | 20.68% |
+    6543 +| 4 | 21.28% | 24.32% | 25.46% | 24.90% |
+    6544 +| 5 | 24.40% | 23.30% | 24.22% | 24.94% |
+    6545 +| 6 | 25.36% | 20.08% | 26.72% | 27.58% |
+    6546 +| 7 | 24.08% | 21.76% | 19.68% | 25.38% |
+    6547 +| 8 | 28.66% | 22.52% | 25.38% | 28.14% |
+    6548 +| 9 | 26.00% | 22.88% | 24.80% | 29.62% |
+    6549 +| 10 | 25.90% | 22.88% | 26.96% | 26.88% |
+    6550 +| 11 | 22.86% | 20.20% | 20.38% | 20.76% |
+    6551 +| 12 | 25.94% | 25.46% | 23.04% | 28.16% |
+    6552 +| 13 | 27.32% | 25.96% | 22.50% | 28.44% |
+    6553 +| 14 | 28.44% | 25.38% | 24.50% | 29.34% |
+    6554 +| 15 | 27.32% | 27.52% | 24.60% | 30.46% |
+    6555 +| 16 | 31.44% | 30.00% | 25.68% | 33.30% |
+    6556 +| 17 | 31.56% | 28.46% | 28.16% | 30.82% |
+    6557 +| 18 | 32.60% | 30.22% | 29.16% | 33.54% |
+    6558 +| 19 | 31.00% | 28.50% | 27.80% | 32.10% |
+    6559 +| 20 | 31.52% | 29.14% | 28.98% | 33.32% |
+    6560 +
+    6561 +Interpretation:
+    6562 +
+    6563 +- Target anchoring changed the outcome at `inward_shell_promotion_weight=0.0005`.
+    6564 +- The anchored `0.0005` run reached 32.83% test accuracy, which is 0.90 percentage points above the zero-promotion a
+          ll-column control and 3.25 percentage points above the best unanchored conservative run at weight `0.00025`.
+    6565 +- The anchored `0.0005` run also avoided the severe epoch-9 validation drop seen in the prior full three-pair unanch
+          ored `0.0005` run. Its epoch-9 validation accuracy was 29.62%.
+    6566 +- The anchored `0.00025` run did not improve. Its 29.46% test accuracy was essentially tied with the unanchored `0.0
+          0025` conservative result and below the zero-promotion control.
+    6567 +- The result supports the mechanism-level hypothesis that unanchored promotion harmed the classifier path by moving
+          target shell states to satisfy local shell-prediction error. At `target_gradient_scale=0.0`, the target shell remain
+          s governed by the rest of the graph while the source shell and predictor weights still receive local predictive-codi
+          ng pressure.
+    6568 +- The result also suggests that the promotion weight must be large enough to train the source-shell predictor path.
+          Anchoring alone did not make the `0.00025` objective useful.
+    6569 +
+    6570 +Conclusion:
+    6571 +
+    6572 +- Keep the target-anchored promotion mechanism.
+    6573 +- Treat anchored conservative promotion at weight `0.0005` as the new active candidate for the 10-column, 3-shared,
+          all-active branch.
+    6574 +- Do not add a new mechanism before checking robustness. This is the first promotion variant in this branch that exc
+          eeded the zero-promotion all-column control on seed 42.
+    6575 +
+    6576 +Recommended next step:
+    6577 +
+    6578 +- Run a multi-seed replicate of the anchored conservative `0.0005` setting on seeds `99` and `7`, keeping seed `42`
+          as the completed reference.
+    6579 +- The main question is whether anchored promotion improves the average result and avoids collapse across seeds.
+    6580 +- If seed `99` and seed `7` are stable, then the next mechanism change should tune the anchored promotion family aro
+          und weight `0.0005`, with candidate weights `0.000375`, `0.00075`, and `0.001`.
+    6581 +- If either replicate collapses, then inspect promotion and classifier energy traces before increasing weight.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now has the anchored sweep analysis and recommendation. I’m doing a quick formatting and status check before I
+  report back.
+
+• Ran git diff --check -- docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ (no output)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +9 lines (ctrl + t to view transcript)
+    codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260719_031054.lo
+    g
+
+• Explored
+  └ Search 2026-07-19 Anchored Inward Shell-Promotion Sweep Result|Anchored conservative promotion|Recommended next step in
+           20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I analyzed the anchored sweep and updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-
+  codex-rogdora43-cifar10-hibacaml.md:6499. git diff --check passes. I made no implementation changes.
+
+  Key results:
+
+   Run                                      Best Val      Test
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ━━━━━━━━━━  ━━━━━━━━
+   Prior zero-promotion control               32.60%    31.93%
+  ───────────────────────────────────────  ──────────  ────────
+   Prior unanchored conservative 0.00025      30.22%    29.58%
+  ───────────────────────────────────────  ──────────  ────────
+   Anchored conservative 0.00025              29.16%    29.46%
+  ───────────────────────────────────────  ──────────  ────────
+   Anchored conservative 0.0005               33.54%    32.83%
+
+  This is a meaningful positive result. Anchored conservative promotion at 0.0005 beat the zero-promotion control by 0.90 test
+  points and avoided the severe mid-run validation collapse we saw in the earlier unanchored promotion variant.
+
+  My recommendation is to pause on new mechanisms and replicate this exact anchored 0.0005 setting on seeds 99 and 7. If both
+  are stable, then tune nearby weights such as 0.000375, 0.00075, and 0.001. If either seed collapses, inspect promotion and
+  classifier energy traces before increasing weight. I’m ready to set up that replicate after your confirmation.
+
+─ Worked for 2m 27s ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Sounds reasonable. Let's proceed with that plan.
+
+
+• I’ll set up the replicate as a dedicated sequential runner for seeds 99 and 7, using the same anchored conservative 0.0005
+  configuration as the seed-42 run. Then I’ll update the work log with the exact command for you to run.
+
+• Ran ls -1 scripts/run_codex_*inward_shell_promotion* scripts/run_codex_*replicate* 2>/dev/null
+  └ scripts/run_codex_anchored_inward_shell_promotion_10col3shared_sweep.sh
+    scripts/run_codex_conservative_inward_shell_promotion_10col3shared_sweep.sh
+    … +6 lines (ctrl + t to view transcript)
+    scripts/run_codex_shell_preserving_composer_only_replicate_sweep.sh
+    scripts/run_codex_shell_preserving_composer_only_replicate_sweep_10col3shared.sh
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +9 lines (ctrl + t to view transcript)
+    codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260719_031054.lo
+    g
+
+• Explored
+  └ Read run_codex_inward_shell_promotion_10col3shared_sweep.sh
+
+• Ran tail -120 docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ - Child log headers print `inward_shell_promotion_target_gradient_scale`.
+    - Updated `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`.
+    … +118 lines (ctrl + t to view transcript)
+    weight `0.0005`, with candidate weights `0.000375`, `0.00075`, and `0.001`.
+    - If either replicate collapses, then inspect promotion and classifier energy traces before increasing weight.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll add one new wrapper rather than altering the existing anchored sweep. The new wrapper will run only weight 0.0005 for
+  seeds 99 and 7, while preserving the seed-42 run as the reference.
+
+• Added columnarCL-fabricPC-experiments/scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh (+52 -0)
+     1 +#!/usr/bin/env bash
+     2 +set -euo pipefail
+     3 +
+     4 +repo_root="/home/ni/repos/fpc/columnarCL-fabricPC-experiments"
+     5 +hostname_value="$(hostname)"
+     6 +timestamp="$(date +%Y%m%d_%H%M%S)"
+     7 +
+     8 +seeds="${SEEDS:-99 7}"
+     9 +weights="${WEIGHTS:-0.0005}"
+    10 +promotion_pairs="${PROMOTION_PAIRS:-outer_to_middle,middle_to_inner}"
+    11 +target_gradient_scale="${INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE:-0.0}"
+    12 +promotion_pairs_label="${promotion_pairs//,/_}"
+    13 +target_gradient_scale_label="${target_gradient_scale//./p}"
+    14 +master_log="${repo_root}/results/codex_anchored_inward_shell_promotion_10col3shared_replicate_pairs${promotion_pairs_l
+        abel}_iptg${target_gradient_scale_label}_${hostname_value}_${timestamp}.log"
+    15 +
+    16 +cd "$repo_root"
+    17 +mkdir -p results
+    18 +
+    19 +{
+    20 +    echo "repo: $repo_root"
+    21 +    echo "git_commit: $(git rev-parse HEAD)"
+    22 +    echo "git_status:"
+    23 +    git status --short --branch
+    24 +    echo "seeds: $seeds"
+    25 +    echo "weights: $weights"
+    26 +    echo "promotion_pairs: $promotion_pairs"
+    27 +    echo "inward_shell_promotion_target_gradient_scale: $target_gradient_scale"
+    28 +    echo "lr: ${LR:-0.005}"
+    29 +    echo "num_epochs: ${NUM_EPOCHS:-20}"
+    30 +    echo "diagnose_mode: ${DIAGNOSE_MODE:-nodiag}"
+    31 +    echo "post_training_diagnostics: ${POST_TRAINING_DIAGNOSTICS:-core}"
+    32 +    echo "started_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    33 +
+    34 +    for seed in $seeds; do
+    35 +        echo
+    36 +        echo "======================================================================"
+    37 +        echo "Starting seed=${seed} at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    38 +        echo "======================================================================"
+    39 +
+    40 +        SEED="$seed" \
+    41 +        WEIGHTS="$weights" \
+    42 +        PROMOTION_PAIRS="$promotion_pairs" \
+    43 +        INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE="$target_gradient_scale" \
+    44 +        bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+    45 +
+    46 +        echo "Finished seed=${seed} at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    47 +    done
+    48 +
+    49 +    echo
+    50 +    echo "completed_at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    51 +    echo "master_log: $master_log"
+    52 +} 2>&1 | tee "$master_log"
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The replicate runner is created. I’m making it executable, checking shell syntax, and then I’ll record the setup in the work
+  log.
+
+• Ran chmod +x scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh
+  └ (no output)
+
+• Ran bash -n scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh scripts/
+  │ run_codex_inward_shell_promotion_10col3shared_sweep.sh scripts/run_codex_cifar10_depth_spanning.sh
+  └ (no output)
+
+• Explored
+  └ Read run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The shell syntax check passed. I’m getting the local timestamp and commit, then I’ll append the run setup and command to the
+  work log.
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z'
+  └ 2026-07-19 20:45:56 EDT
+
+• Ran git rev-parse HEAD
+  └ 2eef43e1978ff5b6d79979af23ebe1ab105e93d9
+
+• Ran hostname
+  └ rogdora43
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll add this as a setup section after the anchored sweep result, including exactly what the script runs and how to override
+  it if needed.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+58 -0)
+    6581  - If either replicate collapses, then inspect promotion and classifier energy traces before increasing weight.
+    6582 +
+    6583 +## 2026-07-19 Anchored Promotion Replicate Runner Setup
+    6584 +
+    6585 +Recorded on 2026-07-19 at `2026-07-19 20:45:56 EDT` on `rogdora43`.
+    6586 +
+    6587 +Base commit before these uncommitted setup changes:
+    6588 +
+    6589 +- `2eef43e1978ff5b6d79979af23ebe1ab105e93d9`.
+    6590 +
+    6591 +Goal:
+    6592 +
+    6593 +- Run the robustness check recommended after the positive anchored seed-42 result.
+    6594 +- Keep seed `42` as the completed reference.
+    6595 +- Run seeds `99` and `7` sequentially with the exact active anchored-promotion setting that reached 32.83% test accu
+          racy on seed `42`.
+    6596 +
+    6597 +Implementation:
+    6598 +
+    6599 +- Added `scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh`.
+    6600 +- The script calls `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh` once per seed.
+    6601 +- Default seeds are `99 7`.
+    6602 +- Default weight is `0.0005`.
+    6603 +- Default promotion pairs are `outer_to_middle,middle_to_inner`.
+    6604 +- Default `inward_shell_promotion_target_gradient_scale` is `0.0`.
+    6605 +- The script writes an outer master log named `results/codex_anchored_inward_shell_promotion_10col3shared_replicate_
+          pairsouter_to_middle_middle_to_inner_iptg0p0_<hostname>_<timestamp>.log`.
+    6606 +- Each child call still writes its own seed-specific master log and child training log through the existing inward-p
+          romotion sweep runner.
+    6607 +
+    6608 +Configuration inherited from the existing sweep runner:
+    6609 +
+    6610 +- 10 columns.
+    6611 +- 3 shared columns.
+    6612 +- 7 active non-shared columns.
+    6613 +- Explicit all-column support mask `1,1,1,1,1,1,1,1,1,1`.
+    6614 +- `combiner=shell_attention`.
+    6615 +- `column_grid=stage4`.
+    6616 +- `embed_dim=64`.
+    6617 +- `microcolumn_dim=32`.
+    6618 +- Outer-shell context on.
+    6619 +- Column shell bridge on.
+    6620 +- No bypass readout.
+    6621 +- No teacher heads.
+    6622 +- `shell_lr_multipliers=1,1.5,2,3`.
+    6623 +- `POST_TRAINING_DIAGNOSTICS=core`.
+    6624 +
+    6625 +Verification:
+    6626 +
+    6627 +- `bash -n scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh scripts/run_codex_inward_shel
+          l_promotion_10col3shared_sweep.sh scripts/run_codex_cifar10_depth_spanning.sh`: passed.
+    6628 +
+    6629 +Run command:
+    6630 +
+    6631 +```bash
+    6632 +bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh
+    6633 +```
+    6634 +
+    6635 +Optional overrides:
+    6636 +
+    6637 +- `SEEDS="99 7"` changes the seed list.
+    6638 +- `WEIGHTS="0.0005"` changes the promotion-weight list.
+    6639 +- `INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE="0.0"` changes the target-gradient scale.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log is updated. I’m doing the final whitespace and status checks now.
+
+• Explored
+  └ Search Anchored Promotion Replicate Runner Setup|run_codex_anchored_inward_shell_promotion_10col3shared_replicate|Run
+  command:
+           in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +10 lines (ctrl + t to view transcript)
+    g
+    ?? scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh
+
+• Explored
+  └ List run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Set up the replicate runner: columnarCL-fabricPC-experiments/scripts/
+  run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh:1.
+
+  It runs seeds 99 then 7 sequentially with:
+
+  - anchored conservative promotion pairs: outer_to_middle,middle_to_inner
+  - inward_shell_promotion_weight=0.0005
+  - inward_shell_promotion_target_gradient_scale=0.0
+  - same 10-column, 3-shared, all-active configuration as the successful seed-42 run
+
+  I also updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-
+  hibacaml.md:6583. Verification passed with bash -n and git diff --check.
+
+  Run this from the repo root:
+
+  bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh
+
+─ Worked for 1m 39s ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› This run has completed.
+
+
+• I’ll locate the newest replicate master and child logs, extract the seed-level metrics and validation trajectories, then
+  update the work log with conclusions before recommending the next step.
+
+• Ran ls -1t results/
+  │ codex_anchored_inward_shell_promotion_10col3shared_replicate_pairsouter_to_middle_middle_to_inner_iptg0p0_* 2>/dev/null
+  │ | head -5
+  └ results/
+    codex_anchored_inward_shell_promotion_10col3shared_replicate_pairsouter_to_middle_middle_to_inner_iptg0p0_rogdora43_202607
+    19_204703.log
+
+• Ran ls -1t results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed99_* results/
+  │ codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed7_* 2>/dev/null | head -10
+  └ results/
+    codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed7_rogdora43_20260719_225041.log
+    results/
+    codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed99_rogdora43_20260719_204703.lo
+    g
+
+• Ran ls -1t results/codex_dspan_*_isp0p0005_iptg0p0_*seed99* results/codex_dspan_*_isp0p0005_iptg0p0_*seed7* 2>/dev/null |
+  │ head -20
+  └ results/
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oc
+    … +4 lines (ctrl + t to view transcript)
+    t0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed99_lr0p005_ep20_nodiag_rogdora43_20260719_2
+    04703.log
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+    ?? results/
+    … +13 lines (ctrl + t to view transcript)
+    codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed99_rogdora43_20260719_204703.lo
+    g
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The replicate logs are present for seeds 99 and 7, and the runner completed both. I’m parsing the compact summaries now and
+  avoiding the progress-bar lines that make the raw logs noisy.
+
+• Explored
+  └ Search git_commit|git_status|seeds:|weights:|promotion_pairs:|inward_shell_promotion_target_gradient_scale:|lr:|
+  num_epochs:|
+           diagnose_mode|post_training_diagnostics|started_at|Starting seed=|Finished seed=|completed_at|master_log|Killed|
+           Traceback|error: in
+
+           codex_anchored_inward_shell_promotion_10col3shared_replicate_pairsouter_to_middle_middle_to_inner_iptg0p0_rogdora43
+           _202
+           60719_204703.log
+
+• Ran wc -l results/
+  │ codex_anchored_inward_shell_promotion_10col3shared_replicate_pairsouter_to_middle_middle_to_inner_iptg0p0_rogdora43_2026
+  │ 0719_204703.log results/
+  │ … +10 lines
+  └     446 results/
+    codex_anchored_inward_shell_promotion_10col3shared_replicate_pairsouter_to_middle_middle_to_inner_iptg0p0_rogdora43_202607
+    … +13 lines (ctrl + t to view transcript)
+    5041.log
+       1167 total
+
+• Explored
+  └ Search git_commit|seed:|lr:|num_epochs:|inward_shell_promotion_weight:|inward_shell_promotion_pairs:|
+           inward_shell_promotion_target_gradient_scale:|Inward shell promotion weight|Inward shell promotion pairs|Inward
+           shell
+           promotion target gradient scale|Graph:|Parameters:|Training time|Test Accuracy|Best Val Accuracy|Best Val Epoch|
+           Killed|
+           Traceback|error: in
+
+           codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed99_rogdora43_20260719_20
+           4703
+           .log
+    Search git_commit|seed:|lr:|num_epochs:|inward_shell_promotion_weight:|inward_shell_promotion_pairs:|
+           inward_shell_promotion_target_gradient_scale:|Inward shell promotion weight|Inward shell promotion pairs|Inward
+           shell
+           promotion target gradient scale|Graph:|Parameters:|Training time|Test Accuracy|Best Val Accuracy|Best Val Epoch|
+           Killed|
+           Traceback|error: in
+
+           codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5
+           _2_3
+
+           _oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed99_lr0p005_ep20_nodiag_rogdora43_
+           2026
+           0719_204703.log
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• One important detail: the replicate master log shows seed 99 ran at commit 2eef43e, while seed 7 ran at commit ac5bcea. I’m
+  checking the diff between those commits now so we do not overinterpret a seed comparison if the experiment code changed mid-
+  run.
+
+• Ran git rev-parse HEAD
+  └ ac5bceab9df2728b642dd2646f3c1e6f11213f00
+
+• Ran git log --oneline --decorate -8
+  └ ac5bcea (HEAD -> improve/plain-cifar10, origin/improve/plain-cifar10) another fairly successful run has completed -- now
+    running with 2 other seeds to confirm results
+    … +11 lines (ctrl + t to view transcript)
+    apparently now that's fixed?  i think the run i just kicked off is going to go for a while and hopefully report back in
+    with proper results after completion
+
+• Ran git diff --name-only 2eef43e1978ff5b6d79979af23ebe1ab105e93d9..ac5bceab9df2728b642dd2646f3c1e6f11213f00
+  └ docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    results/
+    … +9 lines (ctrl + t to view transcript)
+    g
+    scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh
+
+• Ran git diff --stat 2eef43e1978ff5b6d79979af23ebe1ab105e93d9..ac5bceab9df2728b642dd2646f3c1e6f11213f00
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md | 142 +++++++++
+     ...0p005_ep20_nodiag_rogdora43_20260719_031054.log | 149 +++++++++
+    … +2 lines (ctrl + t to view transcript)
+     ...nward_shell_promotion_10col3shared_replicate.sh |  52 +++
+     5 files changed, 847 insertions(+)
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The commit change during the runner was only the work log, seed-42 results, and the new replicate script; the training code
+  did not change. I’m now checking whether we have matched zero-promotion controls for seeds 99 and 7, because that determines
+  how strong a replicate conclusion we can draw.
+
+• Ran ls -1 results/codex_dspan_10c_3s_7a_cmall_sm1111111111_*_isp0p0_*seed99* results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_*_isp0p0_*seed7* 2>/dev/null | sort
+  └ (no output)
+
+• Ran perl -0ne 'while (/Epoch (\d+): val_acc=([0-9.]+)/g) { printf "seed7 %s %.4f\n", $1, $2 }' results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_
+  │ oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed7_lr0p005_ep20_nodiag_rogdora43_2026071
+  │ … +1 lines
+  └ seed7 1 0.1320
+    seed7 2 0.2324
+    … +16 lines (ctrl + t to view transcript)
+    seed7 19 0.3256
+    seed7 20 0.3100
+
+• Ran perl -0ne 'while (/Epoch (\d+): val_acc=([0-9.]+)/g) { printf "seed99 %s %.4f\n", $1, $2 }' results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_
+  │ oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed99_lr0p005_ep20_nodiag_rogdora43_202607
+  │ … +1 lines
+  └ seed99 1 0.1100
+    seed99 2 0.1894
+    … +16 lines (ctrl + t to view transcript)
+    seed99 19 0.2266
+    seed99 20 0.1974
+
+• Ran perl -0ne 'while (/(Training time|Test Accuracy|Best Val Accuracy|Best Val Epoch):\s*([^\n]+)/g) { print "$ARGV $1:
+  │ $2\n" }' results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_
+  │ … +8 lines
+  └ results/
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oc
+    … +38 lines (ctrl + t to view transcript)
+    t0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed7_lr0p005_ep20_nodiag_rogdora43_20260719_22
+    5041.log Best Val Epoch: 19
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• There are no exact matched zero-promotion controls for seeds 99 and 7 with the newer explicit support-mask filename. I’m
+  checking the closest earlier 10-column, 3-shared, all-active no-promotion replicate so the comparison is grounded rather
+  than only seed-42-based.
+
+• Ran ls -1 results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_*sr0_br1_oc1_oce0_nobyp_seed42*
+  │ results/codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_*sr0_br1_oc1_oce0_nobyp_seed99* results/
+  │ codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_*sr0_br1_oc1_oce0_nobyp_seed7* 2>/dev/null | sort
+  └ results/
+    codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed42_l
+    … +8 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed99_l
+    r0p005_ep20_composer_shells_rogdora43_20260712_033022.log
+
+• Ran rg -n "Test Accuracy|Best Val Accuracy|Best Val Epoch|Training time|seed|started_at|completed_at" results/
+  │ codex_outer_context_bridge_only_10col3shared_replicate_rogdora43_20260712_033022.log 2>/dev/null
+  └ 11:seeds: 99 7
+    28:started_at: 2026-07-12 03:30:22 EDT
+    … +22 lines (ctrl + t to view transcript)
+    837:Finished seed=7 bridge_only at 2026-07-12 12:39:29 EDT
+    839:completed_at: 2026-07-12 12:39:29 EDT
+
+• Ran rg -n "outer_context_bridge_only_10col3shared|32\.83|31\.93|seed `99`|seed `7`|10-column, 3-shared|outer-shell context
+  │ bridge only|column shell bridge" docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ bash: 99: command not found
+    bash: 7: command not found
+    … +179 lines (ctrl + t to view transcript)
+    accuracy on seed `42`.
+    6637:- `SEEDS="99 7"` changes the seed list.
+
+• Ran perl -0ne 'while (/(Test Accuracy|Best Val Accuracy|Best Val Epoch|Training time):\s*([^\n]+)/g) { print "$ARGV $1:
+  │ $2\n" }' results/
+  │ codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed42
+  │ … +5 lines
+  └ results/
+    codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed42_l
+    … +28 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_shatt_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_sr0_br1_oc1_oce0_nobyp_seed7_lr
+    0p005_ep20_composer_shells_rogdora43_20260712_080455.log Best Val Epoch: 19
+
+• Context compacted
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll read the completed logs, append the analysis to the work log, and then stop with a recommendation rather than changing
+  code.
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z'
+  └ 2026-07-20 06:08:32 EDT
+
+• Ran hostname
+  └ rogdora43
+
+• Ran git rev-parse HEAD
+  └ ac5bceab9df2728b642dd2646f3c1e6f11213f00
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+    ?? results/
+    … +13 lines (ctrl + t to view transcript)
+    codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed99_rogdora43_20260719_204703.lo
+    g
+
+• Ran tail -80 docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └
+    Interpretation:
+    … +77 lines (ctrl + t to view transcript)
+    - `WEIGHTS="0.0005"` changes the promotion-weight list.
+    - `INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE="0.0"` changes the target-gradient scale.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The replicate completed cleanly, and the key issue is seed dependence: seed 7 held near the seed 42 result, while seed 99
+  had a large mid-run validation collapse. I’m checking whether the exact no-promotion controls exist for seeds 99 and 7
+  before I write the recommendation.
+
+• Explored
+  └ Search git_commit|seed:|weights:|promotion_pairs:|inward_shell_promotion_target_gradient_scale|Starting seed|Completed
+  seed|
+           completed_at in
+
+           codex_anchored_inward_shell_promotion_10col3shared_replicate_pairsouter_to_middle_middle_to_inner_iptg0p0_rogdora43
+           _202
+           60719_204703.log
+    List codex_dspan_10c_3s_7a_cmall_sm1111111111_*isp0p0*seed99*
+    Search Epoch [0-9]+: val_acc|Training time|Test Accuracy|Best Val Accuracy|Best Val Epoch|Graph:|Parameters: in
+
+           codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5
+           _2_3
+
+           _oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed99_lr0p005_ep20_nodiag_rogdora43_
+           2026
+           0719_204703.log
+
+• Ran git diff --name-only 2eef43e1978ff5b6d79979af23ebe1ab105e93d9 ac5bceab9df2728b642dd2646f3c1e6f11213f00
+  └ docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    results/
+    … +9 lines (ctrl + t to view transcript)
+    g
+    scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• One extraction command caught the progress-bar carriage returns, so I’m rerunning it with carriage returns converted to real
+  lines. That gives the epoch summaries without the progress noise.
+
+• Ran tr '\r' '\n' < results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_
+  │ oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed99_lr0p005_ep20_nodiag_rogdora43_202607
+  │ … +2 lines
+  └ Graph: 167 nodes, 313 edges
+    Parameters: 3,129,574
+    … +22 lines (ctrl + t to view transcript)
+    Best Val Accuracy: 0.2686
+    Best Val Epoch: 8
+
+• Explored
+  └ List codex_dspan_10c_3s_7a_cmall_sm1111111111_*_isp0p0_iptg*seed99*
+
+• Ran tr '\r' '\n' < results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_
+  │ oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed7_lr0p005_ep20_nodiag_rogdora43_2026071
+  │ … +2 lines
+  └ Graph: 167 nodes, 313 edges
+    Parameters: 3,129,574
+    … +22 lines (ctrl + t to view transcript)
+    Best Val Accuracy: 0.3256
+    Best Val Epoch: 19
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• There are no exact current no-promotion controls for seeds 99 and 7 with the new explicit support-mask naming. The closest
+  completed three-seed anchor is the earlier bridge/context run, so I’m using it only as a reference point, not as a matched
+  control.
+
+• Explored
+  └ List codex_outer_context_bridge_only_10col3shared_replicate_rogdora43_20260712_033022.log
+
+• Ran tr '\r' '\n' < results/
+  │ codex_dspan_10c_3s_7a_cmall_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct1_ocsp0_sr
+  │ 0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260712_033022.log | rg "Test Accuracy|Best Val
+  │ … +1 lines
+  └ /bin/bash: line 1: results/
+    codex_dspan_10c_3s_7a_cmall_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct1_ocsp0_sr0_
+    br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260712_033022.log: No such file or directory
+
+• Ran tr '\r' '\n' < results/
+  │ codex_dspan_10c_3s_7a_cmall_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct1_ocsp0_sr
+  │ 0_br1_oc1_oce0_ocb0_nobyp_seed99_lr0p005_ep20_nodiag_rogdora43_20260712_053849.log | rg "Test Accuracy|Best Val
+  │ … +1 lines
+  └ /bin/bash: line 1: results/
+    codex_dspan_10c_3s_7a_cmall_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct1_ocsp0_sr0_
+    br1_oc1_oce0_ocb0_nobyp_seed99_lr0p005_ep20_nodiag_rogdora43_20260712_053849.log: No such file or directory
+
+• Ran tr '\r' '\n' < results/
+  │ codex_dspan_10c_3s_7a_cmall_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct1_ocsp0_sr
+  │ 0_br1_oc1_oce0_ocb0_nobyp_seed7_lr0p005_ep20_nodiag_rogdora43_20260712_074423.log | rg "Test Accuracy|Best Val Accuracy|
+  │ … +1 lines
+  └ /bin/bash: line 1: results/
+    codex_dspan_10c_3s_7a_cmall_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct1_ocsp0_sr0_
+    br1_oc1_oce0_ocb0_nobyp_seed7_lr0p005_ep20_nodiag_rogdora43_20260712_074423.log: No such file or directory
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The old reference log names include a slightly different encoded configuration than I had in my notes. I’m locating them
+  directly from the result directory before using those numbers.
+
+• Explored
+  └ List results
+    Search 20260712|outer_context_bridge_only_10col3shared
+    Search outer_context_bridge_only_10col3shared|32\.49|33\.93|33\.62|29\.91|20260712 in 20260624-work-log-codex-rogdora43-
+           cifar10-hibacaml.md
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m writing the work-log entry now. The recommendation will be a targeted seed-99 diagnostic, because that is where the
+  instability appeared and it is the most direct way to learn whether the promotion path or the current baseline is
+  responsible.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+122 -0)
+    6639  - `INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE="0.0"` changes the target-gradient scale.
+    6640 +
+    6641 +## 2026-07-20 Anchored Promotion Replicate Result
+    6642 +
+    6643 +Recorded on 2026-07-20 at `2026-07-20 06:08:32 EDT` on `rogdora43`.
+    6644 +
+    6645 +Current repository commit after the completed run:
+    6646 +
+    6647 +- `ac5bceab9df2728b642dd2646f3c1e6f11213f00`.
+    6648 +
+    6649 +Logs analyzed:
+    6650 +
+    6651 +- Outer master log: `results/codex_anchored_inward_shell_promotion_10col3shared_replicate_pairsouter_to_middle_middl
+          e_to_inner_iptg0p0_rogdora43_20260719_204703.log`.
+    6652 +- Seed 99 master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p
+          0_seed99_rogdora43_20260719_204703.log`.
+    6653 +- Seed 99 training log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0
+          p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_se
+          ed99_lr0p005_ep20_nodiag_rogdora43_20260719_204703.log`.
+    6654 +- Seed 7 master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0
+          _seed7_rogdora43_20260719_225041.log`.
+    6655 +- Seed 7 training log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p
+          0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_see
+          d7_lr0p005_ep20_nodiag_rogdora43_20260719_225041.log`.
+    6656 +
+    6657 +Execution note:
+    6658 +
+    6659 +- Seed `99` ran at commit `2eef43e1978ff5b6d79979af23ebe1ab105e93d9`.
+    6660 +- Seed `7` ran at commit `ac5bceab9df2728b642dd2646f3c1e6f11213f00`.
+    6661 +- The diff between those commits contains the work log, result logs, and the anchored replicate wrapper. It does not
+           contain model or training-code changes, so the two seed results remain comparable for this replicate.
+    6662 +
+    6663 +Configuration:
+    6664 +
+    6665 +- `inward_shell_promotion_weight` is the scalar multiplier on the shell-context prediction energy that predicts a mo
+          re central shell state from a more outer shell state inside each column.
+    6666 +- `inward_shell_promotion_weight=0.0005`.
+    6667 +- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+    6668 +- `inward_shell_promotion_target_gradient_scale` is the multiplier on gradient flowing into the target shell state f
+          rom the local inward-promotion objective.
+    6669 +- `inward_shell_promotion_target_gradient_scale=0.0`, so the promotion objective trains the source/predictor path wh
+          ile the target shell state remains governed by the rest of the predictive-coding graph.
+    6670 +- 10 columns, 3 shared columns, 7 active non-shared columns.
+    6671 +- Explicit all-column support mask `1,1,1,1,1,1,1,1,1,1`.
+    6672 +- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+    6673 +- Outer-shell context on, column shell bridge on, no bypass readout, no teacher heads.
+    6674 +- Shell learning-rate multipliers `1,1.5,2,3`.
+    6675 +- 20 epochs, learning rate `0.005`, seed-specific CIFAR-10 train/validation/test splits.
+    6676 +- Graph size was 167 nodes and 313 edges.
+    6677 +- Parameter count was 3,129,574.
+    6678 +
+    6679 +Primary results:
+    6680 +
+    6681 +| Seed | Best validation accuracy | Best epoch | Test accuracy | Training time |
+    6682 +| --- | ---: | ---: | ---: | ---: |
+    6683 +| 42 | 33.54% | 18 | 32.83% | 7,267.0s |
+    6684 +| 99 | 26.86% | 8 | 26.38% | 7,311.0s |
+    6685 +| 7 | 32.56% | 19 | 32.35% | 7,306.9s |
+    6686 +
+    6687 +Aggregate:
+    6688 +
+    6689 +- Mean test accuracy over seeds `42`, `99`, and `7`: 30.52%.
+    6690 +- Sample standard deviation of test accuracy over those seeds: 3.59 percentage points.
+    6691 +- Test accuracy range over those seeds: 6.45 percentage points.
+    6692 +- Mean best validation accuracy over those seeds: 30.99%.
+    6693 +- Sample standard deviation of best validation accuracy over those seeds: 3.61 percentage points.
+    6694 +
+    6695 +Validation trajectory:
+    6696 +
+    6697 +| Epoch | Seed 42 validation | Seed 99 validation | Seed 7 validation |
+    6698 +| ---: | ---: | ---: | ---: |
+    6699 +| 1 | 10.92% | 11.00% | 13.20% |
+    6700 +| 2 | 20.90% | 18.94% | 23.24% |
+    6701 +| 3 | 20.68% | 21.00% | 20.44% |
+    6702 +| 4 | 24.90% | 19.78% | 22.04% |
+    6703 +| 5 | 24.94% | 24.90% | 26.54% |
+    6704 +| 6 | 27.58% | 23.14% | 22.96% |
+    6705 +| 7 | 25.38% | 24.14% | 21.04% |
+    6706 +| 8 | 28.14% | 26.86% | 25.40% |
+    6707 +| 9 | 29.62% | 17.96% | 24.26% |
+    6708 +| 10 | 26.88% | 9.60% | 23.98% |
+    6709 +| 11 | 20.76% | 14.52% | 26.02% |
+    6710 +| 12 | 28.16% | 17.26% | 25.02% |
+    6711 +| 13 | 28.44% | 14.12% | 24.46% |
+    6712 +| 14 | 29.34% | 15.62% | 28.08% |
+    6713 +| 15 | 30.46% | 16.30% | 24.24% |
+    6714 +| 16 | 33.30% | 18.80% | 27.96% |
+    6715 +| 17 | 30.82% | 17.60% | 30.70% |
+    6716 +| 18 | 33.54% | 20.82% | 30.66% |
+    6717 +| 19 | 32.10% | 22.66% | 32.56% |
+    6718 +| 20 | 33.32% | 19.74% | 31.00% |
+    6719 +
+    6720 +Comparison points:
+    6721 +
+    6722 +| Condition | Seed 42 test | Seed 99 test | Seed 7 test | Mean test |
+    6723 +| --- | ---: | ---: | ---: | ---: |
+    6724 +| Earlier bridge/context anchor, no inward promotion | 33.93% | 33.62% | 29.91% | 32.49% |
+    6725 +| Current explicit-mask zero-promotion control | 31.93% | not found | not found | not available |
+    6726 +| Anchored inward promotion, `outer_to_middle,middle_to_inner`, weight `0.0005` | 32.83% | 26.38% | 32.35% | 30.52%
+          |
+    6727 +
+    6728 +Interpretation:
+    6729 +
+    6730 +- The anchored promotion result is not robust across seeds.
+    6731 +- Seed `42` and seed `7` are useful results. They show that anchored inward promotion can operate above 32% test acc
+          uracy in the current 10-column, no-bypass family.
+    6732 +- Seed `99` is the important failure. It rose to 26.86% validation accuracy at epoch 8, fell to 17.96% at epoch 9, a
+          nd reached 9.60% at epoch 10. This is a classification collapse by the current project priority.
+    6733 +- The collapse is not explained by the final epoch alone, because the best validation checkpoint for seed `99` also
+          produced only 26.38% test accuracy.
+    6734 +- The earlier bridge/context anchor reached 33.62% test accuracy on seed `99`, so seed `99` is not inherently unusab
+          le for this architecture family.
+    6735 +- There are no exact current-code, explicit-support-mask, zero-promotion control logs for seeds `99` and `7`. This m
+          eans the current result can compare directly to the seed-42 current control, but it can only compare indirectly to t
+          he earlier three-seed bridge/context anchor.
+    6736 +
+    6737 +Conclusion:
+    6738 +
+    6739 +- Do not sweep higher anchored-promotion weights yet.
+    6740 +- Treat the seed-99 collapse as the primary issue to solve.
+    6741 +- The immediate question is whether the collapse comes from the current training baseline under seed `99`, from the
+          `outer_to_middle` promotion edge, from the `middle_to_inner` promotion edge, or from using both promotion edges at t
+          he same time.
+    6742 +
+    6743 +Recommended next step:
+    6744 +
+    6745 +- Run one targeted seed-99 diagnostic sequence before adding any new mechanism.
+    6746 +- The diagnostic sequence should use 20 epochs, the same current 10-column/3-shared setup, `inward_shell_promotion_t
+          arget_gradient_scale=0.0`, and no bypass readout.
+    6747 +- Run A: seed `99`, `inward_shell_promotion_weight=0.0`, no effective inward promotion. This establishes the missing
+           current-code seed-99 control.
+    6748 +- Run B: seed `99`, `inward_shell_promotion_weight=0.0005`, `inward_shell_promotion_pairs=outer_to_middle`.
+    6749 +- Run C: seed `99`, `inward_shell_promotion_weight=0.0005`, `inward_shell_promotion_pairs=middle_to_inner`.
+    6750 +
+    6751 +Decision rule:
+    6752 +
+    6753 +- If Run A is stable and one single-pair run is stable, continue from the stable promotion pair and replicate it on
+          seeds `42` and `7`.
+    6754 +- If Run A is stable and both single-pair runs collapse, reduce the promotion objective or add an epoch schedule so
+          the local shell objective cannot dominate early classifier formation.
+    6755 +- If Run A collapses, return to the current bridge/context baseline before modifying promotion, because the instabil
+          ity would not be promotion-specific.
+    6756 +
+    6757 +Alternatives considered:
+    6758 +
+    6759 +- Increasing promotion weight was rejected for now because seed `99` already collapsed at weight `0.0005`.
+    6760 +- A lower-weight sweep was deferred because it would not distinguish whether `outer_to_middle` or `middle_to_inner`
+          caused the failure.
+    6761 +- Full per-batch energy logging was deferred until the failing edge is isolated, because the current result already
+          identifies the failing seed and epoch window.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now records the replicate, the seed-99 collapse window, and the comparison caveat around unmatched controls.
+  I’m doing a quick diff check so I can report cleanly.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +14 lines (ctrl + t to view transcript)
+    codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed99_rogdora43_20260719_204703.lo
+    g
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git diff -- docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ diff --git a/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md b/docs/
+    dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +129 lines (ctrl + t to view transcript)
+    +- Full per-batch energy logging was deferred until the failing edge is isolated, because the current result already
+    identifies the failing seed and epoch window.
+
+• Explored
+  └ Search 2026-07-20 Anchored Promotion Replicate Result in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-
+  hibacaml.md:6641. git diff --check passes.
+
+  Result summary:
+
+   Seed    Best val    Best epoch      Test
+  ━━━━━━  ━━━━━━━━━━  ━━━━━━━━━━━━  ━━━━━━━━
+   42        33.54%            18    32.83%
+  ──────  ──────────  ────────────  ────────
+   99        26.86%             8    26.38%
+  ──────  ──────────  ────────────  ────────
+   7         32.56%            19    32.35%
+
+  The mean test accuracy is 30.52%, but seed 99 is the important finding. It rose to 26.86% validation at epoch 8, then fell
+  to 17.96% at epoch 9 and 9.60% at epoch 10. That is a collapse by our current priority. Seed 42 and seed 7 show the anchored
+  inward-promotion mechanism can work, but not robustly yet.
+
+  My recommendation is to pause mechanism changes and isolate the seed-99 failure with a targeted three-run diagnostic:
+
+  1. Seed 99, no inward promotion, to establish the missing current-code control.
+  2. Seed 99, outer_to_middle promotion only at weight 0.0005.
+  3. Seed 99, middle_to_inner promotion only at weight 0.0005.
+
+  That tells us whether the problem is the current baseline, one promotion edge, or the combination of both edges. I would not
+  increase promotion weight until this is understood.
+
+─ Worked for 6m 24s ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ 
+› I'm less worried about the slight difference with a lower accuracy with seed 99 than you are. Rather than investigating
+  reasons right now let us please go back to an earlier possible course you suggested and explore results when setting to
+  nearby weights such as 0.0001, 0.000375, 0.00075, and 0.001 to see if there's a sweet spot near 0.0005 which may improve
+  things.
+ 
+  gpt-5.5 xhigh · ~/repos/fpc

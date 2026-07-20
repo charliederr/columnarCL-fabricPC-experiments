@@ -6637,3 +6637,125 @@ Optional overrides:
 - `SEEDS="99 7"` changes the seed list.
 - `WEIGHTS="0.0005"` changes the promotion-weight list.
 - `INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE="0.0"` changes the target-gradient scale.
+
+## 2026-07-20 Anchored Promotion Replicate Result
+
+Recorded on 2026-07-20 at `2026-07-20 06:08:32 EDT` on `rogdora43`.
+
+Current repository commit after the completed run:
+
+- `ac5bceab9df2728b642dd2646f3c1e6f11213f00`.
+
+Logs analyzed:
+
+- Outer master log: `results/codex_anchored_inward_shell_promotion_10col3shared_replicate_pairsouter_to_middle_middle_to_inner_iptg0p0_rogdora43_20260719_204703.log`.
+- Seed 99 master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed99_rogdora43_20260719_204703.log`.
+- Seed 99 training log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed99_lr0p005_ep20_nodiag_rogdora43_20260719_204703.log`.
+- Seed 7 master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed7_rogdora43_20260719_225041.log`.
+- Seed 7 training log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed7_lr0p005_ep20_nodiag_rogdora43_20260719_225041.log`.
+
+Execution note:
+
+- Seed `99` ran at commit `2eef43e1978ff5b6d79979af23ebe1ab105e93d9`.
+- Seed `7` ran at commit `ac5bceab9df2728b642dd2646f3c1e6f11213f00`.
+- The diff between those commits contains the work log, result logs, and the anchored replicate wrapper. It does not contain model or training-code changes, so the two seed results remain comparable for this replicate.
+
+Configuration:
+
+- `inward_shell_promotion_weight` is the scalar multiplier on the shell-context prediction energy that predicts a more central shell state from a more outer shell state inside each column.
+- `inward_shell_promotion_weight=0.0005`.
+- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+- `inward_shell_promotion_target_gradient_scale` is the multiplier on gradient flowing into the target shell state from the local inward-promotion objective.
+- `inward_shell_promotion_target_gradient_scale=0.0`, so the promotion objective trains the source/predictor path while the target shell state remains governed by the rest of the predictive-coding graph.
+- 10 columns, 3 shared columns, 7 active non-shared columns.
+- Explicit all-column support mask `1,1,1,1,1,1,1,1,1,1`.
+- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+- Outer-shell context on, column shell bridge on, no bypass readout, no teacher heads.
+- Shell learning-rate multipliers `1,1.5,2,3`.
+- 20 epochs, learning rate `0.005`, seed-specific CIFAR-10 train/validation/test splits.
+- Graph size was 167 nodes and 313 edges.
+- Parameter count was 3,129,574.
+
+Primary results:
+
+| Seed | Best validation accuracy | Best epoch | Test accuracy | Training time |
+| --- | ---: | ---: | ---: | ---: |
+| 42 | 33.54% | 18 | 32.83% | 7,267.0s |
+| 99 | 26.86% | 8 | 26.38% | 7,311.0s |
+| 7 | 32.56% | 19 | 32.35% | 7,306.9s |
+
+Aggregate:
+
+- Mean test accuracy over seeds `42`, `99`, and `7`: 30.52%.
+- Sample standard deviation of test accuracy over those seeds: 3.59 percentage points.
+- Test accuracy range over those seeds: 6.45 percentage points.
+- Mean best validation accuracy over those seeds: 30.99%.
+- Sample standard deviation of best validation accuracy over those seeds: 3.61 percentage points.
+
+Validation trajectory:
+
+| Epoch | Seed 42 validation | Seed 99 validation | Seed 7 validation |
+| ---: | ---: | ---: | ---: |
+| 1 | 10.92% | 11.00% | 13.20% |
+| 2 | 20.90% | 18.94% | 23.24% |
+| 3 | 20.68% | 21.00% | 20.44% |
+| 4 | 24.90% | 19.78% | 22.04% |
+| 5 | 24.94% | 24.90% | 26.54% |
+| 6 | 27.58% | 23.14% | 22.96% |
+| 7 | 25.38% | 24.14% | 21.04% |
+| 8 | 28.14% | 26.86% | 25.40% |
+| 9 | 29.62% | 17.96% | 24.26% |
+| 10 | 26.88% | 9.60% | 23.98% |
+| 11 | 20.76% | 14.52% | 26.02% |
+| 12 | 28.16% | 17.26% | 25.02% |
+| 13 | 28.44% | 14.12% | 24.46% |
+| 14 | 29.34% | 15.62% | 28.08% |
+| 15 | 30.46% | 16.30% | 24.24% |
+| 16 | 33.30% | 18.80% | 27.96% |
+| 17 | 30.82% | 17.60% | 30.70% |
+| 18 | 33.54% | 20.82% | 30.66% |
+| 19 | 32.10% | 22.66% | 32.56% |
+| 20 | 33.32% | 19.74% | 31.00% |
+
+Comparison points:
+
+| Condition | Seed 42 test | Seed 99 test | Seed 7 test | Mean test |
+| --- | ---: | ---: | ---: | ---: |
+| Earlier bridge/context anchor, no inward promotion | 33.93% | 33.62% | 29.91% | 32.49% |
+| Current explicit-mask zero-promotion control | 31.93% | not found | not found | not available |
+| Anchored inward promotion, `outer_to_middle,middle_to_inner`, weight `0.0005` | 32.83% | 26.38% | 32.35% | 30.52% |
+
+Interpretation:
+
+- The anchored promotion result is not robust across seeds.
+- Seed `42` and seed `7` are useful results. They show that anchored inward promotion can operate above 32% test accuracy in the current 10-column, no-bypass family.
+- Seed `99` is the important failure. It rose to 26.86% validation accuracy at epoch 8, fell to 17.96% at epoch 9, and reached 9.60% at epoch 10. This is a classification collapse by the current project priority.
+- The collapse is not explained by the final epoch alone, because the best validation checkpoint for seed `99` also produced only 26.38% test accuracy.
+- The earlier bridge/context anchor reached 33.62% test accuracy on seed `99`, so seed `99` is not inherently unusable for this architecture family.
+- There are no exact current-code, explicit-support-mask, zero-promotion control logs for seeds `99` and `7`. This means the current result can compare directly to the seed-42 current control, but it can only compare indirectly to the earlier three-seed bridge/context anchor.
+
+Conclusion:
+
+- Do not sweep higher anchored-promotion weights yet.
+- Treat the seed-99 collapse as the primary issue to solve.
+- The immediate question is whether the collapse comes from the current training baseline under seed `99`, from the `outer_to_middle` promotion edge, from the `middle_to_inner` promotion edge, or from using both promotion edges at the same time.
+
+Recommended next step:
+
+- Run one targeted seed-99 diagnostic sequence before adding any new mechanism.
+- The diagnostic sequence should use 20 epochs, the same current 10-column/3-shared setup, `inward_shell_promotion_target_gradient_scale=0.0`, and no bypass readout.
+- Run A: seed `99`, `inward_shell_promotion_weight=0.0`, no effective inward promotion. This establishes the missing current-code seed-99 control.
+- Run B: seed `99`, `inward_shell_promotion_weight=0.0005`, `inward_shell_promotion_pairs=outer_to_middle`.
+- Run C: seed `99`, `inward_shell_promotion_weight=0.0005`, `inward_shell_promotion_pairs=middle_to_inner`.
+
+Decision rule:
+
+- If Run A is stable and one single-pair run is stable, continue from the stable promotion pair and replicate it on seeds `42` and `7`.
+- If Run A is stable and both single-pair runs collapse, reduce the promotion objective or add an epoch schedule so the local shell objective cannot dominate early classifier formation.
+- If Run A collapses, return to the current bridge/context baseline before modifying promotion, because the instability would not be promotion-specific.
+
+Alternatives considered:
+
+- Increasing promotion weight was rejected for now because seed `99` already collapsed at weight `0.0005`.
+- A lower-weight sweep was deferred because it would not distinguish whether `outer_to_middle` or `middle_to_inner` caused the failure.
+- Full per-batch energy logging was deferred until the failing edge is isolated, because the current result already identifies the failing seed and epoch window.
