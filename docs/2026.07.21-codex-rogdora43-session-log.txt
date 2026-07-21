@@ -1,0 +1,1016 @@
+
+    6771 +Direction change:
+    6772 +
+    6773 +- The prior recommendation was to isolate the seed-99 collapse before sweeping higher weights.
+    6774 +- The user redirected the next step toward nearby-weight exploration, because the immediate priority is finding whether anchored inward promotion has a bet
+          ter operating point near `0.0005`.
+    6775 +- This setup follows that direction and keeps the architecture fixed.
+    6776 +
+    6777 +Implementation:
+    6778 +
+    6779 +- Added `scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh`.
+    6780 +- The script is a wrapper around `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`.
+    6781 +- It runs the anchored conservative promotion path with `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+    6782 +- It keeps `inward_shell_promotion_target_gradient_scale=0.0`.
+    6783 +- It defaults to seed `42` so the four 20-epoch runs are a practical first pass.
+    6784 +- It defaults to weights `0.0001 0.000375 0.00075 0.001`.
+    6785 +- It writes an outer master log named `results/codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_we
+          ights0p0001_0p000375_0p00075_0p001_iptg0p0_<hostname>_<timestamp>.log`.
+    6786 +- Each child call still writes a seed-specific inward-promotion master log and child training logs through the existing sweep runner.
+    6787 +
+    6788 +Fixed configuration inherited from the inward-promotion runner:
+    6789 +
+    6790 +- 10 columns.
+    6791 +- 3 shared columns.
+    6792 +- 7 active non-shared columns.
+    6793 +- Explicit all-column support mask `1,1,1,1,1,1,1,1,1,1`.
+    6794 +- `combiner=shell_attention`.
+    6795 +- `column_grid=stage4`.
+    6796 +- `embed_dim=64`.
+    6797 +- `microcolumn_dim=32`.
+    6798 +- Outer-shell context on.
+    6799 +- Column shell bridge on.
+    6800 +- No bypass readout.
+    6801 +- No teacher heads.
+    6802 +- `shell_lr_multipliers=1,1.5,2,3`.
+    6803 +- `POST_TRAINING_DIAGNOSTICS=core`.
+    6804 +
+    6805 +Primary run command:
+    6806 +
+    6807 +```bash
+    6808 +bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+    6809 +```
+    6810 +
+    6811 +Optional overrides:
+    6812 +
+    6813 +- `SEEDS="42 99 7"` runs the same weight list over all three seeds.
+    6814 +- `WEIGHTS="0.0001 0.000375 0.00075 0.001"` changes the weight list.
+    6815 +- `PROMOTION_PAIRS="outer_to_middle,middle_to_inner"` changes the promotion pairs.
+    6816 +- `INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE="0.0"` changes the target-gradient scale.
+    6817 +
+    6818 +Interpretation plan:
+    6819 +
+    6820 +- Compare each weight against the completed anchored `0.0005` seed-42 result, which reached 33.54% validation accuracy and 32.83% test accuracy.
+    6821 +- If one nearby weight beats `0.0005` on seed `42`, replicate that weight on seeds `99` and `7`.
+    6822 +- If the best nearby weight is still near `0.0005`, narrow the next search rather than changing architecture.
+    6823 +- If all nearby weights are worse than `0.0005`, keep `0.0005` as the active anchored-promotion setting and consider a schedule or pair-specific weights ne
+          xt.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work-log entry is in place. I’m validating the wrapper syntax and checking the diff for whitespace issues before I hand you the run command.
+
+• Updated Plan
+  └ ✔ Inspect existing sweep scripts and work-log context
+    ✔ Add a nearby-weight anchored promotion sweep wrapper
+    ✔ Record setup and intended interpretation in the work log
+    □ Validate script syntax and provide pasteable command
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran bash -n scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+  │ scripts/run_codex_cifar10_depth_spanning.sh
+  └ (no output)
+
+• Explored
+  └ Search Anchored Promotion Nearby-Weight Sweep Setup in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Ran git diff --stat
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md | 62 ++++++++++++++++++++++
+     1 file changed, 62 insertions(+)
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    ?? scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+
+• Updated Plan
+  └ ✔ Inspect existing sweep scripts and work-log context
+    ✔ Add a nearby-weight anchored promotion sweep wrapper
+    ✔ Record setup and intended interpretation in the work log
+    ✔ Validate script syntax and provide pasteable command
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the nearby-weight sweep wrapper and recorded the setup in the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-
+  rogdora43-cifar10-hibacaml.md:6763.
+
+  New script:
+
+  columnarCL-fabricPC-experiments/scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh:1
+
+  It defaults to seed 42, weights 0.0001 0.000375 0.00075 0.001, promotion pairs outer_to_middle,middle_to_inner, and
+  inward_shell_promotion_target_gradient_scale=0.0.
+
+  Run this from the repo root:
+
+  bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+
+  Validated with bash -n and git diff --check. No model code changed.
+
+─ Worked for 2m 04s ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› this run has finished, please analyze
+
+
+• I’ll locate the newest sweet-spot sweep logs, extract each weight’s validation and test results, then append the analysis to the work log before reporting the next
+  recommendation.
+
+• Ran git rev-parse HEAD
+  └ c3da437000307578eb110ad70f8b5c8ee08ff8c1
+
+• Explored
+  └ List results
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z'
+  └ 2026-07-20 15:22:26 EDT
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M results/
+    … +13 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p001_iptg0p0_ocet0p0_o
+    cbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_124918.log
+
+• Ran hostname
+  └ rogdora43
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The run produced the expected four child logs for seed 42 at weights 0.0001, 0.000375, 0.00075, and 0.001. I’m extracting both training metrics and the post-
+  training diagnostics now.
+
+• Explored
+  └ Search git_commit|git_status|seeds:|weights:|promotion_pairs:|inward_shell_promotion_target_gradient_scale|started_at|Starting inward_shell_promotion_weight|
+  Finished
+           inward_shell_promotion_weight|completed_at|master_log in
+
+           codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_weights0p0001_0p000375_0p00075_0p001_iptg0p0_rog
+           dora
+           43_20260720_063844.log
+
+• Ran for f in results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0001_iptg0p0_ocet0p
+  │ 0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_063844.log results/
+  │ … +7 lines
+  └ FILE:results/
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0001_iptg0p0_ocet0p0_
+    … +277 lines (ctrl + t to view transcript)
+    Best Val Accuracy: 0.2792
+    Best Val Epoch: 18
+
+• Ran tail -120 results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p001_iptg0p0_ocet0p0
+  │ _ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_124918.log
+  └ column_shell_bridge: on
+    outer_shell_context: on
+    … +110 lines (ctrl + t to view transcript)
+    Best Val Epoch: 18
+    Post-training diagnostics: core metrics only
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The training summaries are clear: 0.000375 is the best of this four-weight sweep on seed 42. I’m checking whether the “core diagnostics” section emitted additional
+  metrics, because the child logs appear to stop after the core-diagnostics marker.
+
+• Explored
+  └ Search Post-training|combined|column_pool|outer_shell|column_shell|bridge|lesion|without|only in
+
+           codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p000375_iptg0p0
+           _oce
+           t0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_084211.log
+
+• Ran for f in results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0001_iptg0p0_ocet0p
+  │ 0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_063844.log results/
+  │ … +7 lines
+  └ FILE:results/
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0001_iptg0p0_ocet0p0_
+    … +82 lines (ctrl + t to view transcript)
+    14170:Best Val Accuracy: 0.2792
+    14172:Post-training diagnostics: core metrics only
+
+• Ran for f in results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0001_iptg0p0_ocet0p
+  │ 0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_063844.log results/
+  │ … +7 lines
+  └ FILE:results/
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0001_iptg0p0_ocet0p0_
+    … +98 lines (ctrl + t to view transcript)
+    Best Val Accuracy: 0.2792
+    Best Val Epoch: 18
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• There was another commit between the first child run and the remaining three child runs. I’m checking that diff now so the work-log comparison says whether model
+  code changed during the sweep.
+
+• Ran tr '\r' '\n' < results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0_ocet0p0_ocbs0p0_s
+  │ r0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_134042.log | rg "^Test Accuracy:|^Best Val Accuracy:|^Best Val Epoch:"
+  └ /bin/bash: line 1: results/
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0_ocet0p0_ocbs0p0_sr0
+    _br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_134042.log: No such file or directory
+
+• Ran git diff --name-only 1afdcb816d7c8c4f515e7cc0ffa618ca1122ddb0 c3da437000307578eb110ad70f8b5c8ee08ff8c1
+  └ docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    results/
+    … +5 lines (ctrl + t to view transcript)
+    results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260720_063844.log
+    scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+
+• Ran git diff --stat 1afdcb816d7c8c4f515e7cc0ffa618ca1122ddb0 c3da437000307578eb110ad70f8b5c8ee08ff8c1
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md |  62 +++++++++++
+     ...075_0p001_iptg0p0_rogdora43_20260720_063844.log | 117 +++++++++++++++++++++
+    … +2 lines (ctrl + t to view transcript)
+     ...ell_promotion_10col3shared_weight_sweet_spot.sh |  54 ++++++++++
+     5 files changed, 380 insertions(+)
+
+• Ran tr '\r' '\n' < results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0005_iptg0p0_ocet0p
+  │ 0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260719_051423.log | rg "^Epoch [0-9]+/20:.*Epoch [0-9]+: val_acc|^Training time:|
+  │ … +1 lines
+  └ Epoch 1/20:   5%|▌         | 352/7040 [08:08<49:55:21, 26.87s/it, energy=0.0320, epoch=1/20]  Epoch 1: val_acc=0.1092
+    Epoch 2/20:  10%|█         | 704/7040 [14:06<1:17:21,  1.37it/s, energy=0.0106, epoch=2/20]  Epoch 2: val_acc=0.2090
+    … +20 lines (ctrl + t to view transcript)
+    Best Val Accuracy: 0.3354
+    Best Val Epoch: 18
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The commit drift inside the run is limited to docs, logs, and the sweep wrapper; model code did not change. I’m pulling the exact zero-promotion reference log name
+  now so the comparison table is grounded.
+
+• Explored
+  └ List results
+    Search seed42_lr0p005_ep20_nodiag_rogdora43_20260717_134042|seed42_lr0p005_ep20_nodiag_rogdora43_20260719_051423|seed42_lr0p005_ep20_nodiag_rogdora43_20260720
+
+• Ran tr '\r' '\n' < results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_ocet0p0_ocbs0p0_sr0_br1_
+  │ oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260717_134042.log | rg "^Test Accuracy:|^Best Val Accuracy:|^Best Val Epoch:"
+  └ Test Accuracy: 0.3193 (31.93%)
+    Best Val Accuracy: 0.3260
+    Best Val Epoch: 18
+
+• Ran python - <<'PY'
+  │ values = {
+  │     '0.0 current control': 31.93,
+  │ … +9 lines
+  └ 0.0 current control 31.93 delta_vs_0.0005 -0.9 delta_vs_control 0.0
+    0.0001 31.72 delta_vs_0.0005 -1.11 delta_vs_control -0.21
+    … +2 lines (ctrl + t to view transcript)
+    0.00075 29.94 delta_vs_0.0005 -2.89 delta_vs_control -1.99
+    0.001 28.41 delta_vs_0.0005 -4.42 delta_vs_control -3.52
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll append the result and interpretation to the work log. The main conclusion is that 0.000375 is now the best seed-42 anchored-promotion setting we have in this
+  local family.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+91 -0)
+    6823  - If all nearby weights are worse than `0.0005`, keep `0.0005` as the active anchored-promotion setting and consider a schedule or pair-specific weights ne
+          xt.
+    6824 +
+    6825 +## 2026-07-20 Anchored Promotion Nearby-Weight Sweep Result
+    6826 +
+    6827 +Recorded on 2026-07-20 at `2026-07-20 15:22:26 EDT` on `rogdora43`.
+    6828 +
+    6829 +Current repository commit after the completed run:
+    6830 +
+    6831 +- `c3da437000307578eb110ad70f8b5c8ee08ff8c1`.
+    6832 +
+    6833 +Logs analyzed:
+    6834 +
+    6835 +- Outer master log: `results/codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_weights0p0001_0p0003
+          75_0p00075_0p001_iptg0p0_rogdora43_20260720_063844.log`.
+    6836 +- Inner master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260720_063844.log`.
+    6837 +- Weight `0.0001` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2
+          _3_oct0p0_ocsp0p0_isp0p0001_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_063844.log`.
+    6838 +- Weight `0.000375` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5
+          _2_3_oct0p0_ocsp0p0_isp0p000375_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_084211.log`.
+    6839 +- Weight `0.00075` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_
+          2_3_oct0p0_ocsp0p0_isp0p00075_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_104543.log`.
+    6840 +- Weight `0.001` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_
+          3_oct0p0_ocsp0p0_isp0p001_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_124918.log`.
+    6841 +
+    6842 +Execution note:
+    6843 +
+    6844 +- The outer master log started at commit `1afdcb816d7c8c4f515e7cc0ffa618ca1122ddb0`.
+    6845 +- The first child run, weight `0.0001`, also ran at commit `1afdcb816d7c8c4f515e7cc0ffa618ca1122ddb0`.
+    6846 +- The remaining child runs, weights `0.000375`, `0.00075`, and `0.001`, ran at commit `c3da437000307578eb110ad70f8b5c8ee08ff8c1`.
+    6847 +- The diff between those commits contains only the work log, result logs, and the nearby-weight sweep wrapper. It does not contain model or training-code c
+          hanges.
+    6848 +
+    6849 +Configuration:
+    6850 +
+    6851 +- `inward_shell_promotion_weight` is the scalar multiplier on the shell-context prediction energy that predicts a more central shell state from a more oute
+          r shell state inside each column.
+    6852 +- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+    6853 +- `inward_shell_promotion_target_gradient_scale` is the multiplier on gradient flowing into the target shell state from the local inward-promotion objectiv
+          e.
+    6854 +- `inward_shell_promotion_target_gradient_scale=0.0`.
+    6855 +- Seed `42`, 20 epochs, learning rate `0.005`.
+    6856 +- 10 columns, 3 shared columns, 7 active non-shared columns.
+    6857 +- Explicit all-column support mask `1,1,1,1,1,1,1,1,1,1`.
+    6858 +- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+    6859 +- Outer-shell context on, column shell bridge on, no bypass readout, no teacher heads.
+    6860 +- Shell learning-rate multipliers `1,1.5,2,3`.
+    6861 +- Graph size was 167 nodes and 313 edges.
+    6862 +- Parameter count was 3,129,574.
+    6863 +
+    6864 +Primary results:
+    6865 +
+    6866 +| Inward shell promotion weight | Best validation accuracy | Best epoch | Test accuracy | Delta from current zero-promotion control | Delta from prior `0.0
+          005` |
+    6867 +| ---: | ---: | ---: | ---: | ---: | ---: |
+    6868 +| 0.0 current control | 32.60% | 18 | 31.93% | 0.00 pp | -0.90 pp |
+    6869 +| 0.0001 | 33.14% | 18 | 31.72% | -0.21 pp | -1.11 pp |
+    6870 +| 0.000375 | 33.80% | 18 | 33.74% | +1.81 pp | +0.91 pp |
+    6871 +| 0.0005 prior anchored reference | 33.54% | 18 | 32.83% | +0.90 pp | 0.00 pp |
+    6872 +| 0.00075 | 30.42% | 19 | 29.94% | -1.99 pp | -2.89 pp |
+    6873 +| 0.001 | 27.92% | 18 | 28.41% | -3.52 pp | -4.42 pp |
+    6874 +
+    6875 +Validation trajectory for the new sweep:
+    6876 +
+    6877 +| Epoch | Weight 0.0001 | Weight 0.000375 | Weight 0.00075 | Weight 0.001 |
+    6878 +| ---: | ---: | ---: | ---: | ---: |
+    6879 +| 1 | 10.90% | 11.34% | 11.86% | 11.14% |
+    6880 +| 2 | 22.12% | 20.74% | 22.38% | 22.24% |
+    6881 +| 3 | 20.84% | 20.88% | 20.34% | 20.68% |
+    6882 +| 4 | 26.10% | 26.16% | 25.56% | 21.80% |
+    6883 +| 5 | 24.26% | 24.78% | 24.46% | 20.46% |
+    6884 +| 6 | 26.32% | 27.24% | 26.84% | 20.96% |
+    6885 +| 7 | 24.72% | 24.74% | 22.68% | 22.42% |
+    6886 +| 8 | 26.40% | 26.34% | 25.58% | 23.60% |
+    6887 +| 9 | 28.54% | 24.70% | 23.68% | 17.46% |
+    6888 +| 10 | 28.02% | 25.90% | 22.74% | 22.32% |
+    6889 +| 11 | 21.44% | 21.08% | 20.44% | 20.40% |
+    6890 +| 12 | 26.40% | 26.10% | 25.22% | 23.02% |
+    6891 +| 13 | 28.92% | 29.54% | 27.58% | 22.34% |
+    6892 +| 14 | 28.70% | 31.32% | 28.54% | 21.28% |
+    6893 +| 15 | 29.70% | 29.94% | 26.74% | 24.92% |
+    6894 +| 16 | 30.42% | 27.66% | 28.50% | 24.78% |
+    6895 +| 17 | 30.36% | 32.06% | 28.70% | 25.78% |
+    6896 +| 18 | 33.14% | 33.80% | 29.04% | 27.92% |
+    6897 +| 19 | 30.38% | 31.92% | 30.42% | 27.66% |
+    6898 +| 20 | 31.46% | 32.42% | 30.36% | 27.82% |
+    6899 +
+    6900 +Interpretation:
+    6901 +
+    6902 +- Weight `0.000375` is the best seed-42 result in this nearby-weight sweep.
+    6903 +- Weight `0.000375` improved test accuracy by 0.91 percentage points over the previous anchored `0.0005` reference and by 1.81 percentage points over the c
+          urrent explicit-mask zero-promotion control.
+    6904 +- Weight `0.0001` did not improve test accuracy over the zero-promotion control, despite reaching a slightly higher best validation accuracy than the contr
+          ol.
+    6905 +- Weights `0.00075` and `0.001` degraded substantially. The higher-weight side of the curve is not promising under this anchored conservative two-pair setu
+          p.
+    6906 +- The useful region appears to be below `0.0005`, with `0.000375` currently the best point. This supports the idea that inward shell promotion is useful wh
+          en it is present but weak enough not to dominate the classifier pathway.
+    6907 +- Post-training diagnostics did not emit additional core metrics beyond the marker line in these child logs.
+    6908 +
+    6909 +Recommended next step:
+    6910 +
+    6911 +- Replicate weight `0.000375` on seeds `99` and `7` before changing architecture.
+    6912 +- Keep promotion pairs `outer_to_middle,middle_to_inner`, `inward_shell_promotion_target_gradient_scale=0.0`, and the same 10-column/3-shared setup.
+    6913 +- Compare the three-seed mean for weight `0.000375` against the completed weight `0.0005` three-seed mean of 30.52%.
+    6914 +- If weight `0.000375` holds seed `42` and improves either seed `99` or seed `7`, it should replace `0.0005` as the active anchored-promotion baseline.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log is updated with the sweep result and a seed-99/seed-7 replication recommendation. I’m running the final diff checks now.
+
+• Ran git diff --check
+  └ (no output)
+
+• Explored
+  └ Search Anchored Promotion Nearby-Weight Sweep Result in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +14 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p001_iptg0p0_ocet0p0_o
+    cbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_124918.log
+
+• Ran git diff --stat
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md |  91 ++++
+     ...075_0p001_iptg0p0_rogdora43_20260720_063844.log | 585 +++++++++++++++++++++
+     ...0p005_ep20_nodiag_rogdora43_20260720_063844.log | 102 ++++
+     ...er_iptg0p0_seed42_rogdora43_20260720_063844.log | 581 ++++++++++++++++++++
+     4 files changed, 1359 insertions(+)
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:6825. git diff --check passes.
+
+  Results:
+
+     Weight    Best val      Test    Read
+  ━━━━━━━━━━  ━━━━━━━━━━  ━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     0.0001      33.14%    31.72%    basically control-level
+  ──────────  ──────────  ────────  ───────────────────────────
+   0.000375      33.80%    33.74%    best result in this sweep
+  ──────────  ──────────  ────────  ───────────────────────────
+     0.0005      33.54%    32.83%    prior anchored reference
+  ──────────  ──────────  ────────  ───────────────────────────
+    0.00075      30.42%    29.94%    degraded
+  ──────────  ──────────  ────────  ───────────────────────────
+      0.001      27.92%    28.41%    degraded
+
+  Main conclusion: 0.000375 looks like the better operating point. It beat the prior anchored 0.0005 seed-42 result by +0.91 percentage points and the current zero-
+  promotion control by +1.81 percentage points. Higher weights fall off sharply, so the useful range appears below 0.0005.
+
+  Recommended next run: replicate 0.000375 on seeds 99 and 7 with the same architecture.
+
+  SEEDS="99 7" WEIGHTS="0.000375" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+
+─ Worked for 3m 24s ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› This run has finished now too.
+
+
+• I’ll analyze the new seed-99/seed-7 0.000375 replicate, update the work log, and then report the comparison against the 0.0005 three-seed result.
+
+• Explored
+  └ List results
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M results/
+    … +7 lines (ctrl + t to view transcript)
+    0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed7_lr0p005_ep20_nodiag_rogdora43_20260720_172952.log
+    ?? results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed7_rogdora43_20260720_172952.log
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z'
+  └ 2026-07-20 21:09:48 EDT
+
+• Ran git rev-parse HEAD
+  └ 43ae67c6fa0e88307568bc6871fb60c0ec9b8dce
+
+• Ran hostname
+  └ rogdora43
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The replicate wrote the expected seed-99 and seed-7 logs for weight 0.000375. I’m extracting the per-epoch validation curves and checking the run’s recorded commit
+  state before interpreting the results.
+
+• Explored
+  └ Search git_commit|git_status|seeds:|weights:|promotion_pairs:|inward_shell_promotion_target_gradient_scale|started_at|Starting seed|Finished seed|completed_at|
+           master_log in
+
+           codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_weights0p000375_iptg0p0_rogdora43_20260720_15260
+           4.lo
+           g
+
+• Ran for f in results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p000375_iptg0p0_ocet
+  │ 0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed99_lr0p005_ep20_nodiag_rogdora43_20260720_152604.log results/
+  │ … +4 lines
+  └ FILE:results/
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p000375_iptg0p0_ocet0p
+    … +18 lines (ctrl + t to view transcript)
+    112:Graph: 167 nodes, 313 edges
+    113:Parameters: 3,129,574
+
+• Ran for f in results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p000375_iptg0p0_ocet
+  │ 0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed99_lr0p005_ep20_nodiag_rogdora43_20260720_152604.log results/
+  │ … +3 lines
+  └ FILE:results/
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p000375_iptg0p0_ocet0p
+    … +54 lines (ctrl + t to view transcript)
+    Best Val Epoch: 19
+    Post-training diagnostics: core metrics only
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The result is much better than the 0.0005 replicate: seed 99 no longer collapses, and the three-seed mean rises. I’m checking the commit delta during the run
+  before writing the work-log entry, because seed 7 ran after a commit advanced.
+
+• Ran git diff --name-only c3da437000307578eb110ad70f8b5c8ee08ff8c1 43ae67c6fa0e88307568bc6871fb60c0ec9b8dce
+  └ docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    results/
+    … +19 lines (ctrl + t to view transcript)
+    results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260720_063844.log
+    results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed99_rogdora43_20260720_152604.log
+
+• Ran tail -120 docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └ - `column_grid=stage4`.
+    - `embed_dim=64`.
+    … +116 lines (ctrl + t to view transcript)
+    - Compare the three-seed mean for weight `0.000375` against the completed weight `0.0005` three-seed mean of 30.52%.
+    - If weight `0.000375` holds seed `42` and improves either seed `99` or seed `7`, it should replace `0.0005` as the active anchored-promotion baseline.
+
+• Ran git diff --stat c3da437000307578eb110ad70f8b5c8ee08ff8c1 43ae67c6fa0e88307568bc6871fb60c0ec9b8dce
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md |  91 ++++
+     ...075_0p001_iptg0p0_rogdora43_20260720_063844.log | 585 +++++++++++++++++++++
+    … +7 lines (ctrl + t to view transcript)
+     ...er_iptg0p0_seed99_rogdora43_20260720_152604.log | 107 ++++
+     10 files changed, 2109 insertions(+)
+
+• Ran python - <<'PY'
+  │ import statistics as st
+  │ w375 = {'42':33.74,'99':32.93,'7':31.31}
+  │ … +12 lines
+  └ 0.000375 mean 32.66 sample_sd 1.24 range 2.43
+    0.0005 mean 30.52 sample_sd 3.59 range 6.45
+    … +7 lines (ctrl + t to view transcript)
+    99 -0.69
+    7 1.4
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m adding the replicate results to the work log now. The key points are that 0.000375 has a higher three-seed mean than 0.0005, much lower cross-seed spread, and
+  no seed-99 collapse.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+119 -0)
+    6914  - If weight `0.000375` holds seed `42` and improves either seed `99` or seed `7`, it should replace `0.0005` as the active anchored-promotion baseline.
+    6915 +
+    6916 +## 2026-07-20 Anchored Promotion 0.000375 Replicate Result
+    6917 +
+    6918 +Recorded on 2026-07-20 at `2026-07-20 21:09:48 EDT` on `rogdora43`.
+    6919 +
+    6920 +Current repository commit after the completed run:
+    6921 +
+    6922 +- `43ae67c6fa0e88307568bc6871fb60c0ec9b8dce`.
+    6923 +
+    6924 +Logs analyzed:
+    6925 +
+    6926 +- Outer master log: `results/codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_weights0p000375_iptg
+          0p0_rogdora43_20260720_152604.log`.
+    6927 +- Seed 99 master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed99_rogdora43_20260720_152604.log`
+          .
+    6928 +- Seed 99 child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p
+          0_ocsp0p0_isp0p000375_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed99_lr0p005_ep20_nodiag_rogdora43_20260720_152604.log`.
+    6929 +- Seed 7 master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed7_rogdora43_20260720_172952.log`.
+    6930 +- Seed 7 child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0
+          _ocsp0p0_isp0p000375_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed7_lr0p005_ep20_nodiag_rogdora43_20260720_172952.log`.
+    6931 +
+    6932 +Execution note:
+    6933 +
+    6934 +- Seed `99` ran at commit `c3da437000307578eb110ad70f8b5c8ee08ff8c1`.
+    6935 +- Seed `7` ran at commit `43ae67c6fa0e88307568bc6871fb60c0ec9b8dce`.
+    6936 +- The diff between those commits contains the work log, result logs, and the nearby-weight sweep wrapper. It does not contain model or training-code change
+          s, so the seed results remain comparable.
+    6937 +
+    6938 +Configuration:
+    6939 +
+    6940 +- `inward_shell_promotion_weight` is the scalar multiplier on the shell-context prediction energy that predicts a more central shell state from a more oute
+          r shell state inside each column.
+    6941 +- `inward_shell_promotion_weight=0.000375`.
+    6942 +- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+    6943 +- `inward_shell_promotion_target_gradient_scale` is the multiplier on gradient flowing into the target shell state from the local inward-promotion objectiv
+          e.
+    6944 +- `inward_shell_promotion_target_gradient_scale=0.0`.
+    6945 +- 10 columns, 3 shared columns, 7 active non-shared columns.
+    6946 +- Explicit all-column support mask `1,1,1,1,1,1,1,1,1,1`.
+    6947 +- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+    6948 +- Outer-shell context on, column shell bridge on, no bypass readout, no teacher heads.
+    6949 +- Shell learning-rate multipliers `1,1.5,2,3`.
+    6950 +- Graph size was 167 nodes and 313 edges.
+    6951 +- Parameter count was 3,129,574.
+    6952 +
+    6953 +Primary results:
+    6954 +
+    6955 +| Seed | Best validation accuracy | Best epoch | Test accuracy | Training time |
+    6956 +| --- | ---: | ---: | ---: | ---: |
+    6957 +| 42 | 33.80% | 18 | 33.74% | 7,306.9s |
+    6958 +| 99 | 34.60% | 19 | 32.93% | 7,320.9s |
+    6959 +| 7 | 30.84% | 19 | 31.31% | 7,317.1s |
+    6960 +
+    6961 +Aggregate:
+    6962 +
+    6963 +- Mean test accuracy over seeds `42`, `99`, and `7`: 32.66%.
+    6964 +- Sample standard deviation of test accuracy over those seeds: 1.24 percentage points.
+    6965 +- Test accuracy range over those seeds: 2.43 percentage points.
+    6966 +- Mean best validation accuracy over those seeds: 33.08%.
+    6967 +- Sample standard deviation of best validation accuracy over those seeds: 1.98 percentage points.
+    6968 +
+    6969 +Comparison against the prior anchored `0.0005` replicate:
+    6970 +
+    6971 +| Seed | Weight 0.0005 test | Weight 0.000375 test | Delta |
+    6972 +| --- | ---: | ---: | ---: |
+    6973 +| 42 | 32.83% | 33.74% | +0.91 pp |
+    6974 +| 99 | 26.38% | 32.93% | +6.55 pp |
+    6975 +| 7 | 32.35% | 31.31% | -1.04 pp |
+    6976 +| Mean | 30.52% | 32.66% | +2.14 pp |
+    6977 +
+    6978 +Comparison against the earlier bridge/context anchor:
+    6979 +
+    6980 +| Seed | Earlier bridge/context test | Weight 0.000375 test | Delta |
+    6981 +| --- | ---: | ---: | ---: |
+    6982 +| 42 | 33.93% | 33.74% | -0.19 pp |
+    6983 +| 99 | 33.62% | 32.93% | -0.69 pp |
+    6984 +| 7 | 29.91% | 31.31% | +1.40 pp |
+    6985 +| Mean | 32.49% | 32.66% | +0.17 pp |
+    6986 +
+    6987 +Validation trajectory:
+    6988 +
+    6989 +| Epoch | Seed 42 validation | Seed 99 validation | Seed 7 validation |
+    6990 +| ---: | ---: | ---: | ---: |
+    6991 +| 1 | 11.34% | 10.88% | 14.44% |
+    6992 +| 2 | 20.74% | 18.60% | 22.42% |
+    6993 +| 3 | 20.88% | 19.36% | 20.54% |
+    6994 +| 4 | 26.16% | 19.98% | 22.46% |
+    6995 +| 5 | 24.78% | 25.46% | 25.88% |
+    6996 +| 6 | 27.24% | 23.36% | 24.14% |
+    6997 +| 7 | 24.74% | 27.84% | 24.84% |
+    6998 +| 8 | 26.34% | 30.28% | 24.08% |
+    6999 +| 9 | 24.70% | 29.08% | 24.98% |
+    7000 +| 10 | 25.90% | 24.86% | 25.58% |
+    7001 +| 11 | 21.08% | 26.32% | 17.92% |
+    7002 +| 12 | 26.10% | 20.38% | 24.22% |
+    7003 +| 13 | 29.54% | 26.28% | 23.68% |
+    7004 +| 14 | 31.32% | 21.02% | 23.86% |
+    7005 +| 15 | 29.94% | 27.68% | 23.38% |
+    7006 +| 16 | 27.66% | 29.70% | 27.74% |
+    7007 +| 17 | 32.06% | 30.18% | 28.80% |
+    7008 +| 18 | 33.80% | 33.10% | 29.96% |
+    7009 +| 19 | 31.92% | 34.60% | 30.84% |
+    7010 +| 20 | 32.42% | 32.66% | 30.74% |
+    7011 +
+    7012 +Interpretation:
+    7013 +
+    7014 +- Weight `0.000375` should replace `0.0005` as the active anchored-promotion baseline.
+    7015 +- The main improvement is robustness. The three-seed mean increased from 30.52% to 32.66%, and the test-accuracy range dropped from 6.45 percentage points
+          to 2.43 percentage points.
+    7016 +- Seed `99` no longer shows the severe collapse seen at weight `0.0005`. Its best validation accuracy rose from 26.86% to 34.60%, and its test accuracy ros
+          e from 26.38% to 32.93%.
+    7017 +- Seed `7` is weaker than its weight-`0.0005` result by 1.04 percentage points, but it remains above 31% test accuracy and above the earlier bridge/context
+           seed-7 result.
+    7018 +- Seed `7` did dip to 17.92% validation accuracy at epoch 11 before recovering to 30.84% at epoch 19. This is worth monitoring, but it is not the same fail
+          ure mode as the seed-99 collapse at weight `0.0005`.
+    7019 +- Relative to the earlier bridge/context anchor, the new `0.000375` anchored-promotion setting is essentially tied on mean test accuracy and is more balanc
+          ed across seeds.
+    7020 +
+    7021 +Recommended next step:
+    7022 +
+    7023 +- Treat `0.000375` as the current best conservative anchored-promotion setting.
+    7024 +- Run a narrow seed-42 scalar search around it before adding a new mechanism.
+    7025 +- Candidate weights: `0.0003`, `0.00035`, `0.0004`, and `0.00045`.
+    7026 +- If none beat `0.000375`, keep `0.000375` and move on to pair-specific promotion weights or a weak promotion schedule.
+    7027 +- If one candidate beats `0.000375` by a meaningful margin, replicate that candidate on seeds `99` and `7`.
+    7028 +
+    7029 +Suggested command:
+    7030 +
+    7031 +```bash
+    7032 +SEEDS="42" WEIGHTS="0.0003 0.00035 0.0004 0.00045" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+    7033 +```
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now records the three-seed 0.000375 result and recommends a narrow scalar search. I’ll run the final whitespace/status checks before summarizing.
+
+• Ran git diff --check
+  └ (no output)
+
+• Explored
+  └ Search Anchored Promotion 0.000375 Replicate Result in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +8 lines (ctrl + t to view transcript)
+    0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed7_lr0p005_ep20_nodiag_rogdora43_20260720_172952.log
+    ?? results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed7_rogdora43_20260720_172952.log
+
+• Ran git diff --stat
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md | 119 ++++++++
+     ...s0p000375_iptg0p0_rogdora43_20260720_152604.log | 320 +++++++++++++++++++++
+     ...0p005_ep20_nodiag_rogdora43_20260720_152604.log | 102 +++++++
+     ...er_iptg0p0_seed99_rogdora43_20260720_152604.log | 107 +++++++
+     4 files changed, 648 insertions(+)
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:6916. git diff --check passes.
+
+  Results for 0.000375:
+
+   Seed           Best val           Test
+  ━━━━━━  ━━━━━━━━━━━━━━━━━  ━━━━━━━━━━━━━
+   42               33.80%         33.74%
+  ──────  ─────────────────  ─────────────
+   99               34.60%         32.93%
+  ──────  ─────────────────  ─────────────
+   7                30.84%         31.31%
+  ──────  ─────────────────  ─────────────
+   Mean    33.08% best val    32.66% test
+
+  This is a clear improvement over 0.0005: mean test rose from 30.52% to 32.66%, and the cross-seed test range shrank from 6.45 points to 2.43 points. Seed 99 no
+  longer collapsed: it moved from 26.38% test at 0.0005 to 32.93% at 0.000375.
+
+  My recommendation is to make 0.000375 the active anchored-promotion baseline, then do one narrower seed-42 scalar search around it before changing mechanisms:
+
+  SEEDS="42" WEIGHTS="0.0003 0.00035 0.0004 0.00045" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+
+─ Worked for 2m 45s ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Model changed to gpt-5.5 xhigh
+
+
+› This experimental run has completed.
+
+
+• I’ll locate the newest narrow-weight sweep logs, extract the per-weight results, update the work log, and then report the next recommendation.
+
+• Updated Plan
+  └ □ Locate newest narrow scalar sweep logs
+    □ Extract metrics and compare against 0.000375 baseline
+    □ Append results and recommendation to the work log
+    □ Run diff checks and report next step
+
+• Ran hostname
+  └ rogdora43
+
+• Explored
+  └ List results
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M results/
+    … +13 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0004_iptg0p0_ocet0p0_
+    ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260721_012342.log
+
+• Ran date '+%Y-%m-%d %H:%M:%S %Z'
+  └ 2026-07-21 13:54:06 EDT
+
+• Ran git rev-parse HEAD
+  └ 3076d6c15297382c30b882352df31e2719a849ed
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The newest run is the narrow scalar sweep for seed 42 with weights 0.0003, 0.00035, 0.0004, and 0.00045. I’m extracting each run’s validation curve and final test
+  metric now.
+
+• Updated Plan
+  └ ✔ Locate newest narrow scalar sweep logs
+    □ Extract metrics and compare against 0.000375 baseline
+    □ Append results and recommendation to the work log
+    □ Run diff checks and report next step
+
+• Explored
+  └ Search git_commit|git_status|seeds:|weights:|promotion_pairs:|inward_shell_promotion_target_gradient_scale|started_at|Starting inward_shell_promotion_weight|
+  Finished
+           inward_shell_promotion_weight|completed_at|master_log in
+
+           codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_weights0p0003_0p00035_0p0004_0p00045_iptg0p0_rog
+           dora
+           43_20260720_211655.log
+
+• Ran for f in results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0003_iptg0p0_ocet0p
+  │ 0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_211655.log results/
+  │ … +8 lines
+  └ FILE:results/
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0003_iptg0p0_ocet0p0_
+    … +38 lines (ctrl + t to view transcript)
+    113:Graph: 167 nodes, 313 edges
+    114:Parameters: 3,129,574
+
+• Ran for f in results/
+  │ codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0003_iptg0p0_ocet0p
+  │ 0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_211655.log results/
+  │ … +7 lines
+  └ FILE:results/
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0003_iptg0p0_ocet0p0_
+    … +110 lines (ctrl + t to view transcript)
+    Best Val Epoch: 18
+    Post-training diagnostics: core metrics only
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The narrow sweep did not beat 0.000375; the best new test result is 31.61% at 0.00035, well below the 33.74% seed-42 reference. I’m checking the commit drift
+  during the sweep to make sure no training code changed mid-run.
+
+• Ran git diff --name-only 43ae67c6fa0e88307568bc6871fb60c0ec9b8dce 3076d6c15297382c30b882352df31e2719a849ed
+  └ docs/2026.07.20-codex-rogdora43-session-log.txt
+    docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +15 lines (ctrl + t to view transcript)
+    results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed7_rogdora43_20260720_172952.log
+    results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed99_rogdora43_20260720_152604.log
+
+• Ran git diff --stat 43ae67c6fa0e88307568bc6871fb60c0ec9b8dce 3076d6c15297382c30b882352df31e2719a849ed
+  └  docs/2026.07.20-codex-rogdora43-session-log.txt    | 1015 ++++++++++++++++++++
+     ...24-work-log-codex-rogdora43-cifar10-hibacaml.md |  119 +++
+    … +7 lines (ctrl + t to view transcript)
+     ...er_iptg0p0_seed99_rogdora43_20260720_152604.log |  107 +++
+     10 files changed, 2307 insertions(+)
+
+• Ran python - <<'PY'
+  │ ref_test = 33.74
+  │ ref_val = 33.80
+  │ … +11 lines
+  └ 0.0003 val_delta_ref -0.96 test_delta_ref -2.36 test_delta_control -0.55
+    0.00035 val_delta_ref -0.96 test_delta_ref -2.13 test_delta_control -0.32
+    0.000375 val_delta_ref 0.0 test_delta_ref 0.0 test_delta_control 1.81
+    0.0004 val_delta_ref -4.06 test_delta_ref -5.01 test_delta_control -3.2
+    0.00045 val_delta_ref -2.98 test_delta_ref -2.87 test_delta_control -1.06
+
+• Ran tail -80 docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+  └
+    | Seed | Best validation accuracy | Best epoch | Test accuracy | Training time |
+    … +76 lines (ctrl + t to view transcript)
+    SEEDS="42" WEIGHTS="0.0003 0.00035 0.0004 0.00045" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+    ```
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m appending the result to the work log now. I’ll record that this scalar search failed to beat 0.000375, so the next useful axis is pair contribution rather than
+  more scalar tuning.
+
+• Updated Plan
+  └ ✔ Locate newest narrow scalar sweep logs
+    ✔ Extract metrics and compare against 0.000375 baseline
+    □ Append results and recommendation to the work log
+    □ Run diff checks and report next step
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+97 -0)
+    7033  ```
+    7034 +
+    7035 +## 2026-07-21 Anchored Promotion Narrow Scalar Sweep Result
+    7036 +
+    7037 +Recorded on 2026-07-21 at `2026-07-21 13:54:06 EDT` on `rogdora43`.
+    7038 +
+    7039 +Current repository commit after the completed run:
+    7040 +
+    7041 +- `3076d6c15297382c30b882352df31e2719a849ed`.
+    7042 +
+    7043 +Logs analyzed:
+    7044 +
+    7045 +- Outer master log: `results/codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_weights0p0003_0p0003
+          5_0p0004_0p00045_iptg0p0_rogdora43_20260720_211655.log`.
+    7046 +- Inner master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260720_211655.log`.
+    7047 +- Weight `0.0003` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2
+          _3_oct0p0_ocsp0p0_isp0p0003_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_211655.log`.
+    7048 +- Weight `0.00035` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_
+          2_3_oct0p0_ocsp0p0_isp0p00035_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_232024.log`.
+    7049 +- Weight `0.0004` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2
+          _3_oct0p0_ocsp0p0_isp0p0004_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260721_012342.log`.
+    7050 +- Weight `0.00045` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_
+          2_3_oct0p0_ocsp0p0_isp0p00045_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260721_032656.log`.
+    7051 +
+    7052 +Execution note:
+    7053 +
+    7054 +- The outer master log started at commit `43ae67c6fa0e88307568bc6871fb60c0ec9b8dce`.
+    7055 +- The first child run, weight `0.0003`, ran at commit `43ae67c6fa0e88307568bc6871fb60c0ec9b8dce`.
+    7056 +- The remaining child runs, weights `0.00035`, `0.0004`, and `0.00045`, ran at commit `3076d6c15297382c30b882352df31e2719a849ed`.
+    7057 +- The diff between those commits contains docs, result logs, and session-log files. It does not contain model or training-code changes.
+    7058 +
+    7059 +Configuration:
+    7060 +
+    7061 +- `inward_shell_promotion_weight` is the scalar multiplier on the shell-context prediction energy that predicts a more central shell state from a more oute
+          r shell state inside each column.
+    7062 +- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+    7063 +- `inward_shell_promotion_target_gradient_scale` is the multiplier on gradient flowing into the target shell state from the local inward-promotion objectiv
+          e.
+    7064 +- `inward_shell_promotion_target_gradient_scale=0.0`.
+    7065 +- Seed `42`, 20 epochs, learning rate `0.005`.
+    7066 +- 10 columns, 3 shared columns, 7 active non-shared columns.
+    7067 +- Explicit all-column support mask `1,1,1,1,1,1,1,1,1,1`.
+    7068 +- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+    7069 +- Outer-shell context on, column shell bridge on, no bypass readout, no teacher heads.
+    7070 +- Shell learning-rate multipliers `1,1.5,2,3`.
+    7071 +- Graph size was 167 nodes and 313 edges.
+    7072 +- Parameter count was 3,129,574.
+    7073 +
+    7074 +Primary results:
+    7075 +
+    7076 +| Inward shell promotion weight | Best validation accuracy | Best epoch | Test accuracy | Delta from active `0.000375` seed-42 test | Delta from current ze
+          ro-promotion control |
+    7077 +| ---: | ---: | ---: | ---: | ---: | ---: |
+    7078 +| 0.0003 | 32.84% | 18 | 31.38% | -2.36 pp | -0.55 pp |
+    7079 +| 0.00035 | 32.84% | 18 | 31.61% | -2.13 pp | -0.32 pp |
+    7080 +| 0.000375 active reference | 33.80% | 18 | 33.74% | 0.00 pp | +1.81 pp |
+    7081 +| 0.0004 | 29.74% | 19 | 28.73% | -5.01 pp | -3.20 pp |
+    7082 +| 0.00045 | 30.82% | 18 | 30.87% | -2.87 pp | -1.06 pp |
+    7083 +
+    7084 +Validation trajectory:
+    7085 +
+    7086 +| Epoch | Weight 0.0003 | Weight 0.00035 | Weight 0.0004 | Weight 0.00045 |
+    7087 +| ---: | ---: | ---: | ---: | ---: |
+    7088 +| 1 | 11.36% | 11.48% | 11.08% | 11.06% |
+    7089 +| 2 | 22.14% | 21.90% | 21.68% | 21.34% |
+    7090 +| 3 | 20.36% | 20.76% | 20.18% | 20.12% |
+    7091 +| 4 | 26.16% | 24.64% | 25.18% | 25.30% |
+    7092 +| 5 | 25.00% | 24.04% | 25.08% | 24.34% |
+    7093 +| 6 | 27.96% | 25.82% | 27.00% | 26.54% |
+    7094 +| 7 | 25.80% | 23.20% | 24.84% | 23.94% |
+    7095 +| 8 | 28.54% | 29.80% | 23.80% | 26.88% |
+    7096 +| 9 | 26.32% | 25.82% | 23.30% | 27.82% |
+    7097 +| 10 | 25.54% | 25.68% | 23.26% | 26.18% |
+    7098 +| 11 | 22.46% | 22.16% | 20.16% | 20.76% |
+    7099 +| 12 | 28.32% | 26.36% | 25.24% | 24.54% |
+    7100 +| 13 | 29.38% | 24.60% | 20.88% | 26.96% |
+    7101 +| 14 | 27.16% | 28.02% | 26.42% | 26.66% |
+    7102 +| 15 | 28.02% | 28.36% | 25.18% | 27.60% |
+    7103 +| 16 | 29.74% | 31.88% | 28.08% | 27.70% |
+    7104 +| 17 | 30.86% | 30.20% | 28.70% | 27.92% |
+    7105 +| 18 | 32.84% | 32.84% | 29.42% | 30.82% |
+    7106 +| 19 | 31.60% | 31.48% | 29.74% | 29.72% |
+    7107 +| 20 | 31.54% | 31.76% | 29.54% | 29.48% |
+    7108 +
+    7109 +Interpretation:
+    7110 +
+    7111 +- None of the narrower seed-42 scalar candidates beat the active `0.000375` anchored-promotion setting.
+    7112 +- The two below-`0.000375` candidates, `0.0003` and `0.00035`, were close in validation accuracy but fell more than two percentage points behind in test ac
+          curacy.
+    7113 +- The two above-`0.000375` candidates, `0.0004` and `0.00045`, degraded clearly. This reinforces the pattern from the wider sweep that the useful scalar we
+          ight region is narrow and drops off above `0.000375`.
+    7114 +- The active `0.000375` result remains the best seed-42 scalar point in this anchored two-pair promotion family.
+    7115 +- The current scalar sweep does not justify another nearby scalar-only search.
+    7116 +
+    7117 +Recommended next step:
+    7118 +
+    7119 +- Keep `inward_shell_promotion_weight=0.000375` as the active scalar baseline.
+    7120 +- Move to pair-contribution testing before implementing pair-specific weights.
+    7121 +- Run seed `42` with `outer_to_middle` only and `middle_to_inner` only, both at weight `0.000375` and target-gradient scale `0.0`.
+    7122 +- If one single-pair result approaches or beats the two-pair result, implement pair-specific weights so the stronger edge can be emphasized without strengt
+          hening the weaker edge.
+    7123 +- If both single-pair results are below the two-pair result, keep both pairs and consider a weak schedule for the same scalar baseline.
+    7124 +
+    7125 +Suggested commands:
+    7126 +
+    7127 +```bash
+    7128 +SEEDS="42" WEIGHTS="0.000375" PROMOTION_PAIRS="outer_to_middle" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+    7129 +SEEDS="42" WEIGHTS="0.000375" PROMOTION_PAIRS="middle_to_inner" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+    7130 +```
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now includes the narrow scalar sweep result and pair-contribution recommendation. I’m running the final diff checks and status scan before I
+  summarize.
+
+• Updated Plan
+  └ ✔ Locate newest narrow scalar sweep logs
+    ✔ Extract metrics and compare against 0.000375 baseline
+    ✔ Append results and recommendation to the work log
+    □ Run diff checks and report next step
+
+• Explored
+  └ Search Anchored Promotion Narrow Scalar Sweep Result in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    … +14 lines (ctrl + t to view transcript)
+    codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0004_iptg0p0_ocet0p0_
+    ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260721_012342.log
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran git diff --stat
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md |  97 ++++
+     ...4_0p00045_iptg0p0_rogdora43_20260720_211655.log | 585 +++++++++++++++++++++
+     ...0p005_ep20_nodiag_rogdora43_20260720_211655.log | 102 ++++
+     ...er_iptg0p0_seed42_rogdora43_20260720_211655.log | 581 ++++++++++++++++++++
+     4 files changed, 1365 insertions(+)
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The checks passed. The only source file I changed is the work log; the rest of the dirty status is the new result logs from the run.
+
+• Updated Plan
+  └ ✔ Locate newest narrow scalar sweep logs
+    ✔ Extract metrics and compare against 0.000375 baseline
+    ✔ Append results and recommendation to the work log
+    ✔ Run diff checks and report next step
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:7035. git diff --check passes.
+
+  Results:
+
+               Weight    Best val      Test
+  ━━━━━━━━━━━━━━━━━━━━  ━━━━━━━━━━  ━━━━━━━━
+               0.0003      32.84%    31.38%
+  ────────────────────  ──────────  ────────
+              0.00035      32.84%    31.61%
+  ────────────────────  ──────────  ────────
+   0.000375 reference      33.80%    33.74%
+  ────────────────────  ──────────  ────────
+               0.0004      29.74%    28.73%
+  ────────────────────  ──────────  ────────
+              0.00045      30.82%    30.87%
+
+  None of the narrower scalar candidates beat 0.000375. The two lower weights were close on validation but much weaker on test, and the two higher weights degraded.
+  I’d stop scalar-only tuning here and keep 0.000375 as the active anchored-promotion baseline.
+
+  Recommended next step: test whether outer_to_middle and middle_to_inner contribute differently before implementing pair-specific weights.
+
+  SEEDS="42" WEIGHTS="0.000375" PROMOTION_PAIRS="outer_to_middle" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+  SEEDS="42" WEIGHTS="0.000375" PROMOTION_PAIRS="middle_to_inner" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+
+─ Worked for 2m 55s ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ 
+› Improve documentation in @filename
+ 
+  gpt-5.5 xhigh · ~/repos/fpc

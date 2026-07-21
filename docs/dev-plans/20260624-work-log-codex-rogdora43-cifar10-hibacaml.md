@@ -7031,3 +7031,100 @@ Suggested command:
 ```bash
 SEEDS="42" WEIGHTS="0.0003 0.00035 0.0004 0.00045" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
 ```
+
+## 2026-07-21 Anchored Promotion Narrow Scalar Sweep Result
+
+Recorded on 2026-07-21 at `2026-07-21 13:54:06 EDT` on `rogdora43`.
+
+Current repository commit after the completed run:
+
+- `3076d6c15297382c30b882352df31e2719a849ed`.
+
+Logs analyzed:
+
+- Outer master log: `results/codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_weights0p0003_0p00035_0p0004_0p00045_iptg0p0_rogdora43_20260720_211655.log`.
+- Inner master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed42_rogdora43_20260720_211655.log`.
+- Weight `0.0003` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0003_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_211655.log`.
+- Weight `0.00035` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p00035_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260720_232024.log`.
+- Weight `0.0004` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p0004_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260721_012342.log`.
+- Weight `0.00045` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p00045_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260721_032656.log`.
+
+Execution note:
+
+- The outer master log started at commit `43ae67c6fa0e88307568bc6871fb60c0ec9b8dce`.
+- The first child run, weight `0.0003`, ran at commit `43ae67c6fa0e88307568bc6871fb60c0ec9b8dce`.
+- The remaining child runs, weights `0.00035`, `0.0004`, and `0.00045`, ran at commit `3076d6c15297382c30b882352df31e2719a849ed`.
+- The diff between those commits contains docs, result logs, and session-log files. It does not contain model or training-code changes.
+
+Configuration:
+
+- `inward_shell_promotion_weight` is the scalar multiplier on the shell-context prediction energy that predicts a more central shell state from a more outer shell state inside each column.
+- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+- `inward_shell_promotion_target_gradient_scale` is the multiplier on gradient flowing into the target shell state from the local inward-promotion objective.
+- `inward_shell_promotion_target_gradient_scale=0.0`.
+- Seed `42`, 20 epochs, learning rate `0.005`.
+- 10 columns, 3 shared columns, 7 active non-shared columns.
+- Explicit all-column support mask `1,1,1,1,1,1,1,1,1,1`.
+- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+- Outer-shell context on, column shell bridge on, no bypass readout, no teacher heads.
+- Shell learning-rate multipliers `1,1.5,2,3`.
+- Graph size was 167 nodes and 313 edges.
+- Parameter count was 3,129,574.
+
+Primary results:
+
+| Inward shell promotion weight | Best validation accuracy | Best epoch | Test accuracy | Delta from active `0.000375` seed-42 test | Delta from current zero-promotion control |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.0003 | 32.84% | 18 | 31.38% | -2.36 pp | -0.55 pp |
+| 0.00035 | 32.84% | 18 | 31.61% | -2.13 pp | -0.32 pp |
+| 0.000375 active reference | 33.80% | 18 | 33.74% | 0.00 pp | +1.81 pp |
+| 0.0004 | 29.74% | 19 | 28.73% | -5.01 pp | -3.20 pp |
+| 0.00045 | 30.82% | 18 | 30.87% | -2.87 pp | -1.06 pp |
+
+Validation trajectory:
+
+| Epoch | Weight 0.0003 | Weight 0.00035 | Weight 0.0004 | Weight 0.00045 |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 11.36% | 11.48% | 11.08% | 11.06% |
+| 2 | 22.14% | 21.90% | 21.68% | 21.34% |
+| 3 | 20.36% | 20.76% | 20.18% | 20.12% |
+| 4 | 26.16% | 24.64% | 25.18% | 25.30% |
+| 5 | 25.00% | 24.04% | 25.08% | 24.34% |
+| 6 | 27.96% | 25.82% | 27.00% | 26.54% |
+| 7 | 25.80% | 23.20% | 24.84% | 23.94% |
+| 8 | 28.54% | 29.80% | 23.80% | 26.88% |
+| 9 | 26.32% | 25.82% | 23.30% | 27.82% |
+| 10 | 25.54% | 25.68% | 23.26% | 26.18% |
+| 11 | 22.46% | 22.16% | 20.16% | 20.76% |
+| 12 | 28.32% | 26.36% | 25.24% | 24.54% |
+| 13 | 29.38% | 24.60% | 20.88% | 26.96% |
+| 14 | 27.16% | 28.02% | 26.42% | 26.66% |
+| 15 | 28.02% | 28.36% | 25.18% | 27.60% |
+| 16 | 29.74% | 31.88% | 28.08% | 27.70% |
+| 17 | 30.86% | 30.20% | 28.70% | 27.92% |
+| 18 | 32.84% | 32.84% | 29.42% | 30.82% |
+| 19 | 31.60% | 31.48% | 29.74% | 29.72% |
+| 20 | 31.54% | 31.76% | 29.54% | 29.48% |
+
+Interpretation:
+
+- None of the narrower seed-42 scalar candidates beat the active `0.000375` anchored-promotion setting.
+- The two below-`0.000375` candidates, `0.0003` and `0.00035`, were close in validation accuracy but fell more than two percentage points behind in test accuracy.
+- The two above-`0.000375` candidates, `0.0004` and `0.00045`, degraded clearly. This reinforces the pattern from the wider sweep that the useful scalar weight region is narrow and drops off above `0.000375`.
+- The active `0.000375` result remains the best seed-42 scalar point in this anchored two-pair promotion family.
+- The current scalar sweep does not justify another nearby scalar-only search.
+
+Recommended next step:
+
+- Keep `inward_shell_promotion_weight=0.000375` as the active scalar baseline.
+- Move to pair-contribution testing before implementing pair-specific weights.
+- Run seed `42` with `outer_to_middle` only and `middle_to_inner` only, both at weight `0.000375` and target-gradient scale `0.0`.
+- If one single-pair result approaches or beats the two-pair result, implement pair-specific weights so the stronger edge can be emphasized without strengthening the weaker edge.
+- If both single-pair results are below the two-pair result, keep both pairs and consider a weak schedule for the same scalar baseline.
+
+Suggested commands:
+
+```bash
+SEEDS="42" WEIGHTS="0.000375" PROMOTION_PAIRS="outer_to_middle" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+SEEDS="42" WEIGHTS="0.000375" PROMOTION_PAIRS="middle_to_inner" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+```
