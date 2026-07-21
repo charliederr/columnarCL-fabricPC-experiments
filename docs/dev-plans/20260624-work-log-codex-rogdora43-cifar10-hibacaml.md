@@ -6912,3 +6912,122 @@ Recommended next step:
 - Keep promotion pairs `outer_to_middle,middle_to_inner`, `inward_shell_promotion_target_gradient_scale=0.0`, and the same 10-column/3-shared setup.
 - Compare the three-seed mean for weight `0.000375` against the completed weight `0.0005` three-seed mean of 30.52%.
 - If weight `0.000375` holds seed `42` and improves either seed `99` or seed `7`, it should replace `0.0005` as the active anchored-promotion baseline.
+
+## 2026-07-20 Anchored Promotion 0.000375 Replicate Result
+
+Recorded on 2026-07-20 at `2026-07-20 21:09:48 EDT` on `rogdora43`.
+
+Current repository commit after the completed run:
+
+- `43ae67c6fa0e88307568bc6871fb60c0ec9b8dce`.
+
+Logs analyzed:
+
+- Outer master log: `results/codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_middle_to_inner_weights0p000375_iptg0p0_rogdora43_20260720_152604.log`.
+- Seed 99 master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed99_rogdora43_20260720_152604.log`.
+- Seed 99 child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p000375_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed99_lr0p005_ep20_nodiag_rogdora43_20260720_152604.log`.
+- Seed 7 master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_seed7_rogdora43_20260720_172952.log`.
+- Seed 7 child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p000375_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed7_lr0p005_ep20_nodiag_rogdora43_20260720_172952.log`.
+
+Execution note:
+
+- Seed `99` ran at commit `c3da437000307578eb110ad70f8b5c8ee08ff8c1`.
+- Seed `7` ran at commit `43ae67c6fa0e88307568bc6871fb60c0ec9b8dce`.
+- The diff between those commits contains the work log, result logs, and the nearby-weight sweep wrapper. It does not contain model or training-code changes, so the seed results remain comparable.
+
+Configuration:
+
+- `inward_shell_promotion_weight` is the scalar multiplier on the shell-context prediction energy that predicts a more central shell state from a more outer shell state inside each column.
+- `inward_shell_promotion_weight=0.000375`.
+- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+- `inward_shell_promotion_target_gradient_scale` is the multiplier on gradient flowing into the target shell state from the local inward-promotion objective.
+- `inward_shell_promotion_target_gradient_scale=0.0`.
+- 10 columns, 3 shared columns, 7 active non-shared columns.
+- Explicit all-column support mask `1,1,1,1,1,1,1,1,1,1`.
+- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+- Outer-shell context on, column shell bridge on, no bypass readout, no teacher heads.
+- Shell learning-rate multipliers `1,1.5,2,3`.
+- Graph size was 167 nodes and 313 edges.
+- Parameter count was 3,129,574.
+
+Primary results:
+
+| Seed | Best validation accuracy | Best epoch | Test accuracy | Training time |
+| --- | ---: | ---: | ---: | ---: |
+| 42 | 33.80% | 18 | 33.74% | 7,306.9s |
+| 99 | 34.60% | 19 | 32.93% | 7,320.9s |
+| 7 | 30.84% | 19 | 31.31% | 7,317.1s |
+
+Aggregate:
+
+- Mean test accuracy over seeds `42`, `99`, and `7`: 32.66%.
+- Sample standard deviation of test accuracy over those seeds: 1.24 percentage points.
+- Test accuracy range over those seeds: 2.43 percentage points.
+- Mean best validation accuracy over those seeds: 33.08%.
+- Sample standard deviation of best validation accuracy over those seeds: 1.98 percentage points.
+
+Comparison against the prior anchored `0.0005` replicate:
+
+| Seed | Weight 0.0005 test | Weight 0.000375 test | Delta |
+| --- | ---: | ---: | ---: |
+| 42 | 32.83% | 33.74% | +0.91 pp |
+| 99 | 26.38% | 32.93% | +6.55 pp |
+| 7 | 32.35% | 31.31% | -1.04 pp |
+| Mean | 30.52% | 32.66% | +2.14 pp |
+
+Comparison against the earlier bridge/context anchor:
+
+| Seed | Earlier bridge/context test | Weight 0.000375 test | Delta |
+| --- | ---: | ---: | ---: |
+| 42 | 33.93% | 33.74% | -0.19 pp |
+| 99 | 33.62% | 32.93% | -0.69 pp |
+| 7 | 29.91% | 31.31% | +1.40 pp |
+| Mean | 32.49% | 32.66% | +0.17 pp |
+
+Validation trajectory:
+
+| Epoch | Seed 42 validation | Seed 99 validation | Seed 7 validation |
+| ---: | ---: | ---: | ---: |
+| 1 | 11.34% | 10.88% | 14.44% |
+| 2 | 20.74% | 18.60% | 22.42% |
+| 3 | 20.88% | 19.36% | 20.54% |
+| 4 | 26.16% | 19.98% | 22.46% |
+| 5 | 24.78% | 25.46% | 25.88% |
+| 6 | 27.24% | 23.36% | 24.14% |
+| 7 | 24.74% | 27.84% | 24.84% |
+| 8 | 26.34% | 30.28% | 24.08% |
+| 9 | 24.70% | 29.08% | 24.98% |
+| 10 | 25.90% | 24.86% | 25.58% |
+| 11 | 21.08% | 26.32% | 17.92% |
+| 12 | 26.10% | 20.38% | 24.22% |
+| 13 | 29.54% | 26.28% | 23.68% |
+| 14 | 31.32% | 21.02% | 23.86% |
+| 15 | 29.94% | 27.68% | 23.38% |
+| 16 | 27.66% | 29.70% | 27.74% |
+| 17 | 32.06% | 30.18% | 28.80% |
+| 18 | 33.80% | 33.10% | 29.96% |
+| 19 | 31.92% | 34.60% | 30.84% |
+| 20 | 32.42% | 32.66% | 30.74% |
+
+Interpretation:
+
+- Weight `0.000375` should replace `0.0005` as the active anchored-promotion baseline.
+- The main improvement is robustness. The three-seed mean increased from 30.52% to 32.66%, and the test-accuracy range dropped from 6.45 percentage points to 2.43 percentage points.
+- Seed `99` no longer shows the severe collapse seen at weight `0.0005`. Its best validation accuracy rose from 26.86% to 34.60%, and its test accuracy rose from 26.38% to 32.93%.
+- Seed `7` is weaker than its weight-`0.0005` result by 1.04 percentage points, but it remains above 31% test accuracy and above the earlier bridge/context seed-7 result.
+- Seed `7` did dip to 17.92% validation accuracy at epoch 11 before recovering to 30.84% at epoch 19. This is worth monitoring, but it is not the same failure mode as the seed-99 collapse at weight `0.0005`.
+- Relative to the earlier bridge/context anchor, the new `0.000375` anchored-promotion setting is essentially tied on mean test accuracy and is more balanced across seeds.
+
+Recommended next step:
+
+- Treat `0.000375` as the current best conservative anchored-promotion setting.
+- Run a narrow seed-42 scalar search around it before adding a new mechanism.
+- Candidate weights: `0.0003`, `0.00035`, `0.0004`, and `0.00045`.
+- If none beat `0.000375`, keep `0.000375` and move on to pair-specific promotion weights or a weak promotion schedule.
+- If one candidate beats `0.000375` by a meaningful margin, replicate that candidate on seeds `99` and `7`.
+
+Suggested command:
+
+```bash
+SEEDS="42" WEIGHTS="0.0003 0.00035 0.0004 0.00045" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
+```
