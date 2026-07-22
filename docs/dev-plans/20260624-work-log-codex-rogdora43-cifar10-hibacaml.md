@@ -7299,3 +7299,98 @@ Expected interpretation:
 - If either schedule beats the static seed-42 `0.000375` result of 33.74% test accuracy, replicate that schedule on seeds `99` and `7`.
 - If neither schedule beats static `0.000375` but one reduces mid-training validation dips, consider a three-seed stability replicate before rejecting scheduling.
 - If both schedules fall below the zero-promotion control at 31.93% seed-42 test accuracy, scheduling is probably not the next useful direction for this mechanism.
+
+## 2026-07-22 Inward Promotion Schedule Result
+
+Question:
+
+- Test whether delayed inward shell promotion improves seed-42 CIFAR-10 classification by letting the classifier pathway form before the local shell-promotion predictive objective becomes fully active.
+
+Mechanism definitions:
+
+- `inward_shell_promotion_weight` is the final scalar multiplier on the local predictive-coding energy where a more outer shell state predicts a more inner shell state inside the same column.
+- `warmup_epochs` is the number of initial training epochs with the inward shell-promotion objective weight set to `0.0`.
+- `ramp_epochs` is the number of epochs after warmup used to linearly increase the inward shell-promotion objective weight from `0.0` to `inward_shell_promotion_weight`.
+- Percentage point means absolute difference between two accuracy percentages.
+
+Execution note:
+
+- The `warmup=4, ramp=8` run started at commit `dfbfe279c105b6b9584bfbfc54844f628b943428` with the schedule implementation present as uncommitted working-tree changes.
+- The `warmup=8, ramp=8` run started at commit `6e6d7941e30786be4e8068372c516b8f222a90e2`, which committed the same schedule implementation.
+- I am comparing the two runs as intended schedule runs, while noting that the first log's `git_commit` alone does not describe the full executed source state.
+
+Logs:
+
+- Master schedule log: `results/codex_anchored_inward_shell_promotion_schedule_10col3shared_pairsouter_to_middle_middle_to_inner_weights0p000375_schedules4w8_8w8_iptg0p0_rogdora43_20260721_202048.log`.
+- `warmup=4, ramp=8` child log: `results/codex_dspan_sched_10c_3s_7a_shatt_isp0p000375_iptg0p0_ipw4_ipr8_seed42_lr0p005_ep20_nodiag_rogdora43_20260721_202048.log`.
+- `warmup=8, ramp=8` child log: `results/codex_dspan_sched_10c_3s_7a_shatt_isp0p000375_iptg0p0_ipw8_ipr8_seed42_lr0p005_ep20_nodiag_rogdora43_20260721_231911.log`.
+
+Configuration:
+
+- Seed `42`, 20 epochs, learning rate `0.005`.
+- `inward_shell_promotion_weight=0.000375`.
+- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+- `inward_shell_promotion_target_gradient_scale=0.0`.
+- 10 columns, 3 shared columns, explicit all-column support mask.
+- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+- Outer-shell context on, column shell bridge on, no bypass readout, no teacher heads.
+- Shell learning-rate multipliers `1,1.5,2,3`.
+- Graph size was 167 nodes and 313 edges.
+- Parameter count was 3,129,574.
+
+Primary results:
+
+| Run | Warmup epochs | Ramp epochs | Best validation accuracy | Best epoch | Test accuracy | Delta from static `0.000375` test | Delta from zero-promotion control |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Static active reference | 0 | 0 | 33.80% | 18 | 33.74% | 0.00 pp | +1.81 pp |
+| Scheduled promotion | 4 | 8 | 33.46% | 18 | 32.90% | -0.84 pp | +0.97 pp |
+| Scheduled promotion | 8 | 8 | 32.18% | 18 | 30.95% | -2.79 pp | -0.98 pp |
+| Zero-promotion control | none | none | 32.60% | 18 | 31.93% | -1.81 pp | 0.00 pp |
+
+Validation trajectory:
+
+| Epoch | Static `0.000375` | Warmup 4, ramp 8 | Warmup 8, ramp 8 |
+| ---: | ---: | ---: | ---: |
+| 1 | 11.46% | 12.04% | 11.10% |
+| 2 | 21.72% | 22.12% | 21.62% |
+| 3 | 20.36% | 21.68% | 20.26% |
+| 4 | 26.04% | 25.96% | 25.28% |
+| 5 | 25.08% | 25.68% | 24.44% |
+| 6 | 27.80% | 27.36% | 25.82% |
+| 7 | 26.26% | 25.76% | 23.56% |
+| 8 | 30.28% | 25.34% | 23.42% |
+| 9 | 27.64% | 28.06% | 21.08% |
+| 10 | 26.84% | 28.28% | 25.92% |
+| 11 | 22.24% | 20.16% | 22.42% |
+| 12 | 27.86% | 26.76% | 26.82% |
+| 13 | 29.34% | 26.98% | 26.98% |
+| 14 | 28.82% | 30.18% | 27.24% |
+| 15 | 28.40% | 29.64% | 28.72% |
+| 16 | 29.94% | 29.30% | 26.90% |
+| 17 | 32.16% | 30.74% | 30.18% |
+| 18 | 33.80% | 33.46% | 32.18% |
+| 19 | 32.84% | 31.74% | 30.56% |
+| 20 | 33.10% | 32.78% | 31.24% |
+
+Interpretation:
+
+- The `warmup=4, ramp=8` schedule remained useful. It beat the zero-promotion control by 0.97 percentage points on test accuracy, but it did not beat the static `0.000375` reference.
+- The `warmup=8, ramp=8` schedule was too delayed. It finished below the zero-promotion control and trailed static promotion by 2.79 percentage points on test accuracy.
+- The schedules did not solve the epoch-11 validation dip. The `warmup=4, ramp=8` run dipped to 20.16% at epoch 11, which was worse than the static run's 22.24%.
+- These results suggest that inward shell-promotion pressure is helpful early in training. Delaying it until after early classifier formation does not improve this architecture.
+- I would not remove schedule support, because it remains a useful experimental control. I would stop testing long warmup schedules for now.
+
+Recommended next step:
+
+- Keep the static two-pair `0.000375` run as the active baseline.
+- Test front-loaded schedules that keep promotion active from epoch 1 but smooth the onset:
+  - `warmup=0, ramp=2`.
+  - `warmup=0, ramp=4`.
+- This checks whether abrupt full-strength promotion is best, or whether a short ramp can preserve early shell alignment while avoiding any initial overconstraint.
+- If both front-loaded schedules are below static `0.000375`, stop schedule tuning and move to a different mechanism.
+
+Suggested command:
+
+```bash
+SCHEDULES="0:2 0:4" bash scripts/run_codex_anchored_inward_shell_promotion_schedule_10col3shared.sh
+```
