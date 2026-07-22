@@ -39,6 +39,7 @@ inward_shell_promotion_pairs="${33:-all}"
 inward_shell_promotion_target_gradient_scale="${34:-1.0}"
 inward_shell_promotion_warmup_epochs="${35:-0.0}"
 inward_shell_promotion_ramp_epochs="${36:-0.0}"
+promoted_shell_bridge_mode="${37:-off}"
 hostname_value="$(hostname)"
 timestamp="$(date +%Y%m%d_%H%M%S)"
 lr_label="${lr//./p}"
@@ -66,6 +67,8 @@ column_shell_readout_label="off"
 column_shell_readout_args=()
 column_shell_bridge_label="off"
 column_shell_bridge_args=()
+promoted_shell_bridge_label="off"
+promoted_shell_bridge_args=()
 outer_shell_context_label="off"
 outer_shell_context_args=()
 outer_shell_context_to_bridge_label="off"
@@ -257,6 +260,23 @@ else
     column_shell_bridge_short="br0"
 fi
 
+if [[ "$promoted_shell_bridge_mode" == "on" || "$promoted_shell_bridge_mode" == "true" || "$promoted_shell_bridge_mode" == "promotedbridge" ]]; then
+    promoted_shell_bridge_label="on"
+    promoted_shell_bridge_args+=(--promoted_shell_bridge)
+elif [[ "$promoted_shell_bridge_mode" == "off" || "$promoted_shell_bridge_mode" == "false" || "$promoted_shell_bridge_mode" == "nopromotedbridge" ]]; then
+    promoted_shell_bridge_label="off"
+else
+    echo "Unknown promoted shell bridge mode: $promoted_shell_bridge_mode" >&2
+    echo "Use 'on' or 'off'." >&2
+    exit 2
+fi
+
+if [[ "$promoted_shell_bridge_label" == "on" ]]; then
+    promoted_shell_bridge_short="pbr1"
+else
+    promoted_shell_bridge_short="pbr0"
+fi
+
 if [[ "$outer_shell_context_label" == "on" ]]; then
     outer_shell_context_short="oc1"
 else
@@ -279,9 +299,9 @@ fi
 # common 255-byte filename limits. The full configuration is still written in
 # the log header; the filename keeps only compact run identifiers.
 if [[ "$inward_shell_promotion_warmup_epochs" != "0.0" || "$inward_shell_promotion_ramp_epochs" != "0.0" ]]; then
-    log_path="${repo_root}/results/codex_dspan_sched_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_isp${inward_shell_promotion_label}_iptg${inward_shell_promotion_target_gradient_label}_ipw${inward_shell_promotion_warmup_label}_ipr${inward_shell_promotion_ramp_label}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+    log_path="${repo_root}/results/codex_dspan_sched_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_isp${inward_shell_promotion_label}_iptg${inward_shell_promotion_target_gradient_label}_ipw${inward_shell_promotion_warmup_label}_ipr${inward_shell_promotion_ramp_label}_${promoted_shell_bridge_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 else
-    log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_cm${column_mode_label}_sm${support_mask_label}_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolumn_dim}_${column_gaussian_energy_short}_gp${column_gaussian_precision_label}_rs${column_gaussian_reference_sites_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_isp${inward_shell_promotion_label}_iptg${inward_shell_promotion_target_gradient_label}_ocet${outer_context_evidence_teacher_label}_ocbs${outer_context_bridge_scale_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+    log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_cm${column_mode_label}_sm${support_mask_label}_${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolumn_dim}_${column_gaussian_energy_short}_gp${column_gaussian_precision_label}_rs${column_gaussian_reference_sites_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_isp${inward_shell_promotion_label}_iptg${inward_shell_promotion_target_gradient_label}_ocet${outer_context_evidence_teacher_label}_ocbs${outer_context_bridge_scale_label}_${column_shell_readout_short}_${column_shell_bridge_short}_${promoted_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
 fi
 
 cd "$repo_root"
@@ -316,6 +336,7 @@ mkdir -p results
     echo "column_shell_teacher_weights: $column_shell_teacher_weights"
     echo "column_shell_readout: $column_shell_readout_label"
     echo "column_shell_bridge: $column_shell_bridge_label"
+    echo "promoted_shell_bridge: $promoted_shell_bridge_label"
     echo "outer_shell_context: $outer_shell_context_label"
     echo "outer_shell_context_to_bridge: $outer_shell_context_to_bridge_label"
     echo "outer_shell_context_bridge_scale: $outer_shell_context_bridge_scale"
@@ -377,6 +398,7 @@ mkdir -p results
         --outer_shell_context_evidence_teacher_weight "$outer_shell_context_evidence_teacher_weight" \
         "${column_shell_readout_args[@]}" \
         "${column_shell_bridge_args[@]}" \
+        "${promoted_shell_bridge_args[@]}" \
         "${outer_shell_context_args[@]}" \
         "${outer_shell_context_to_bridge_args[@]}" \
         "${outer_shell_context_evidence_args[@]}" \

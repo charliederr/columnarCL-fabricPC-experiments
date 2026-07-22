@@ -7481,3 +7481,71 @@ Recommended next step:
 Pause point:
 
 - I will wait for confirmation before making code changes for the promoted-shell bridge.
+
+## 2026-07-22 Promoted Shell Bridge Infrastructure
+
+Context:
+
+- `inward_shell_promotion_weight` is the scalar weight on local predictive objectives where one wider shell predicts an adjacent more inward shell in the same column.
+- `target_gradient_scale` is the multiplier on the inference gradient returned from a promotion objective into the target shell. The active baseline uses `target_gradient_scale=0.0`, so the target shell is not moved directly by the promotion objective.
+- `promoted_shell_bridge` is the new optional route that makes promoted shell predictions available to the classifier path.
+- `embed_dim` is the full per-column feature width. It is partitioned into hard-kernel, inner-shell, middle-shell, and outer-shell feature slices by `get_shell_slices(embed_dim)`.
+
+Implementation summary:
+
+- Added `PromotedShellPredictionNode` in `columnar_cl_fabricpc/columns/accuracy_nodes.py`.
+  - It receives a `target` shell vector and one or more `context` shell vectors.
+  - It computes a prediction from the context vectors.
+  - It keeps the local target-prediction energy used by inward shell promotion.
+  - It also keeps its own latent anchored to that prediction, so downstream graph edges receive the promoted prediction rather than the target shell.
+- Added `PromotedShellBridgeNode` in `columnar_cl_fabricpc/columns/accuracy_nodes.py`.
+  - It receives raw pooled shell vectors and promoted prediction latents.
+  - A raw `middle_shell` pool writes only to the middle-shell slice of the full bridge output.
+  - An `outer_shell_to_middle_shell` promoted prediction writes only to the middle-shell slice of the full bridge output.
+  - Inputs in the same target shell are averaged by `1/sqrt(n)`, where `n` is the number of inputs that write to that shell.
+  - The output has shape `(embed_dim,)`, so it can feed the existing `output` classifier as a standard predictive-coding latent.
+- Added `--promoted_shell_bridge` to `scripts/train_cifar10_depth_spanning.py`.
+  - The flag requires positive `--inward_shell_promotion_weight`.
+  - When the flag is off, existing inward promotion uses `ShellContextPredictionNode` and prior commands keep the old topology.
+  - When the flag is on, inward promotion uses `PromotedShellPredictionNode`, and each active column also gets one `columnXX_promoted_shell_bridge` node feeding `output`.
+- Updated shell learning-rate multiplier infrastructure.
+  - Promoted prediction parameters use the target shell's multiplier.
+  - Promoted bridge weights and biases use the multiplier of the shell slice they write into.
+- Updated diagnostics.
+  - Energy and latent diagnostics now include promoted-shell bridge nodes.
+  - Readout ablations now include `promoted_shell_bridge_only`, `column_pool_plus_promoted_shell_bridge`, and `combined_without_promoted_shell_bridge`.
+  - Promoted bridge ablations now mask raw and promoted bridge inputs by target shell.
+- Updated runner support.
+  - `scripts/run_codex_cifar10_depth_spanning.sh` accepts positional argument 37 for promoted bridge mode.
+  - `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh` accepts `PROMOTED_SHELL_BRIDGE=on`.
+
+Current source state:
+
+- Base commit before this work-log entry: `2d656a3f55bb6b56b981e172a4cbc45877c26ff9`.
+- Modified local files:
+  - `columnar_cl_fabricpc/columns/accuracy_nodes.py`.
+  - `columnar_cl_fabricpc/columns/__init__.py`.
+  - `scripts/train_cifar10_depth_spanning.py`.
+  - `scripts/run_codex_cifar10_depth_spanning.sh`.
+  - `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`.
+  - `tests/test_pooled_readout_norm.py`.
+  - This work log.
+
+Validation:
+
+- `python -m py_compile` passed for `scripts/train_cifar10_depth_spanning.py`, `columnar_cl_fabricpc/columns/accuracy_nodes.py`, and `columnar_cl_fabricpc/columns/__init__.py`.
+- `bash -n` passed for `scripts/run_codex_cifar10_depth_spanning.sh` and `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`.
+- `pytest tests/test_pooled_readout_norm.py` passed with 77 tests.
+- `git diff --check` passed.
+- A CLI help check confirmed `--promoted_shell_bridge` is registered.
+
+Recommended first experiment:
+
+- Run one direct comparison against the active static-promotion baseline by enabling the promoted bridge while keeping the same 10-column, 3-shared, two-pair, `0.000375` promotion configuration.
+- This run intentionally keeps the ordinary `column_shell_bridge` on. The first question is whether the promoted bridge adds useful evidence without removing the previously useful bridge path.
+
+Suggested command:
+
+```bash
+PROMOTED_SHELL_BRIDGE=on WEIGHTS="0.000375" PROMOTION_PAIRS="outer_to_middle,middle_to_inner" INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE=0.0 SEED=42 LR=0.005 NUM_EPOCHS=20 POST_TRAINING_DIAGNOSTICS=core bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+```

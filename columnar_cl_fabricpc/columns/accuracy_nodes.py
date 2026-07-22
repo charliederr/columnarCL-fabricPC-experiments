@@ -770,6 +770,351 @@ class ShellContextPredictionNode(NodeBase):
         return new_state, input_grads, self_grad
 
 
+class PromotedShellPredictionNode(NodeBase):
+    """
+    Local shell-promotion objective that also exposes the promoted prediction.
+
+    The `target` slot receives the target shell vector. The `context` slot
+    receives one or more wider-shell vectors that predict the target. Unlike
+    `ShellContextPredictionNode`, this node leaves its own `z_latent` as the
+    public graph output and anchors that latent to the context prediction. This
+    gives downstream bridge nodes access to the promoted prediction while
+    retaining the local target-prediction objective.
+    """
+
+    def __init__(
+        self,
+        shape: Tuple[int, ...],
+        name: str,
+        objective_weight: float,
+        target_gradient_scale: float,
+        latent_prediction_weight: float = 1.0,
+        activation=IdentityActivation(),
+        energy=GaussianEnergy(),
+        weight_init: Optional[InitializerBase] = KaimingInitializer(),
+        latent_init: Optional[InitializerBase] = NormalInitializer(std=0.02),
+    ):
+        if len(shape) != 1:
+            raise ValueError(
+                f"PromotedShellPredictionNode shape must be (shell_width,), got {shape}"
+            )
+        if objective_weight < 0.0:
+            raise ValueError("objective_weight must be >= 0")
+        if target_gradient_scale < 0.0 or target_gradient_scale > 1.0:
+            raise ValueError("target_gradient_scale must be in [0, 1]")
+        if latent_prediction_weight < 0.0:
+            raise ValueError("latent_prediction_weight must be >= 0")
+        super().__init__(
+            shape=shape,
+            name=name,
+            activation=activation,
+            energy=energy,
+            latent_init=latent_init,
+            weight_init=weight_init,
+            objective_weight=float(objective_weight),
+            target_gradient_scale=float(target_gradient_scale),
+            latent_prediction_weight=float(latent_prediction_weight),
+        )
+
+    @staticmethod
+    def get_slots() -> Dict[str, SlotSpec]:
+        return {
+            "target": SlotSpec(name="target", is_multi_input=False),
+            "context": SlotSpec(name="context", is_multi_input=True),
+        }
+
+    @staticmethod
+    def get_weight_fan_in(source_shape: Tuple[int, ...], config: Dict[str, Any]) -> int:
+        return source_shape[-1]
+
+    @staticmethod
+    def initialize_params(
+        key: jax.Array,
+        node_shape: Tuple[int, ...],
+        input_shapes: Dict[str, Tuple[int, ...]],
+        weight_init: Optional[InitializerBase] = None,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> NodeParams:
+        if weight_init is None:
+            weight_init = KaimingInitializer()
+
+        context_edges = [
+            edge_key for edge_key in sorted(input_shapes) if edge_key.endswith(":context")
+        ]
+        target_edges = [
+            edge_key for edge_key in sorted(input_shapes) if edge_key.endswith(":target")
+        ]
+        if len(target_edges) != 1:
+            raise ValueError("PromotedShellPredictionNode expects exactly one target edge")
+        if not context_edges:
+            raise ValueError("PromotedShellPredictionNode expects at least one context edge")
+
+        out_features = node_shape[-1]
+        keys = jax.random.split(key, len(context_edges) + 1)
+        weights = {}
+        for edge_key, edge_key_random in zip(context_edges, keys[:-1]):
+            in_features = input_shapes[edge_key][-1]
+            weights[edge_key] = initialize(
+                edge_key_random,
+                (in_features, out_features),
+                weight_init,
+            )
+        biases = {"b": initialize(keys[-1], (out_features,), ZerosInitializer())}
+        return NodeParams(weights=weights, biases=biases)
+
+    @staticmethod
+    def forward(
+        params: NodeParams,
+        inputs: Dict[str, jnp.ndarray],
+        state: NodeState,
+        node_info: NodeInfo,
+    ) -> Tuple[jax.Array, NodeState]:
+        target_values = [
+            value for edge_key, value in inputs.items() if edge_key.endswith(":target")
+        ]
+        context_items = [
+            (edge_key, value)
+            for edge_key, value in inputs.items()
+            if edge_key.endswith(":context")
+        ]
+        if len(target_values) != 1:
+            raise ValueError("PromotedShellPredictionNode expects exactly one target input")
+        if not context_items:
+            raise ValueError("PromotedShellPredictionNode expects context inputs")
+
+        target = target_values[0]
+        prediction = jnp.zeros_like(target)
+        for edge_key, context in context_items:
+            prediction = prediction + jnp.matmul(context, params.weights[edge_key])
+        prediction = prediction + params.biases["b"]
+        prediction = node_info.activation.forward(
+            prediction,
+            node_info.activation.config,
+        )
+
+        objective_weight = float(node_info.node_config.get("objective_weight", 1.0))
+        latent_prediction_weight = float(
+            node_info.node_config.get("latent_prediction_weight", 1.0)
+        )
+        target_error = target - prediction
+        latent_error = state.z_latent - prediction
+        axes_to_sum = tuple(range(1, target_error.ndim))
+        target_energy = 0.5 * objective_weight * jnp.sum(
+            jnp.square(target_error),
+            axis=axes_to_sum,
+        )
+        latent_energy = 0.5 * latent_prediction_weight * jnp.sum(
+            jnp.square(latent_error),
+            axis=axes_to_sum,
+        )
+        energy = target_energy + latent_energy
+        state = state._replace(
+            z_mu=prediction,
+            pre_activation=prediction,
+            error=latent_error,
+            energy=energy,
+        )
+        return jnp.sum(energy), state
+
+    @staticmethod
+    def forward_and_latent_grads(
+        params: NodeParams,
+        inputs: Dict[str, jnp.ndarray],
+        state: NodeState,
+        node_info: NodeInfo,
+        is_clamped: bool,
+    ) -> Tuple[NodeState, Dict[str, jnp.ndarray], jnp.ndarray]:
+        del is_clamped
+        node_class = node_info.node_class
+
+        def energy_fn(input_args, z_latent):
+            updated_state = state._replace(z_latent=z_latent)
+            total_energy, new_state = node_class.forward(
+                params,
+                input_args,
+                updated_state,
+                node_info,
+            )
+            return total_energy, new_state
+
+        (total_energy, new_state), (input_grads, self_grad) = jax.value_and_grad(
+            energy_fn,
+            argnums=(0, 1),
+            has_aux=True,
+        )(inputs, state.z_latent)
+        del total_energy
+        target_gradient_scale = float(node_info.node_config["target_gradient_scale"])
+        input_grads = {
+            edge_key: (
+                grad * target_gradient_scale
+                if edge_key.endswith(":target")
+                else grad
+            )
+            for edge_key, grad in input_grads.items()
+        }
+        return new_state, input_grads, self_grad
+
+
+class PromotedShellBridgeNode(NodeBase):
+    """
+    Shell-preserving bridge for raw shell pools and promoted shell predictions.
+
+    Each input edge is assigned to one shell from its source node name. Raw
+    shell-pool inputs write to their own shell. Promotion-prediction inputs
+    write to the promoted target shell. The node output has the full column
+    `embed_dim` layout, and each source projects only into its shell slice.
+    """
+
+    def __init__(
+        self,
+        shape: Tuple[int, ...],
+        name: str,
+        shell_proportions: Tuple[int, int, int, int] = DEFAULT_SHELL_PROPORTIONS,
+        normalize_shell_inputs: bool = True,
+        activation=IdentityActivation(),
+        energy=GaussianEnergy(),
+        weight_init: Optional[InitializerBase] = KaimingInitializer(),
+        latent_init: Optional[InitializerBase] = NormalInitializer(std=0.02),
+    ):
+        if len(shape) != 1:
+            raise ValueError(
+                f"PromotedShellBridgeNode shape must be (embed_dim,), got {shape}"
+            )
+        get_shell_slices(shape[-1], shell_proportions)
+        super().__init__(
+            shape=shape,
+            name=name,
+            activation=activation,
+            energy=energy,
+            latent_init=latent_init,
+            weight_init=weight_init,
+            shell_proportions=tuple(int(value) for value in shell_proportions),
+            normalize_shell_inputs=bool(normalize_shell_inputs),
+        )
+
+    @staticmethod
+    def get_slots() -> Dict[str, SlotSpec]:
+        return {"in": SlotSpec(name="in", is_multi_input=True)}
+
+    @staticmethod
+    def get_weight_fan_in(source_shape: Tuple[int, ...], config: Dict[str, Any]) -> int:
+        return source_shape[-1]
+
+    @staticmethod
+    def _source_from_edge_key(edge_key: str) -> str:
+        return edge_key.split("->", 1)[0]
+
+    @staticmethod
+    def _target_shell_for_edge(edge_key: str) -> str:
+        source_name = PromotedShellBridgeNode._source_from_edge_key(edge_key)
+        for shell_name in SHELL_NAMES:
+            if source_name.endswith(f"_{shell_name}_pool"):
+                return shell_name
+            if source_name.endswith(f"_to_{shell_name}_promotion_prediction"):
+                return shell_name
+        raise ValueError(
+            "PromotedShellBridgeNode input source must be a column shell pool "
+            f"or promotion prediction, got {source_name!r}"
+        )
+
+    @staticmethod
+    def _bias_name(shell_name: str) -> str:
+        return f"b_{shell_name}"
+
+    @staticmethod
+    def initialize_params(
+        key: jax.Array,
+        node_shape: Tuple[int, ...],
+        input_shapes: Dict[str, Tuple[int, ...]],
+        weight_init: Optional[InitializerBase] = None,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> NodeParams:
+        if config is None:
+            config = {}
+        if weight_init is None:
+            weight_init = KaimingInitializer()
+        if not input_shapes:
+            raise ValueError("PromotedShellBridgeNode expects at least one input edge")
+
+        shell_slices = get_shell_slices(
+            node_shape[-1],
+            tuple(config.get("shell_proportions", DEFAULT_SHELL_PROPORTIONS)),
+        )
+        keys = jax.random.split(key, max(1, len(input_shapes)))
+        weights = {}
+        for edge_key, edge_key_random in zip(sorted(input_shapes), keys):
+            shell_name = PromotedShellBridgeNode._target_shell_for_edge(edge_key)
+            start, end = shell_slices[shell_name]
+            in_features = input_shapes[edge_key][-1]
+            weights[edge_key] = initialize(
+                edge_key_random,
+                (in_features, end - start),
+                weight_init,
+            )
+        biases = {
+            PromotedShellBridgeNode._bias_name(shell_name): initialize(
+                key,
+                (end - start,),
+                ZerosInitializer(),
+            )
+            for shell_name, (start, end) in shell_slices.items()
+        }
+        return NodeParams(weights=weights, biases=biases)
+
+    @staticmethod
+    def forward(
+        params: NodeParams,
+        inputs: Dict[str, jnp.ndarray],
+        state: NodeState,
+        node_info: NodeInfo,
+    ) -> Tuple[jax.Array, NodeState]:
+        if not inputs:
+            raise ValueError("PromotedShellBridgeNode expects inputs")
+
+        config = node_info.node_config
+        shell_slices = get_shell_slices(
+            state.z_latent.shape[-1],
+            tuple(config.get("shell_proportions", DEFAULT_SHELL_PROPORTIONS)),
+        )
+        normalize_shell_inputs = bool(config.get("normalize_shell_inputs", True))
+
+        shell_updates = {
+            shell_name: jnp.zeros(
+                (state.z_latent.shape[0], end - start),
+                dtype=state.z_latent.dtype,
+            )
+            for shell_name, (start, end) in shell_slices.items()
+        }
+        shell_counts = {shell_name: 0 for shell_name in SHELL_NAMES}
+        for edge_key in sorted(inputs):
+            shell_name = PromotedShellBridgeNode._target_shell_for_edge(edge_key)
+            projected = jnp.matmul(inputs[edge_key], params.weights[edge_key])
+            shell_updates[shell_name] = shell_updates[shell_name] + projected
+            shell_counts[shell_name] += 1
+
+        pre_activation = jnp.zeros_like(state.z_latent)
+        for shell_name, (start, end) in shell_slices.items():
+            shell_update = shell_updates[shell_name]
+            if shell_counts[shell_name] > 0:
+                if normalize_shell_inputs:
+                    shell_update = shell_update / jnp.sqrt(
+                        jnp.asarray(shell_counts[shell_name], dtype=shell_update.dtype)
+                    )
+                shell_update = (
+                    shell_update
+                    + params.biases[
+                        PromotedShellBridgeNode._bias_name(shell_name)
+                    ]
+                )
+            pre_activation = pre_activation.at[..., start:end].set(shell_update)
+
+        z_mu = node_info.activation.forward(pre_activation, node_info.activation.config)
+        error = state.z_latent - z_mu
+        state = state._replace(pre_activation=pre_activation, z_mu=z_mu, error=error)
+        state = node_info.node_class.energy_functional(state, node_info)
+        return jnp.sum(state.energy), state
+
+
 class GlobalAvgPoolNormNode(NodeBase):
     """
     Globally average a token or spatial feature tensor and normalize the result.

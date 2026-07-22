@@ -26,6 +26,10 @@ Architecture::
                          │              ▼
       optional per-column shell bridge ──────────► output classifier
                          │
+                         ├──── optional promoted-shell bridge
+                         │          ▲
+                         │          └──── raw shell pools plus promoted predictions
+                         │
                          ├──── optional context teacher
                          │
                          ├──── optional class-shaped context evidence
@@ -40,6 +44,8 @@ Architecture::
           active adjacent pairs are selected by --inward_shell_promotion_pairs
           target-slot inference gradients are scaled by
           --inward_shell_promotion_target_gradient_scale
+          with --promoted_shell_bridge, promotion predictors expose their
+          predictions through one shell-preserving bridge per active column
                                                          │
                                                          ▼
                                                 shell-aware combiner
@@ -116,6 +122,8 @@ from columnar_cl_fabricpc.columns import (
 from columnar_cl_fabricpc.columns.accuracy_nodes import MaskedColumnCombinerNode
 from columnar_cl_fabricpc.columns.accuracy_nodes import ColumnShellComposerNode
 from columnar_cl_fabricpc.columns.accuracy_nodes import ShellContextPredictionNode
+from columnar_cl_fabricpc.columns.accuracy_nodes import PromotedShellBridgeNode
+from columnar_cl_fabricpc.columns.accuracy_nodes import PromotedShellPredictionNode
 
 jax.config.update("jax_default_prng_impl", "threefry2x32")
 
@@ -184,6 +192,11 @@ def column_shell_pool_node_name(column_idx: int, shell_name: str) -> str:
 def column_shell_bridge_node_name(column_idx: int) -> str:
     """Return the node name for one column's shell-to-shell bridge latent."""
     return f"column{column_idx:02d}_shell_bridge"
+
+
+def promoted_shell_bridge_node_name(column_idx: int) -> str:
+    """Return the node name for one column's promoted-shell bridge latent."""
+    return f"column{column_idx:02d}_promoted_shell_bridge"
 
 
 def outer_shell_context_node_name(column_idx: int) -> str:
@@ -255,7 +268,25 @@ def is_column_shell_pool_for_shell(node_name: str, shell_name: str) -> bool:
 
 def is_column_shell_bridge_node(node_name: str) -> bool:
     """Return true for a per-column shell bridge latent."""
-    return node_name.startswith("column") and node_name.endswith("_shell_bridge")
+    return (
+        node_name.startswith("column")
+        and node_name.endswith("_shell_bridge")
+        and not node_name.endswith("_promoted_shell_bridge")
+    )
+
+
+def is_promoted_shell_bridge_node(node_name: str) -> bool:
+    """Return true for a per-column promoted-shell bridge latent."""
+    return node_name.startswith("column") and node_name.endswith(
+        "_promoted_shell_bridge"
+    )
+
+
+def is_columnar_shell_bridge_node(node_name: str) -> bool:
+    """Return true for either shell bridge route that feeds `output`."""
+    return is_column_shell_bridge_node(node_name) or is_promoted_shell_bridge_node(
+        node_name
+    )
 
 
 def is_outer_shell_context_node(node_name: str) -> bool:
@@ -476,6 +507,15 @@ def resolve_inward_shell_promotion_target_gradient_scale(args) -> float:
             "--inward_shell_promotion_target_gradient_scale must be in [0, 1]"
         )
     return scale
+
+
+def validate_promoted_shell_bridge(args) -> None:
+    """Validate the promoted-shell bridge graph options."""
+    if args.promoted_shell_bridge and args.inward_shell_promotion_weight <= 0.0:
+        raise ValueError(
+            "--promoted_shell_bridge requires a positive "
+            "--inward_shell_promotion_weight"
+        )
 
 
 def inward_shell_promotion_schedule_is_active(args) -> bool:
@@ -876,6 +916,13 @@ def parameter_shell_lr_multiplier(
             shell_lr_multipliers[promotion_shell],
         )
 
+    if is_promoted_shell_bridge_node(node_name):
+        if param_name.startswith("b_"):
+            shell_name = param_name.removeprefix("b_")
+        else:
+            shell_name = PromotedShellBridgeNode._target_shell_for_edge(param_name)
+        return _constant_multiplier_like(value, shell_lr_multipliers[shell_name])
+
     if is_column_shell_bridge_node(node_name):
         shell_slices = get_shell_slices(node_info.shape[-1])
         return _scale_final_axis_by_shell(
@@ -1000,6 +1047,7 @@ def diagnose_energy_breakdown(
             node_name.startswith("col_")
             or is_column_shell_auxiliary_node(node_name)
             or is_column_shell_bridge_node(node_name)
+            or is_promoted_shell_bridge_node(node_name)
             or is_outer_shell_context_node(node_name)
             or is_outer_shell_context_bridge_scale_node(node_name)
             or is_outer_shell_context_evidence_node(node_name)
@@ -1068,6 +1116,7 @@ def diagnose_column_outputs(
         or name in shell_teacher_nodes
         or is_column_shell_auxiliary_node(name)
         or is_column_shell_bridge_node(name)
+        or is_promoted_shell_bridge_node(name)
         or is_outer_shell_context_node(name)
         or is_outer_shell_context_bridge_scale_node(name)
         or is_outer_shell_context_teacher_node(name)
@@ -1565,6 +1614,9 @@ def build_readout_ablation_cases(
     column_shell_bridge_sources = tuple(
         sorted(source for source in edge_sources if is_column_shell_bridge_node(source))
     )
+    promoted_shell_bridge_sources = tuple(
+        sorted(source for source in edge_sources if is_promoted_shell_bridge_node(source))
+    )
     outer_shell_context_sources = tuple(
         sorted(source for source in edge_sources if is_outer_shell_context_node(source))
     )
@@ -1604,11 +1656,32 @@ def build_readout_ablation_cases(
                 without_sources(column_shell_bridge_sources),
             )
         )
+    if promoted_shell_bridge_sources:
+        cases.append(("promoted_shell_bridge_only", promoted_shell_bridge_sources))
+        cases.append(
+            (
+                "column_pool_plus_promoted_shell_bridge",
+                (column_source, *promoted_shell_bridge_sources),
+            )
+        )
+        cases.append(
+            (
+                "combined_without_promoted_shell_bridge",
+                without_sources(promoted_shell_bridge_sources),
+            )
+        )
     if column_shell_sources and column_shell_bridge_sources:
         cases.append(
             (
                 "column_shell_readout_plus_bridge",
                 (*column_shell_sources, *column_shell_bridge_sources),
+            )
+        )
+    if column_shell_bridge_sources and promoted_shell_bridge_sources:
+        cases.append(
+            (
+                "column_shell_bridge_plus_promoted_shell_bridge",
+                (*column_shell_bridge_sources, *promoted_shell_bridge_sources),
             )
         )
     if outer_shell_context_sources:
@@ -1946,6 +2019,126 @@ def evaluate_column_shell_bridge_ablations(
     return results
 
 
+def promoted_shell_bridge_input_target_shell(source_name: str) -> str | None:
+    """
+    Return the shell slice targeted by one promoted-shell bridge input source.
+
+    Raw pooled shell vectors target their own shell. Promotion-prediction nodes
+    target the inward shell named after `_to_` in the source node name.
+    """
+    for shell_name in SHELL_NAMES:
+        if is_column_shell_pool_for_shell(source_name, shell_name):
+            return shell_name
+        if source_name.endswith(f"_to_{shell_name}_promotion_prediction"):
+            return shell_name
+    return None
+
+
+def mask_promoted_shell_bridge_inputs(
+    params: GraphParams,
+    structure: GraphStructure,
+    bridge_sources: Tuple[str, ...],
+    shell_name: str,
+    keep_shell: bool,
+) -> GraphParams:
+    """
+    Mask promoted-bridge input edges by target shell identity.
+
+    `bridge_sources` are promoted bridge nodes connected to `output`. The mask
+    keeps either one target shell's raw and promoted inputs or all other target
+    shell inputs.
+    """
+    masked = params
+    for bridge_source in bridge_sources:
+        bridge_input_sources = node_input_edge_sources(structure, bridge_source)
+        kept_sources = tuple(
+            source
+            for source in bridge_input_sources
+            if (
+                promoted_shell_bridge_input_target_shell(source) == shell_name
+            )
+            == keep_shell
+        )
+        masked = mask_node_input_sources(
+            masked,
+            structure,
+            bridge_source,
+            kept_sources,
+        )
+    return masked
+
+
+def evaluate_promoted_shell_bridge_ablations(
+    params: GraphParams,
+    structure: GraphStructure,
+    loader,
+    config: dict,
+    rng_key: jax.Array,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Evaluate shell dependence inside the promoted-shell bridge path.
+
+    The bridge path receives raw pooled shell vectors and promoted prediction
+    latents. These ablations keep only promoted bridge outputs at the
+    classifier, then mask bridge inputs by target shell.
+    """
+    output_sources = output_input_edge_sources(structure)
+    bridge_sources = tuple(
+        sorted(source for source in output_sources if is_promoted_shell_bridge_node(source))
+    )
+    if not bridge_sources:
+        return {}
+
+    bridge_only_params = mask_output_input_sources(params, structure, bridge_sources)
+    results = {
+        "promoted_shell_bridge_only": evaluate_pcn(
+            bridge_only_params,
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+    }
+    for shell_name in SHELL_NAMES:
+        without_shell_params = mask_output_input_sources(
+            mask_promoted_shell_bridge_inputs(
+                params,
+                structure,
+                bridge_sources,
+                shell_name,
+                keep_shell=False,
+            ),
+            structure,
+            bridge_sources,
+        )
+        shell_only_params = mask_output_input_sources(
+            mask_promoted_shell_bridge_inputs(
+                params,
+                structure,
+                bridge_sources,
+                shell_name,
+                keep_shell=True,
+            ),
+            structure,
+            bridge_sources,
+        )
+        results[f"promoted_shell_bridge_without_{shell_name}"] = evaluate_pcn(
+            without_shell_params,
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+        results[f"promoted_shell_bridge_{shell_name}_only"] = evaluate_pcn(
+            shell_only_params,
+            structure,
+            loader,
+            config,
+            rng_key,
+        )
+    return results
+
+
 def mask_outer_shell_context_inputs(
     params: GraphParams,
     structure: GraphStructure,
@@ -2138,8 +2331,9 @@ def mask_column_shell_path_inputs(
     Mask direct and bridged per-column shell paths with one shell criterion.
 
     Direct paths are output edges from pooled `(column, shell)` vectors. Bridged
-    paths are output edges from per-column shell bridge nodes, with bridge input
-    edges masked by shell identity before the classifier mask is applied.
+    paths include ordinary shell bridge nodes and promoted-shell bridge nodes,
+    with bridge input edges masked by shell identity before the classifier mask
+    is applied.
     """
     output_sources = output_input_edge_sources(structure)
     direct_sources = tuple(
@@ -2147,6 +2341,9 @@ def mask_column_shell_path_inputs(
     )
     bridge_sources = tuple(
         sorted(source for source in output_sources if is_column_shell_bridge_node(source))
+    )
+    promoted_bridge_sources = tuple(
+        sorted(source for source in output_sources if is_promoted_shell_bridge_node(source))
     )
     kept_direct_sources = tuple(
         source
@@ -2163,10 +2360,18 @@ def mask_column_shell_path_inputs(
             shell_name,
             keep_shell=keep_shell,
         )
+    if promoted_bridge_sources:
+        masked = mask_promoted_shell_bridge_inputs(
+            masked,
+            structure,
+            promoted_bridge_sources,
+            shell_name,
+            keep_shell=keep_shell,
+        )
     return mask_output_input_sources(
         masked,
         structure,
-        (*kept_direct_sources, *bridge_sources),
+        (*kept_direct_sources, *bridge_sources, *promoted_bridge_sources),
     )
 
 
@@ -2181,8 +2386,8 @@ def evaluate_column_shell_path_ablations(
     Evaluate full per-column shell evidence by masking direct and bridged paths.
 
     The baseline keeps only per-column shell evidence at `output`: direct pooled
-    shell edges and shell bridge edges. Each lesion then keeps or drops one shell
-    from both routes at the same time.
+    shell edges, ordinary shell bridge edges, and promoted-shell bridge edges.
+    Each lesion then keeps or drops one shell from every route at the same time.
     """
     output_sources = output_input_edge_sources(structure)
     direct_sources = tuple(
@@ -2191,7 +2396,10 @@ def evaluate_column_shell_path_ablations(
     bridge_sources = tuple(
         sorted(source for source in output_sources if is_column_shell_bridge_node(source))
     )
-    shell_path_sources = (*direct_sources, *bridge_sources)
+    promoted_bridge_sources = tuple(
+        sorted(source for source in output_sources if is_promoted_shell_bridge_node(source))
+    )
+    shell_path_sources = (*direct_sources, *bridge_sources, *promoted_bridge_sources)
     if not shell_path_sources:
         return {}
 
@@ -2666,6 +2874,7 @@ def build_depth_spanning_graph(args):
     inward_shell_promotion_target_gradient_scale = (
         resolve_inward_shell_promotion_target_gradient_scale(args)
     )
+    validate_promoted_shell_bridge(args)
     if args.outer_shell_context_shell_prediction_weight < 0.0:
         raise ValueError("--outer_shell_context_shell_prediction_weight must be >= 0")
     if (
@@ -2977,6 +3186,7 @@ def build_depth_spanning_graph(args):
         column = columns[column_idx]
         column_shell_pools = []
         column_shell_pools_by_shell = {}
+        promotion_prediction_nodes = []
         outer_context = None
         for shell_name in SHELL_NAMES:
             shell_weight = column_shell_teacher_weights[shell_name]
@@ -2984,6 +3194,7 @@ def build_depth_spanning_graph(args):
                 shell_weight > 0.0
                 or args.column_shell_readout
                 or args.column_shell_bridge
+                or args.promoted_shell_bridge
                 or args.outer_shell_context
                 or (
                     args.inward_shell_promotion_weight > 0.0
@@ -3078,7 +3289,12 @@ def build_depth_spanning_graph(args):
             for source_shell, target_shell in inward_shell_promotion_pairs:
                 source_pool = column_shell_pools_by_shell[source_shell]
                 target_pool = column_shell_pools_by_shell[target_shell]
-                promotion_prediction = ShellContextPredictionNode(
+                promotion_node_class = (
+                    PromotedShellPredictionNode
+                    if args.promoted_shell_bridge
+                    else ShellContextPredictionNode
+                )
+                promotion_prediction = promotion_node_class(
                     shape=target_pool.shape,
                     name=inward_shell_promotion_node_name(
                         column_idx,
@@ -3091,6 +3307,7 @@ def build_depth_spanning_graph(args):
                     ),
                     weight_init=XavierInitializer(),
                 )
+                promotion_prediction_nodes.append(promotion_prediction)
                 nodes.append(promotion_prediction)
                 edges.extend([
                     Edge(
@@ -3102,6 +3319,30 @@ def build_depth_spanning_graph(args):
                         target=promotion_prediction.slot("context"),
                     ),
                 ])
+
+        if args.promoted_shell_bridge:
+            promoted_bridge = PromotedShellBridgeNode(
+                shape=(args.embed_dim,),
+                name=promoted_shell_bridge_node_name(column_idx),
+                weight_init=XavierInitializer(),
+                energy=column_gaussian_energy,
+            )
+            nodes.append(promoted_bridge)
+            for shell_name in SHELL_NAMES:
+                edges.append(
+                    Edge(
+                        source=column_shell_pools_by_shell[shell_name],
+                        target=promoted_bridge.slot("in"),
+                    )
+                )
+            for promotion_prediction in promotion_prediction_nodes:
+                edges.append(
+                    Edge(
+                        source=promotion_prediction,
+                        target=promoted_bridge.slot("in"),
+                    )
+                )
+            edges.append(Edge(source=promoted_bridge, target=output.slot("in")))
 
         if args.column_shell_bridge:
             shell_bridge = Linear(
@@ -3270,6 +3511,7 @@ def train_cifar10_depth_spanning(args):
     inward_shell_promotion_target_gradient_scale = (
         resolve_inward_shell_promotion_target_gradient_scale(args)
     )
+    validate_promoted_shell_bridge(args)
     if args.outer_shell_context_teacher_weight < 0.0:
         raise ValueError("--outer_shell_context_teacher_weight must be >= 0")
     if args.outer_shell_context_evidence_teacher_weight < 0.0:
@@ -3379,6 +3621,7 @@ def train_cifar10_depth_spanning(args):
     print(f"Column shell teacher weights: {column_shell_teacher_summary}")
     print(f"Column shell readout: {'enabled' if args.column_shell_readout else 'disabled'}")
     print(f"Column shell bridge: {'enabled' if args.column_shell_bridge else 'disabled'}")
+    print(f"Promoted shell bridge: {'enabled' if args.promoted_shell_bridge else 'disabled'}")
     print(f"Outer shell context: {'enabled' if args.outer_shell_context else 'disabled'}")
     if args.outer_shell_context:
         print("Outer shell context direct readout: enabled")
@@ -3917,6 +4160,18 @@ def train_cifar10_depth_spanning(args):
             "Validation Per-Column Shell Bridge Ablations",
             val_column_shell_bridge_metrics,
         )
+    val_promoted_shell_bridge_metrics = evaluate_promoted_shell_bridge_ablations(
+        eval_params,
+        eval_structure,
+        val_loader,
+        train_config,
+        ablation_key,
+    )
+    if val_promoted_shell_bridge_metrics:
+        print_ablation_results(
+            "Validation Promoted Shell Bridge Ablations",
+            val_promoted_shell_bridge_metrics,
+        )
     val_outer_shell_context_metrics = evaluate_outer_shell_context_ablations(
         eval_params,
         eval_structure,
@@ -4020,6 +4275,13 @@ def train_cifar10_depth_spanning(args):
         train_config,
         ablation_key,
     )
+    test_promoted_shell_bridge_metrics = evaluate_promoted_shell_bridge_ablations(
+        eval_params,
+        eval_structure,
+        test_loader,
+        train_config,
+        ablation_key,
+    )
     test_outer_shell_context_metrics = evaluate_outer_shell_context_ablations(
         eval_params,
         eval_structure,
@@ -4086,6 +4348,11 @@ def train_cifar10_depth_spanning(args):
         print_ablation_results(
             "Test Per-Column Shell Bridge Ablations",
             test_column_shell_bridge_metrics,
+        )
+    if test_promoted_shell_bridge_metrics:
+        print_ablation_results(
+            "Test Promoted Shell Bridge Ablations",
+            test_promoted_shell_bridge_metrics,
         )
     if test_outer_shell_context_metrics:
         print_ablation_results(
@@ -4337,6 +4604,17 @@ def parse_args():
         help=(
             "Connect each active column's pooled shell vectors through one "
             "Gaussian shell bridge latent before the main output classifier."
+        ),
+    )
+    parser.add_argument(
+        "--promoted_shell_bridge",
+        action="store_true",
+        help=(
+            "Use inward shell-promotion prediction nodes as classifier evidence "
+            "through a per-column shell-preserving bridge. Requires positive "
+            "--inward_shell_promotion_weight. Raw shell pools and promoted "
+            "predictions both feed the bridge, and each input writes only to "
+            "its target shell slice."
         ),
     )
     parser.add_argument(

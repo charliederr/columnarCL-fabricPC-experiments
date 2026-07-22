@@ -35,6 +35,8 @@ from scripts.train_cifar10_depth_spanning import (
     OUTER_SHELL_CONTEXT_EVIDENCE_TEACHER_TARGET,
     OUTER_SHELL_CONTEXT_TEACHER_NODE,
     OUTER_SHELL_CONTEXT_TEACHER_TARGET,
+    PromotedShellBridgeNode,
+    PromotedShellPredictionNode,
     ColumnTeacherTargetLoader,
     active_composer_components,
     apply_shell_lr_multipliers,
@@ -57,6 +59,7 @@ from scripts.train_cifar10_depth_spanning import (
     mask_column_shell_path_inputs,
     mask_composer_components,
     mask_outer_shell_context_inputs,
+    mask_promoted_shell_bridge_inputs,
     mask_output_input_sources,
     mask_node_input_sources,
     mask_output_source_feature_slice,
@@ -65,6 +68,8 @@ from scripts.train_cifar10_depth_spanning import (
     outer_shell_context_bridge_scale_node_name,
     output_input_edge_sources,
     parse_inward_shell_promotion_pairs,
+    promoted_shell_bridge_input_target_shell,
+    promoted_shell_bridge_node_name,
     parse_shell_lr_multipliers,
     parse_shell_teacher_weights,
     parse_shell_evidence_cascade_scale,
@@ -540,6 +545,7 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         column_shell_teacher_weights="0,0,0,0",
         column_shell_readout=False,
         column_shell_bridge=False,
+        promoted_shell_bridge=False,
         outer_shell_context=False,
         outer_shell_context_to_bridge=False,
         outer_shell_context_bridge_scale=0.0,
@@ -1000,6 +1006,41 @@ def test_shell_lr_multiplier_tree_scales_inward_promotion_by_target_shell() -> N
             assert jnp.allclose(value, expected)
 
 
+def test_shell_lr_multiplier_tree_scales_promoted_bridge_by_target_shell() -> None:
+    """Promoted bridge parameters update with their written shell rate."""
+    args = _tiny_depth_spanning_args(
+        bypass_columns=False,
+        promoted_shell_bridge=True,
+        inward_shell_promotion_weight=0.001,
+        inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
+        shell_lr_multipliers="1,1.5,2,3",
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    shell_lr_multipliers = parse_shell_lr_multipliers(args.shell_lr_multipliers)
+
+    multiplier_tree = build_shell_lr_multiplier_tree(
+        params,
+        structure,
+        shell_lr_multipliers,
+    )
+    bridge_name = promoted_shell_bridge_node_name(0)
+    bridge_sources = node_input_edge_sources(structure, bridge_name)
+    bridge_multipliers = multiplier_tree.nodes[bridge_name]
+
+    for source_name, edge_key in bridge_sources.items():
+        target_shell = promoted_shell_bridge_input_target_shell(source_name)
+        assert target_shell is not None
+        expected = shell_lr_multipliers[target_shell]
+        assert jnp.allclose(bridge_multipliers.weights[edge_key], expected)
+
+    for shell_name in SHELL_NAMES:
+        assert jnp.allclose(
+            bridge_multipliers.biases[f"b_{shell_name}"],
+            shell_lr_multipliers[shell_name],
+        )
+
+
 def test_apply_shell_lr_multipliers_scales_update_tree() -> None:
     """The Optax transform helper multiplies updates with the prepared tree."""
     args = _tiny_depth_spanning_args(
@@ -1279,6 +1320,100 @@ def test_depth_spanning_graph_sets_inward_promotion_target_gradient_scale() -> N
                 .node_config["target_gradient_scale"]
                 == 0.0
             )
+
+
+def test_depth_spanning_graph_adds_promoted_shell_bridge() -> None:
+    """Promoted bridge exposes selected inward predictions to output."""
+    selected_pairs = (
+        ("outer_shell", "middle_shell"),
+        ("middle_shell", "inner_shell"),
+    )
+    args = _tiny_depth_spanning_args(
+        bypass_columns=False,
+        promoted_shell_bridge=True,
+        inward_shell_promotion_weight=0.001,
+        inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
+        inward_shell_promotion_target_gradient_scale=0.0,
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+    output_sources = output_input_edge_sources(structure)
+
+    assert active_columns == [0, 1]
+
+    for column_idx in active_columns:
+        bridge_name = promoted_shell_bridge_node_name(column_idx)
+        raw_shell_sources = {
+            column_shell_pool_node_name(column_idx, shell_name)
+            for shell_name in SHELL_NAMES
+        }
+        promoted_sources = {
+            inward_shell_promotion_node_name(
+                column_idx,
+                source_shell,
+                target_shell,
+            )
+            for source_shell, target_shell in selected_pairs
+        }
+        bridge_sources = {
+            edge.source
+            for edge in structure.edges.values()
+            if edge.target == bridge_name and edge.slot == "in"
+        }
+
+        assert bridge_name in output_sources
+        assert structure.nodes[bridge_name].node_info.node_class is (
+            PromotedShellBridgeNode
+        )
+        assert bridge_sources == raw_shell_sources | promoted_sources
+
+        for source_shell, target_shell in selected_pairs:
+            node_name = inward_shell_promotion_node_name(
+                column_idx,
+                source_shell,
+                target_shell,
+            )
+            edge_sources_by_slot = {
+                edge.slot: edge.source
+                for edge in structure.edges.values()
+                if edge.target == node_name
+            }
+
+            assert structure.nodes[node_name].node_info.node_class is (
+                PromotedShellPredictionNode
+            )
+            assert (
+                structure.nodes[node_name]
+                .node_info
+                .node_config["target_gradient_scale"]
+                == 0.0
+            )
+            assert edge_sources_by_slot["context"] == column_shell_pool_node_name(
+                column_idx,
+                source_shell,
+            )
+            assert edge_sources_by_slot["target"] == column_shell_pool_node_name(
+                column_idx,
+                target_shell,
+            )
+
+        omitted_name = inward_shell_promotion_node_name(
+            column_idx,
+            "inner_shell",
+            "hard_kernel",
+        )
+        assert omitted_name not in structure.nodes
+
+
+def test_depth_spanning_graph_rejects_promoted_bridge_without_promotion() -> None:
+    """Promoted bridge requires actual promotion predictors."""
+    args = _tiny_depth_spanning_args(
+        promoted_shell_bridge=True,
+        inward_shell_promotion_weight=0.0,
+    )
+
+    with pytest.raises(ValueError, match="requires a positive"):
+        build_depth_spanning_graph(args)
 
 
 def test_depth_spanning_graph_rejects_invalid_promotion_target_gradient_scale() -> None:
@@ -1904,6 +2039,32 @@ def test_build_readout_ablation_cases_includes_family_lesions() -> None:
     )
 
 
+def test_build_readout_ablation_cases_includes_promoted_bridge() -> None:
+    """Readout ablation cases include promoted-shell bridge interactions."""
+    args = _tiny_depth_spanning_args(
+        bypass_columns=False,
+        promoted_shell_bridge=True,
+        inward_shell_promotion_weight=0.001,
+        inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+    output_sources = output_input_edge_sources(structure)
+    all_sources = set(output_sources)
+    promoted_bridge_sources = {
+        promoted_shell_bridge_node_name(column_idx) for column_idx in active_columns
+    }
+    cases = dict(build_readout_ablation_cases(structure))
+
+    assert set(cases["promoted_shell_bridge_only"]) == promoted_bridge_sources
+    assert set(cases["column_pool_plus_promoted_shell_bridge"]) == (
+        {"column_pool"} | promoted_bridge_sources
+    )
+    assert set(cases["combined_without_promoted_shell_bridge"]) == (
+        all_sources - promoted_bridge_sources
+    )
+
+
 def test_mask_output_source_feature_slice_zeroes_selected_features() -> None:
     """Shell lesions zero selected feature rows on the column readout edge."""
     structure, _ = build_depth_spanning_graph(_tiny_depth_spanning_args())
@@ -2081,6 +2242,36 @@ def test_mask_column_shell_bridge_inputs_masks_scaled_context_conditioning() -> 
                 masked.nodes[context_name].weights[context_edge],
                 params.nodes[context_name].weights[context_edge],
             )
+
+
+def test_mask_promoted_shell_bridge_inputs_masks_by_target_shell() -> None:
+    """Promoted bridge masks raw and promoted inputs by target shell."""
+    args = _tiny_depth_spanning_args(
+        bypass_columns=False,
+        promoted_shell_bridge=True,
+        inward_shell_promotion_weight=0.001,
+        inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    bridge_name = promoted_shell_bridge_node_name(0)
+    bridge_sources = node_input_edge_sources(structure, bridge_name)
+
+    masked = mask_promoted_shell_bridge_inputs(
+        params,
+        structure,
+        (bridge_name,),
+        "inner_shell",
+        keep_shell=True,
+    )
+
+    for source_name, edge_key in bridge_sources.items():
+        before = params.nodes[bridge_name].weights[edge_key]
+        after = masked.nodes[bridge_name].weights[edge_key]
+        if promoted_shell_bridge_input_target_shell(source_name) == "inner_shell":
+            assert jnp.allclose(after, before)
+        else:
+            assert jnp.allclose(after, jnp.zeros_like(before))
 
 
 def test_mask_column_shell_path_inputs_masks_direct_and_bridge_routes() -> None:

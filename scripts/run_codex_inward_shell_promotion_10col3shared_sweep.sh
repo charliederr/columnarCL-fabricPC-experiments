@@ -16,12 +16,14 @@ promotion_pairs="${PROMOTION_PAIRS:-all}"
 target_gradient_scale="${INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE:-1.0}"
 warmup_epochs="${INWARD_SHELL_PROMOTION_WARMUP_EPOCHS:-0.0}"
 ramp_epochs="${INWARD_SHELL_PROMOTION_RAMP_EPOCHS:-0.0}"
+promoted_shell_bridge_mode="${PROMOTED_SHELL_BRIDGE:-off}"
 promotion_pairs_label="${promotion_pairs//,/_}"
 target_gradient_scale_label="${target_gradient_scale//./p}"
 warmup_label="${warmup_epochs//./p}"
 ramp_label="${ramp_epochs//./p}"
 support_mask="${SUPPORT_MASK:-1,1,1,1,1,1,1,1,1,1}"
-master_log="${repo_root}/results/codex_inward_shell_promotion_10col3shared_pairs${promotion_pairs_label}_iptg${target_gradient_scale_label}_ipw${warmup_label}_ipr${ramp_label}_seed${seed}_${hostname_value}_${timestamp}.log"
+promoted_shell_bridge_label="${promoted_shell_bridge_mode//./p}"
+master_log="${repo_root}/results/codex_inward_shell_promotion_10col3shared_pairs${promotion_pairs_label}_iptg${target_gradient_scale_label}_ipw${warmup_label}_ipr${ramp_label}_pbr${promoted_shell_bridge_label}_seed${seed}_${hostname_value}_${timestamp}.log"
 
 cd "$repo_root"
 mkdir -p results
@@ -41,6 +43,7 @@ mkdir -p results
     echo "inward_shell_promotion_target_gradient_scale: $target_gradient_scale"
     echo "inward_shell_promotion_warmup_epochs: $warmup_epochs"
     echo "inward_shell_promotion_ramp_epochs: $ramp_epochs"
+    echo "promoted_shell_bridge: $promoted_shell_bridge_mode"
     echo "support_mask: $support_mask"
     echo "num_columns: 10"
     echo "num_shared: 3"
@@ -111,7 +114,8 @@ mkdir -p results
             "$promotion_pairs" \
             "$target_gradient_scale" \
             "$warmup_epochs" \
-            "$ramp_epochs"
+            "$ramp_epochs" \
+            "$promoted_shell_bridge_mode"
 
         echo "Finished inward_shell_promotion_weight=${weight} at $(date '+%Y-%m-%d %H:%M:%S %Z')"
     done

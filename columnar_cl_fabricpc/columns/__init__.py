@@ -52,6 +52,8 @@ from columnar_cl_fabricpc.columns.accuracy_nodes import (
     ColumnShellComposerNode,
     FeatureSliceNode,
     GlobalAvgPoolNormNode,
+    PromotedShellBridgeNode,
+    PromotedShellPredictionNode,
     ShellContextPredictionNode,
     create_global_avg_pool_norm,
 )
@@ -73,6 +75,8 @@ __all__ = [
     "GlobalAvgPoolNormNode",
     "GlobalPoolNode",
     "PatchEmbedNode",
+    "PromotedShellBridgeNode",
+    "PromotedShellPredictionNode",
     "SHELL_EVIDENCE_CASCADE_PAIRS",
     "SHELL_NAMES",
     "ShellContextPredictionNode",
