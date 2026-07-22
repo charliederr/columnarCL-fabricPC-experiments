@@ -51,6 +51,8 @@ from scripts.train_cifar10_depth_spanning import (
     diagnose_output_edge_weight_norms,
     has_shell_composer,
     inward_shell_promotion_node_name,
+    inward_shell_promotion_schedule_is_active,
+    inward_shell_promotion_weight_for_epoch,
     mask_column_shell_bridge_inputs,
     mask_column_shell_path_inputs,
     mask_composer_components,
@@ -68,10 +70,12 @@ from scripts.train_cifar10_depth_spanning import (
     parse_shell_evidence_cascade_scale,
     parse_shell_inhibition_strengths,
     parse_support_mask,
+    set_inward_shell_promotion_objective_weight,
     shell_context_prediction_node_name,
     shell_slice_node_name,
     shell_teacher_node_name,
     shell_teacher_target_name,
+    validate_inward_shell_promotion_schedule,
 )
 
 
@@ -543,6 +547,8 @@ def _tiny_depth_spanning_args(**overrides) -> SimpleNamespace:
         inward_shell_promotion_weight=0.0,
         inward_shell_promotion_pairs="all",
         inward_shell_promotion_target_gradient_scale=1.0,
+        inward_shell_promotion_warmup_epochs=0.0,
+        inward_shell_promotion_ramp_epochs=0.0,
         outer_shell_context_evidence=False,
         outer_shell_context_evidence_teacher_weight=0.0,
         outer_shell_context_teacher_weight=0.0,
@@ -1295,6 +1301,75 @@ def test_depth_spanning_graph_rejects_positive_promotion_with_no_pairs() -> None
 
     with pytest.raises(ValueError, match="select at least one pair"):
         build_depth_spanning_graph(args)
+
+
+def test_inward_shell_promotion_schedule_ramps_after_warmup() -> None:
+    """Scheduled promotion is off during warmup and linear during ramp."""
+    args = _tiny_depth_spanning_args(
+        num_epochs=20,
+        inward_shell_promotion_weight=0.000375,
+        inward_shell_promotion_warmup_epochs=4,
+        inward_shell_promotion_ramp_epochs=8,
+    )
+
+    validate_inward_shell_promotion_schedule(args)
+
+    assert inward_shell_promotion_schedule_is_active(args)
+    assert inward_shell_promotion_weight_for_epoch(args, 0) == 0.0
+    assert inward_shell_promotion_weight_for_epoch(args, 3) == 0.0
+    assert inward_shell_promotion_weight_for_epoch(args, 4) == pytest.approx(
+        0.000375 / 8.0
+    )
+    assert inward_shell_promotion_weight_for_epoch(args, 11) == pytest.approx(
+        0.000375
+    )
+    assert inward_shell_promotion_weight_for_epoch(args, 19) == pytest.approx(
+        0.000375
+    )
+
+
+def test_inward_shell_promotion_schedule_rejects_zero_final_weight() -> None:
+    """A scheduled promotion objective needs a positive final weight."""
+    args = _tiny_depth_spanning_args(
+        num_epochs=20,
+        inward_shell_promotion_weight=0.0,
+        inward_shell_promotion_warmup_epochs=4,
+        inward_shell_promotion_ramp_epochs=8,
+    )
+
+    with pytest.raises(ValueError, match="positive"):
+        validate_inward_shell_promotion_schedule(args)
+
+
+def test_set_inward_shell_promotion_objective_weight_updates_only_config() -> None:
+    """Scheduled promotion changes node weights without changing graph topology."""
+    args = _tiny_depth_spanning_args(
+        bypass_columns=False,
+        inward_shell_promotion_weight=0.001,
+        inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
+    )
+    structure, support_mask = build_depth_spanning_graph(args)
+    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+
+    updated = set_inward_shell_promotion_objective_weight(structure, 0.000375)
+
+    assert updated.node_order == structure.node_order
+    assert set(updated.nodes) == set(structure.nodes)
+    assert set(updated.edges) == set(structure.edges)
+    for column_idx in active_columns:
+        for source_shell, target_shell in (
+            ("outer_shell", "middle_shell"),
+            ("middle_shell", "inner_shell"),
+        ):
+            node_name = inward_shell_promotion_node_name(
+                column_idx,
+                source_shell,
+                target_shell,
+            )
+            assert (
+                updated.nodes[node_name].node_info.node_config["objective_weight"]
+                == 0.000375
+            )
 
 
 def test_depth_spanning_graph_adds_per_column_shell_readout_edges() -> None:

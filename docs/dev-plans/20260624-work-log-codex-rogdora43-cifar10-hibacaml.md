@@ -7226,3 +7226,76 @@ Rationale:
 - The scalar sweeps show that the useful promotion-weight region is narrow.
 - The single-pair results show that the effect depends on both shell edges being present.
 - A schedule is the smallest mechanism change that preserves the current HiBaCaML-aligned shell hierarchy while testing whether early promotion pressure is interfering with classifier formation.
+
+## 2026-07-21 Inward Promotion Schedule Implementation
+
+Goal:
+
+- Implement the recommended scheduled inward shell-promotion experiment without changing upstream FabricPC.
+- Keep the graph architecture faithful to the current HiBaCaML-aligned column and shell structure.
+- Test whether delayed local shell-promotion energy helps the classifier route form before the outer-to-middle and middle-to-inner predictive objectives become active.
+
+Mechanism definitions:
+
+- `inward_shell_promotion_weight` is the final scalar multiplier on the local predictive-coding energy where a more outer shell state predicts a more inner shell state inside the same column.
+- `inward_shell_promotion_warmup_epochs` is the number of initial training epochs where the inward shell-promotion objective weight is forced to `0.0`.
+- `inward_shell_promotion_ramp_epochs` is the number of epochs after warmup used to linearly increase the inward shell-promotion objective weight from `0.0` to `inward_shell_promotion_weight`.
+- `objective_weight` is the per-node scalar stored in the `ShellContextPredictionNode` config and multiplied into that node's Gaussian prediction energy.
+
+Implemented code changes:
+
+- Added schedule validation and epoch-weight calculation in `scripts/train_cifar10_depth_spanning.py`.
+- Added `set_inward_shell_promotion_objective_weight`, which returns a copied `GraphStructure` with only inward-promotion nodes' `objective_weight` values changed. The node set, edge set, task map, and node order stay unchanged.
+- Added `train_pcn_with_epoch_structures`, a local training wrapper that preserves FabricPC's predictive-coding `train_step` and optimizer update but rebuilds the static JIT closure per epoch with the scheduled graph structure.
+- Validation selection now stores both `best_params` and `best_structure`, so a checkpoint selected during a schedule is evaluated with the same inward-promotion objective weight that produced its validation score.
+- Final diagnostics use `final_structure` for final-parameter diagnostics and `eval_structure` for selected-checkpoint diagnostics.
+- Added command-line flags:
+  - `--inward_shell_promotion_warmup_epochs`.
+  - `--inward_shell_promotion_ramp_epochs`.
+- Extended the shell runner interface with appended positional arguments:
+  - Argument 35 is `inward_shell_promotion_warmup_epochs`.
+  - Argument 36 is `inward_shell_promotion_ramp_epochs`.
+- Added schedule-aware logging to the inward-promotion sweep wrappers.
+- Added a new sequential schedule runner: `scripts/run_codex_anchored_inward_shell_promotion_schedule_10col3shared.sh`.
+
+Files changed:
+
+- `scripts/train_cifar10_depth_spanning.py`.
+- `scripts/run_codex_cifar10_depth_spanning.sh`.
+- `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`.
+- `scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh`.
+- `scripts/run_codex_anchored_inward_shell_promotion_10col3shared_replicate.sh`.
+- `scripts/run_codex_anchored_inward_shell_promotion_10col3shared_sweep.sh`.
+- `scripts/run_codex_conservative_inward_shell_promotion_10col3shared_sweep.sh`.
+- `scripts/run_codex_anchored_inward_shell_promotion_schedule_10col3shared.sh`.
+- `tests/test_pooled_readout_norm.py`.
+
+Tests run:
+
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -k "inward_shell_promotion"`: 6 passed.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py`: 72 passed.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile scripts/train_cifar10_depth_spanning.py`: passed.
+- `bash -n` on the changed runner scripts: passed.
+- `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python scripts/train_cifar10_depth_spanning.py --help`: passed and showed the new schedule flags.
+
+Experiment command prepared:
+
+```bash
+bash scripts/run_codex_anchored_inward_shell_promotion_schedule_10col3shared.sh
+```
+
+Default experiment encoded by that command:
+
+- Seed `42`.
+- `inward_shell_promotion_weight=0.000375`.
+- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+- `inward_shell_promotion_target_gradient_scale=0.0`.
+- Schedule A: `inward_shell_promotion_warmup_epochs=4`, `inward_shell_promotion_ramp_epochs=8`. This reaches the final weight at epoch 12.
+- Schedule B: `inward_shell_promotion_warmup_epochs=8`, `inward_shell_promotion_ramp_epochs=8`. This reaches the final weight at epoch 16.
+- 20 epochs, learning rate `0.005`, 10 columns, 3 shared columns, explicit all-column support mask, `shell_attention`, outer-shell context on, column shell bridge on, no bypass readout, no teacher heads, shell learning-rate multipliers `1,1.5,2,3`.
+
+Expected interpretation:
+
+- If either schedule beats the static seed-42 `0.000375` result of 33.74% test accuracy, replicate that schedule on seeds `99` and `7`.
+- If neither schedule beats static `0.000375` but one reduces mid-training validation dips, consider a three-seed stability replicate before rejecting scheduling.
+- If both schedules fall below the zero-promotion control at 31.93% seed-42 test accuracy, scheduling is probably not the next useful direction for this mechanism.

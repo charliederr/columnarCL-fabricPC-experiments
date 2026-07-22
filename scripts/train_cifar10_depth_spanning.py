@@ -60,10 +60,11 @@ instead of the stage4 default of 4 by 4 = 16 tokens.
 """
 
 import argparse
+from dataclasses import replace
 import math
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.9")
@@ -71,6 +72,7 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.9")
 import jax
 import jax.numpy as jnp
 import optax
+from tqdm.auto import tqdm
 
 from fabricpc.nodes import ConvNode, Linear, IdentityNode, SkipConnection, AvgPool
 from fabricpc.core.topology import Edge
@@ -90,7 +92,7 @@ from fabricpc.core.activations import (
 from fabricpc.core.initializers import MuPCInitializer, XavierInitializer
 from fabricpc.core.mupc import MuPCConfig
 from fabricpc.training import train_pcn, evaluate_pcn
-from fabricpc.training.train import get_graph_param_gradient
+from fabricpc.training.train import get_graph_param_gradient, train_step
 from fabricpc.utils.data.dataloader import Cifar10Loader
 from fabricpc.utils.dashboarding.extractors import (
     extract_node_energies,
@@ -474,6 +476,201 @@ def resolve_inward_shell_promotion_target_gradient_scale(args) -> float:
             "--inward_shell_promotion_target_gradient_scale must be in [0, 1]"
         )
     return scale
+
+
+def inward_shell_promotion_schedule_is_active(args) -> bool:
+    """Return whether inward shell-promotion uses an epoch schedule."""
+    return (
+        float(args.inward_shell_promotion_warmup_epochs) > 0.0
+        or float(args.inward_shell_promotion_ramp_epochs) > 0.0
+    )
+
+
+def validate_inward_shell_promotion_schedule(args) -> None:
+    """Validate epoch scheduling for the inward shell-promotion weight."""
+    warmup_epochs = float(args.inward_shell_promotion_warmup_epochs)
+    ramp_epochs = float(args.inward_shell_promotion_ramp_epochs)
+    if warmup_epochs < 0.0:
+        raise ValueError("--inward_shell_promotion_warmup_epochs must be >= 0")
+    if ramp_epochs < 0.0:
+        raise ValueError("--inward_shell_promotion_ramp_epochs must be >= 0")
+    if not inward_shell_promotion_schedule_is_active(args):
+        return
+    if args.inward_shell_promotion_weight <= 0.0:
+        raise ValueError(
+            "--inward_shell_promotion_warmup_epochs and "
+            "--inward_shell_promotion_ramp_epochs require a positive "
+            "--inward_shell_promotion_weight"
+        )
+    if warmup_epochs >= args.num_epochs:
+        raise ValueError(
+            "--inward_shell_promotion_warmup_epochs must be smaller than "
+            "--num_epochs"
+        )
+
+
+def inward_shell_promotion_weight_for_epoch(args, epoch_idx: int) -> float:
+    """
+    Return the inward shell-promotion objective weight for a training epoch.
+
+    The epoch index is zero based. Epochs inside the warmup interval use zero
+    promotion weight. After warmup, the weight increases linearly until it
+    reaches `args.inward_shell_promotion_weight`.
+    """
+    target_weight = float(args.inward_shell_promotion_weight)
+    if not inward_shell_promotion_schedule_is_active(args):
+        return target_weight
+
+    epoch_num = float(epoch_idx + 1)
+    warmup_epochs = float(args.inward_shell_promotion_warmup_epochs)
+    ramp_epochs = float(args.inward_shell_promotion_ramp_epochs)
+    if epoch_num <= warmup_epochs:
+        return 0.0
+    if ramp_epochs <= 0.0:
+        return target_weight
+
+    ramp_position = epoch_num - warmup_epochs
+    ramp_fraction = min(1.0, ramp_position / ramp_epochs)
+    return target_weight * ramp_fraction
+
+
+def set_inward_shell_promotion_objective_weight(
+    structure: GraphStructure,
+    objective_weight: float,
+) -> GraphStructure:
+    """
+    Return a graph structure with updated inward shell-promotion weights.
+
+    This changes only `objective_weight` in the node config for nodes named by
+    `inward_shell_promotion_node_name`. The node set, edge set, task map, and
+    topological order stay unchanged.
+    """
+    updated_nodes = {}
+    for node_name, node in structure.nodes.items():
+        if not is_inward_shell_promotion_node(node_name):
+            updated_nodes[node_name] = node
+            continue
+
+        node_info = node.node_info
+        node_config = dict(node_info.node_config)
+        node_config["objective_weight"] = float(objective_weight)
+        updated_info = replace(node_info, node_config=node_config)
+        updated_nodes[node_name] = node._with_graph_info(updated_info)
+
+    return structure._replace(nodes=updated_nodes)
+
+
+def batch_to_jax_dict(batch_data: Any) -> Dict[str, jnp.ndarray]:
+    """Convert a loader batch into a dictionary of JAX arrays."""
+    if isinstance(batch_data, (list, tuple)):
+        return {"x": jnp.array(batch_data[0]), "y": jnp.array(batch_data[1])}
+    if isinstance(batch_data, dict):
+        return {key: jnp.array(value) for key, value in batch_data.items()}
+    raise ValueError(f"Unsupported batch format: {type(batch_data)}")
+
+
+def train_pcn_with_epoch_structures(
+    params: GraphParams,
+    base_structure: GraphStructure,
+    train_loader: Any,
+    optimizer: optax.GradientTransformation,
+    config: dict,
+    rng_key: jax.Array,
+    structure_for_epoch: Callable[[int], GraphStructure],
+    epoch_start_callback: Callable[[int, GraphStructure], None] | None = None,
+    epoch_callback: Callable | None = None,
+    iter_callback: Callable | None = None,
+) -> Tuple[GraphParams, List[Any], List[Any], GraphStructure]:
+    """
+    Train with a possibly different static graph structure each epoch.
+
+    FabricPC's public `train_pcn` compiles one static graph structure into the
+    JIT training step. This local wrapper keeps the same predictive-coding
+    train step and optimizer update, but rebuilds that static closure per
+    epoch so scheduled node-config values can change without modifying
+    upstream FabricPC.
+    """
+    opt_state = optimizer.init(params)
+    num_epochs = config.get("num_epochs", 10)
+    total_epochs = math.ceil(num_epochs)
+    frac = num_epochs - math.floor(num_epochs)
+    num_batches = len(train_loader)
+
+    total_batches = 0
+    for epoch_idx in range(total_epochs):
+        is_last_epoch = epoch_idx == total_epochs - 1
+        if is_last_epoch and frac > 0:
+            total_batches += round(frac * num_batches)
+        else:
+            total_batches += num_batches
+
+    progress = tqdm(total=total_batches, leave=True)
+    iter_results = []
+    epoch_results = []
+    final_structure = base_structure
+
+    for epoch_idx in range(total_epochs):
+        is_last_epoch = epoch_idx == total_epochs - 1
+        if is_last_epoch and frac > 0:
+            max_batches = round(frac * num_batches)
+        else:
+            max_batches = num_batches
+
+        epoch_structure = structure_for_epoch(epoch_idx)
+        final_structure = epoch_structure
+        if epoch_start_callback is not None:
+            epoch_start_callback(epoch_idx, epoch_structure)
+
+        step_fn = jax.jit(
+            lambda p, o, b, k: train_step(
+                p,
+                o,
+                b,
+                epoch_structure,
+                optimizer,
+                k,
+            )
+        )
+        progress.set_description(f"Epoch {epoch_idx + 1}/{total_epochs}")
+        epoch_rng_key, rng_key = jax.random.split(rng_key)
+        batch_keys = jax.random.split(epoch_rng_key, max_batches)
+
+        batch_energies = []
+        for batch_idx, batch_data in enumerate(train_loader):
+            if batch_idx >= max_batches:
+                break
+
+            batch = batch_to_jax_dict(batch_data)
+            params, opt_state, energy, _ = step_fn(
+                params,
+                opt_state,
+                batch,
+                batch_keys[batch_idx],
+            )
+            energy = float(energy)
+
+            if iter_callback is not None:
+                batch_energies.append(iter_callback(epoch_idx, batch_idx, energy))
+            else:
+                batch_energies.append(energy)
+
+            progress.set_postfix(
+                energy=f"{energy:.4f}",
+                epoch=f"{epoch_idx + 1}/{total_epochs}",
+            )
+            progress.update(1)
+
+        iter_results.append(batch_energies)
+
+        if epoch_callback is not None:
+            epoch_results.append(
+                epoch_callback(epoch_idx, params, epoch_structure, config, rng_key)
+            )
+        else:
+            epoch_results.append(None)
+
+    progress.close()
+    return params, iter_results, epoch_results, final_structure
 
 
 def parse_support_mask(value: str | None, num_columns: int) -> Tuple[float, ...] | None:
@@ -3068,6 +3265,7 @@ def build_depth_spanning_graph(args):
 
 
 def train_cifar10_depth_spanning(args):
+    validate_inward_shell_promotion_schedule(args)
     inward_shell_promotion_pairs = resolve_inward_shell_promotion_pairs(args)
     inward_shell_promotion_target_gradient_scale = (
         resolve_inward_shell_promotion_target_gradient_scale(args)
@@ -3196,6 +3394,14 @@ def train_cifar10_depth_spanning(args):
     )
     print(f"Inward shell promotion weight: {args.inward_shell_promotion_weight}")
     print(
+        "Inward shell promotion warmup epochs: "
+        f"{args.inward_shell_promotion_warmup_epochs}"
+    )
+    print(
+        "Inward shell promotion ramp epochs: "
+        f"{args.inward_shell_promotion_ramp_epochs}"
+    )
+    print(
         "Inward shell promotion pairs: "
         f"{format_inward_shell_promotion_pairs(inward_shell_promotion_pairs)}"
     )
@@ -3313,7 +3519,7 @@ def train_cifar10_depth_spanning(args):
     steps_per_epoch = len(train_loader_with_teacher)
     total_steps = max(1, round(args.num_epochs * steps_per_epoch))
     warmup_steps = min(total_steps - 1, int(0.05 * total_steps))
-    schedule = optax.warmup_cosine_decay_schedule(
+    lr_schedule = optax.warmup_cosine_decay_schedule(
         init_value=0.0,
         peak_value=args.lr,
         warmup_steps=warmup_steps,
@@ -3321,7 +3527,7 @@ def train_cifar10_depth_spanning(args):
         end_value=args.lr * 0.01,
     )
     optimizer = optax.chain(
-        optax.adamw(schedule, weight_decay=args.weight_decay),
+        optax.adamw(lr_schedule, weight_decay=args.weight_decay),
         scale_updates_by_shell_lr(
             build_shell_lr_multiplier_tree(
                 params,
@@ -3335,10 +3541,11 @@ def train_cifar10_depth_spanning(args):
     best_val_acc = -1.0
     best_val_epoch = None
     best_params = None
+    best_structure = None
     final_epoch = math.ceil(args.num_epochs)
 
     def epoch_callback(epoch_idx, params, structure, config, rng_key):
-        nonlocal best_val_acc, best_val_epoch, best_params
+        nonlocal best_val_acc, best_val_epoch, best_params, best_structure
         epoch_num = epoch_idx + 1
         if args.eval_every <= 0:
             return None
@@ -3351,6 +3558,7 @@ def train_cifar10_depth_spanning(args):
             best_val_acc = val_acc
             best_val_epoch = epoch_num
             best_params = params
+            best_structure = structure
         print(f"  Epoch {epoch_num}: val_acc={val_acc:.4f}", flush=True)
 
         if args.diagnose_energy and diag_batch is not None:
@@ -3415,22 +3623,54 @@ def train_cifar10_depth_spanning(args):
                 )
             return float(energy)
 
+    def structure_for_epoch(epoch_idx: int) -> GraphStructure:
+        objective_weight = inward_shell_promotion_weight_for_epoch(args, epoch_idx)
+        return set_inward_shell_promotion_objective_weight(
+            structure,
+            objective_weight,
+        )
+
+    def epoch_start_callback(epoch_idx: int, epoch_structure: GraphStructure) -> None:
+        del epoch_structure
+        objective_weight = inward_shell_promotion_weight_for_epoch(args, epoch_idx)
+        print(
+            f"  Epoch {epoch_idx + 1}: inward_shell_promotion_weight="
+            f"{objective_weight:.8g}",
+            flush=True,
+        )
+
     print(f"\nTraining for {args.num_epochs} epochs...")
     start_time = time.time()
-    final_params, _, _ = train_pcn(
-        params=params,
-        structure=structure,
-        train_loader=train_loader_with_teacher,
-        optimizer=optimizer,
-        config=train_config,
-        rng_key=train_key,
-        verbose=False,
-        epoch_callback=epoch_callback,
-        iter_callback=iter_cb,
-    )
+    if inward_shell_promotion_schedule_is_active(args):
+        final_params, _, _, final_structure = train_pcn_with_epoch_structures(
+            params=params,
+            base_structure=structure,
+            train_loader=train_loader_with_teacher,
+            optimizer=optimizer,
+            config=train_config,
+            rng_key=train_key,
+            structure_for_epoch=structure_for_epoch,
+            epoch_start_callback=epoch_start_callback,
+            epoch_callback=epoch_callback,
+            iter_callback=iter_cb,
+        )
+    else:
+        final_params, _, _ = train_pcn(
+            params=params,
+            structure=structure,
+            train_loader=train_loader_with_teacher,
+            optimizer=optimizer,
+            config=train_config,
+            rng_key=train_key,
+            verbose=False,
+            epoch_callback=epoch_callback,
+            iter_callback=iter_cb,
+        )
+        final_structure = structure
     elapsed = time.time() - start_time
 
     eval_params = best_params if best_params is not None else final_params
+    eval_structure = best_structure if best_structure is not None else final_structure
     if best_params is not None:
         print(
             f"\nTraining time: {elapsed:.1f}s"
@@ -3444,7 +3684,7 @@ def train_cifar10_depth_spanning(args):
     summary_key = jax.random.PRNGKey(args.seed + 2025)
     core_test_metrics = evaluate_pcn(
         eval_params,
-        structure,
+        eval_structure,
         test_loader,
         train_config,
         summary_key,
@@ -3473,11 +3713,21 @@ def train_cifar10_depth_spanning(args):
         print("\n" + "-" * 70)
         print("Energy Diagnosis (after training)")
         print("-" * 70)
-        energy_breakdown = diagnose_energy_breakdown(final_params, structure, diag_batch, diag_key)
+        energy_breakdown = diagnose_energy_breakdown(
+            final_params,
+            final_structure,
+            diag_batch,
+            diag_key,
+        )
         for key, val in energy_breakdown.items():
             print(f"  {key}: {val:.4f}")
 
-        col_stats = diagnose_column_outputs(final_params, structure, diag_batch, diag_key)
+        col_stats = diagnose_column_outputs(
+            final_params,
+            final_structure,
+            diag_batch,
+            diag_key,
+        )
         print("Column outputs (z_latent statistics):")
         for name in sorted(col_stats):
             s = col_stats[name]
@@ -3490,13 +3740,13 @@ def train_cifar10_depth_spanning(args):
     if args.diagnose_shells and diag_batch is not None:
         print_shell_norms(
             "Shell Norms (after training)",
-            diagnose_shell_norms(final_params, structure, diag_batch, diag_key),
+            diagnose_shell_norms(final_params, final_structure, diag_batch, diag_key),
         )
         print_scalar_diagnostics(
             "Shell Context Prediction Energy (after training)",
             diagnose_shell_context_prediction_energies(
                 final_params,
-                structure,
+                final_structure,
                 diag_batch,
                 diag_key,
             ),
@@ -3505,7 +3755,7 @@ def train_cifar10_depth_spanning(args):
             "Inward Shell Promotion Energy (after training)",
             diagnose_inward_shell_promotion_energies(
                 final_params,
-                structure,
+                final_structure,
                 diag_batch,
                 diag_key,
             ),
@@ -3515,19 +3765,19 @@ def train_cifar10_depth_spanning(args):
     if args.diagnose_composer:
         print_composer_attention(
             "Composer Attention (selected params)",
-            diagnose_composer_attention(eval_params, structure),
+            diagnose_composer_attention(eval_params, eval_structure),
         )
         print_scalar_diagnostics(
             "Composer Projection Norms (selected params)",
-            diagnose_composer_projection_norms(eval_params, structure),
+            diagnose_composer_projection_norms(eval_params, eval_structure),
         )
         print_scalar_diagnostics(
             "Output Edge Weight Norms (selected params)",
-            diagnose_output_edge_weight_norms(eval_params, structure),
+            diagnose_output_edge_weight_norms(eval_params, eval_structure),
         )
         val_composer_metrics = evaluate_composer_component_ablations(
             eval_params,
-            structure,
+            eval_structure,
             val_loader,
             train_config,
             ablation_key,
@@ -3543,7 +3793,7 @@ def train_cifar10_depth_spanning(args):
             "Shell Context Prediction Energy (selected params)",
             diagnose_shell_context_prediction_energies(
                 eval_params,
-                structure,
+                eval_structure,
                 diag_batch,
                 diag_key,
             ),
@@ -3552,19 +3802,19 @@ def train_cifar10_depth_spanning(args):
             "Inward Shell Promotion Energy (selected params)",
             diagnose_inward_shell_promotion_energies(
                 eval_params,
-                structure,
+                eval_structure,
                 diag_batch,
                 diag_key,
             ),
         )
 
     val_ablation_metrics = evaluate_readout_ablations(
-        eval_params, structure, val_loader, train_config, ablation_key
+        eval_params, eval_structure, val_loader, train_config, ablation_key
     )
     print_ablation_results("Validation Readout Ablations", val_ablation_metrics)
     val_teacher_metrics = evaluate_output_node(
         eval_params,
-        structure,
+        eval_structure,
         COLUMN_TEACHER_NODE,
         val_loader,
         train_config,
@@ -3576,7 +3826,7 @@ def train_cifar10_depth_spanning(args):
     )
     val_shell_teacher_metrics = evaluate_shell_teacher_heads(
         eval_params,
-        structure,
+        eval_structure,
         val_loader,
         train_config,
         ablation_key,
@@ -3588,7 +3838,7 @@ def train_cifar10_depth_spanning(args):
         )
     val_column_shell_teacher_metrics = evaluate_column_shell_teacher_heads(
         eval_params,
-        structure,
+        eval_structure,
         val_loader,
         train_config,
         ablation_key,
@@ -3600,7 +3850,7 @@ def train_cifar10_depth_spanning(args):
         )
     val_outer_shell_context_teacher_metrics = evaluate_outer_shell_context_teacher_head(
         eval_params,
-        structure,
+        eval_structure,
         val_loader,
         train_config,
         ablation_key,
@@ -3613,7 +3863,7 @@ def train_cifar10_depth_spanning(args):
     val_outer_shell_context_evidence_metrics = (
         evaluate_outer_shell_context_evidence_node(
             eval_params,
-            structure,
+            eval_structure,
             val_loader,
             train_config,
             ablation_key,
@@ -3627,7 +3877,7 @@ def train_cifar10_depth_spanning(args):
     val_outer_shell_context_evidence_teacher_metrics = (
         evaluate_outer_shell_context_evidence_teacher_head(
             eval_params,
-            structure,
+            eval_structure,
             val_loader,
             train_config,
             ablation_key,
@@ -3640,12 +3890,12 @@ def train_cifar10_depth_spanning(args):
         )
     if args.diagnose_shells:
         val_shell_metrics = evaluate_shell_readout_ablations(
-            eval_params, structure, val_loader, train_config, ablation_key
+            eval_params, eval_structure, val_loader, train_config, ablation_key
         )
         print_ablation_results("Validation Shell Readout Ablations", val_shell_metrics)
     val_column_shell_readout_metrics = evaluate_column_shell_readout_ablations(
         eval_params,
-        structure,
+        eval_structure,
         val_loader,
         train_config,
         ablation_key,
@@ -3657,7 +3907,7 @@ def train_cifar10_depth_spanning(args):
         )
     val_column_shell_bridge_metrics = evaluate_column_shell_bridge_ablations(
         eval_params,
-        structure,
+        eval_structure,
         val_loader,
         train_config,
         ablation_key,
@@ -3669,7 +3919,7 @@ def train_cifar10_depth_spanning(args):
         )
     val_outer_shell_context_metrics = evaluate_outer_shell_context_ablations(
         eval_params,
-        structure,
+        eval_structure,
         val_loader,
         train_config,
         ablation_key,
@@ -3682,7 +3932,7 @@ def train_cifar10_depth_spanning(args):
     val_outer_shell_context_evidence_ablation_metrics = (
         evaluate_outer_shell_context_evidence_ablations(
             eval_params,
-            structure,
+            eval_structure,
             val_loader,
             train_config,
             ablation_key,
@@ -3695,7 +3945,7 @@ def train_cifar10_depth_spanning(args):
         )
     val_column_shell_path_metrics = evaluate_column_shell_path_ablations(
         eval_params,
-        structure,
+        eval_structure,
         val_loader,
         train_config,
         ablation_key,
@@ -3707,11 +3957,11 @@ def train_cifar10_depth_spanning(args):
         )
 
     test_ablation_metrics = evaluate_readout_ablations(
-        eval_params, structure, test_loader, train_config, ablation_key
+        eval_params, eval_structure, test_loader, train_config, ablation_key
     )
     test_teacher_metrics = evaluate_output_node(
         eval_params,
-        structure,
+        eval_structure,
         COLUMN_TEACHER_NODE,
         test_loader,
         train_config,
@@ -3719,21 +3969,21 @@ def train_cifar10_depth_spanning(args):
     )
     test_shell_teacher_metrics = evaluate_shell_teacher_heads(
         eval_params,
-        structure,
+        eval_structure,
         test_loader,
         train_config,
         ablation_key,
     )
     test_column_shell_teacher_metrics = evaluate_column_shell_teacher_heads(
         eval_params,
-        structure,
+        eval_structure,
         test_loader,
         train_config,
         ablation_key,
     )
     test_outer_shell_context_teacher_metrics = evaluate_outer_shell_context_teacher_head(
         eval_params,
-        structure,
+        eval_structure,
         test_loader,
         train_config,
         ablation_key,
@@ -3741,7 +3991,7 @@ def train_cifar10_depth_spanning(args):
     test_outer_shell_context_evidence_metrics = (
         evaluate_outer_shell_context_evidence_node(
             eval_params,
-            structure,
+            eval_structure,
             test_loader,
             train_config,
             ablation_key,
@@ -3750,7 +4000,7 @@ def train_cifar10_depth_spanning(args):
     test_outer_shell_context_evidence_teacher_metrics = (
         evaluate_outer_shell_context_evidence_teacher_head(
             eval_params,
-            structure,
+            eval_structure,
             test_loader,
             train_config,
             ablation_key,
@@ -3758,21 +4008,21 @@ def train_cifar10_depth_spanning(args):
     )
     test_column_shell_readout_metrics = evaluate_column_shell_readout_ablations(
         eval_params,
-        structure,
+        eval_structure,
         test_loader,
         train_config,
         ablation_key,
     )
     test_column_shell_bridge_metrics = evaluate_column_shell_bridge_ablations(
         eval_params,
-        structure,
+        eval_structure,
         test_loader,
         train_config,
         ablation_key,
     )
     test_outer_shell_context_metrics = evaluate_outer_shell_context_ablations(
         eval_params,
-        structure,
+        eval_structure,
         test_loader,
         train_config,
         ablation_key,
@@ -3780,7 +4030,7 @@ def train_cifar10_depth_spanning(args):
     test_outer_shell_context_evidence_ablation_metrics = (
         evaluate_outer_shell_context_evidence_ablations(
             eval_params,
-            structure,
+            eval_structure,
             test_loader,
             train_config,
             ablation_key,
@@ -3788,7 +4038,7 @@ def train_cifar10_depth_spanning(args):
     )
     test_column_shell_path_metrics = evaluate_column_shell_path_ablations(
         eval_params,
-        structure,
+        eval_structure,
         test_loader,
         train_config,
         ablation_key,
@@ -3854,7 +4104,7 @@ def train_cifar10_depth_spanning(args):
         )
     if args.diagnose_shells:
         test_shell_metrics = evaluate_shell_readout_ablations(
-            eval_params, structure, test_loader, train_config, ablation_key
+            eval_params, eval_structure, test_loader, train_config, ablation_key
         )
         print_ablation_results("Test Shell Readout Ablations", test_shell_metrics)
     return test_acc
@@ -4176,6 +4426,27 @@ def parse_args():
             "shell-promotion objective into its target shell. Use 0.0 to anchor "
             "the target shell while keeping prediction error, predictor weights, "
             "and source-shell context gradients active."
+        ),
+    )
+    parser.add_argument(
+        "--inward_shell_promotion_warmup_epochs",
+        type=float,
+        default=0.0,
+        help=(
+            "Number of initial training epochs with inward shell-promotion "
+            "objective weight set to 0.0. A positive value keeps the promotion "
+            "nodes in the graph but delays their local energy contribution."
+        ),
+    )
+    parser.add_argument(
+        "--inward_shell_promotion_ramp_epochs",
+        type=float,
+        default=0.0,
+        help=(
+            "Number of epochs after warmup used to linearly ramp inward "
+            "shell-promotion objective weight from 0.0 to "
+            "--inward_shell_promotion_weight. A zero value steps directly to "
+            "the configured weight after warmup."
         ),
     )
     parser.add_argument(
