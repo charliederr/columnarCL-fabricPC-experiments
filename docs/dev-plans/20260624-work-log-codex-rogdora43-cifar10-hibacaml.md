@@ -7394,3 +7394,90 @@ Suggested command:
 ```bash
 SCHEDULES="0:2 0:4" bash scripts/run_codex_anchored_inward_shell_promotion_schedule_10col3shared.sh
 ```
+
+## 2026-07-22 Front-Loaded Inward Promotion Schedule Result
+
+Context:
+
+- `inward_shell_promotion_weight` is the scalar weight on local predictive objectives where one shell predicts a more inward shell in the same column.
+- `warmup` is the number of initial epochs where that scalar is held at zero.
+- `ramp` is the number of epochs used to linearly increase the scalar from zero to the requested final value.
+- Both runs used the two active promotion pairs `outer_to_middle` and `middle_to_inner`, so the outer shell predicted the middle shell and the middle shell predicted the inner shell.
+- Both runs used `inward_shell_promotion_target_gradient_scale=0.0`, so each target shell received no direct gradient from the local promotion objective. The target shell still trained through the rest of the predictive coding graph.
+
+Provenance:
+
+- The `warmup=0, ramp=2` child log recorded commit `6e6d7941e30786be4e8068372c516b8f222a90e2`.
+- The `warmup=0, ramp=4` child log recorded commit `e1e9aabc280f925ac5910ed63362dbbd1227d6d5`.
+- The only tracked source change between those two commits under `scripts/`, `tests/`, and `docs/dev-plans/` was a work-log update. No training script or runner script changed between the two runs.
+- The current commit `d454506` adds the completed front-loaded result logs.
+
+Logs:
+
+- Master schedule log: `results/codex_anchored_inward_shell_promotion_schedule_10col3shared_pairsouter_to_middle_middle_to_inner_weights0p000375_schedules0w2_0w4_iptg0p0_rogdora43_20260722_072648.log`.
+- `warmup=0, ramp=2` child log: `results/codex_dspan_sched_10c_3s_7a_shatt_isp0p000375_iptg0p0_ipw0_ipr2_seed42_lr0p005_ep20_nodiag_rogdora43_20260722_072648.log`.
+- `warmup=0, ramp=4` child log: `results/codex_dspan_sched_10c_3s_7a_shatt_isp0p000375_iptg0p0_ipw0_ipr4_seed42_lr0p005_ep20_nodiag_rogdora43_20260722_102515.log`.
+
+Configuration:
+
+- Seed `42`, 20 epochs, learning rate `0.005`.
+- Final `inward_shell_promotion_weight=0.000375`.
+- 10 columns, 3 shared columns, explicit all-column support mask.
+- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+- Outer-shell context on, column shell bridge on, no bypass readout, no teacher heads.
+- Shell learning-rate multipliers `1,1.5,2,3`.
+- Graph size was 167 nodes and 313 edges.
+- Parameter count was 3,129,574.
+
+Primary results:
+
+| Run | Warmup epochs | Ramp epochs | Best validation accuracy | Best epoch | Test accuracy | Delta from static `0.000375` test | Delta from zero-promotion control |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Static active reference | 0 | 0 | 33.80% | 18 | 33.74% | 0.00 percentage points | +1.81 percentage points |
+| Scheduled promotion | 4 | 8 | 33.46% | 18 | 32.90% | -0.84 percentage points | +0.97 percentage points |
+| Front-loaded schedule | 0 | 2 | 32.68% | 20 | 31.18% | -2.56 percentage points | -0.75 percentage points |
+| Front-loaded schedule | 0 | 4 | 30.68% | 18 | 30.50% | -3.24 percentage points | -1.43 percentage points |
+| Zero-promotion control | none | none | 32.60% | 18 | 31.93% | -1.81 percentage points | 0.00 percentage points |
+
+Validation trajectory:
+
+| Epoch | Static `0.000375` | Warmup 4, ramp 8 | Warmup 0, ramp 2 | Warmup 0, ramp 4 |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 11.46% | 12.04% | 11.42% | 11.08% |
+| 2 | 21.72% | 22.12% | 21.82% | 22.18% |
+| 3 | 20.36% | 21.68% | 20.80% | 20.92% |
+| 4 | 26.04% | 25.96% | 26.10% | 24.90% |
+| 5 | 25.08% | 25.68% | 22.84% | 24.36% |
+| 6 | 27.80% | 27.36% | 26.42% | 28.36% |
+| 7 | 26.26% | 25.76% | 22.16% | 22.54% |
+| 8 | 30.28% | 25.34% | 26.04% | 26.94% |
+| 9 | 27.64% | 28.06% | 25.76% | 22.24% |
+| 10 | 26.84% | 28.28% | 26.08% | 26.10% |
+| 11 | 22.24% | 20.16% | 19.92% | 23.30% |
+| 12 | 27.86% | 26.76% | 24.42% | 22.88% |
+| 13 | 29.34% | 26.98% | 26.76% | 27.30% |
+| 14 | 28.82% | 30.18% | 26.88% | 28.58% |
+| 15 | 28.40% | 29.64% | 28.84% | 27.06% |
+| 16 | 29.94% | 29.30% | 28.22% | 27.66% |
+| 17 | 32.16% | 30.74% | 29.76% | 29.70% |
+| 18 | 33.80% | 33.46% | 32.06% | 30.68% |
+| 19 | 32.84% | 31.74% | 31.52% | 29.62% |
+| 20 | 33.10% | 32.78% | 32.68% | 30.54% |
+
+Interpretation:
+
+- Front-loaded scheduling did not improve the active mechanism. The `warmup=0, ramp=2` run was close to the zero-promotion control on validation accuracy, but it trailed the zero-promotion control by 0.75 percentage points on test accuracy.
+- The `warmup=0, ramp=4` run was clearly worse. Its test accuracy was 30.50%, which was 3.24 percentage points below the static `0.000375` active reference.
+- The best schedule remains `warmup=4, ramp=8`, but that still trails the static `0.000375` run by 0.84 percentage points on test accuracy.
+- These results argue against spending more experiment time on the timing of this one scalar. The current local promotion objective is most useful when present at full strength from the beginning.
+
+Recommended next step:
+
+- Keep static `inward_shell_promotion_weight=0.000375`, `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`, and `inward_shell_promotion_target_gradient_scale=0.0` as the active baseline.
+- Stop schedule tuning for now.
+- Move to a mechanism change: make promoted shell evidence available to the classifier path, not only to the local predictive energy. The concrete candidate is a promoted-shell bridge that maps source-shell activity into target-shell width, trains with the same local predictive objective, and also exposes its promoted representation to the existing shell-preserving bridge or readout.
+- The reason is architectural. In the current implementation, inward promotion can shape local prediction energy, but the readout still primarily sees the ordinary shell states. If promoted shell content is meant to act as a consolidated inward representation, it needs a route into the classification path while preserving the hard-kernel, inner-shell, middle-shell, and outer-shell identities.
+
+Pause point:
+
+- I will wait for confirmation before making code changes for the promoted-shell bridge.
