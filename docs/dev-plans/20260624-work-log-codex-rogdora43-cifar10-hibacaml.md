@@ -7128,3 +7128,101 @@ Suggested commands:
 SEEDS="42" WEIGHTS="0.000375" PROMOTION_PAIRS="outer_to_middle" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
 SEEDS="42" WEIGHTS="0.000375" PROMOTION_PAIRS="middle_to_inner" bash scripts/run_codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot.sh
 ```
+
+## 2026-07-21 Anchored Promotion Single-Pair Results
+
+Question:
+
+- Test whether the current anchored inward shell-promotion gain comes mostly from one shell edge or from the two shell edges acting together.
+
+Mechanism definitions:
+
+- `inward_shell_promotion_weight` is the scalar multiplier on the local predictive-coding energy where a more outer shell state predicts a more inner shell state inside the same column.
+- `outer_to_middle` means the column's outer shell state predicts that column's middle shell state.
+- `middle_to_inner` means the column's middle shell state predicts that column's inner shell state.
+- `inward_shell_promotion_target_gradient_scale` is the multiplier on gradient flowing into the target shell state from this local promotion objective.
+- Percentage point means absolute accuracy difference on the CIFAR-10 validation or test percentage.
+
+Configuration:
+
+- Commit: `75bc2292eb9cbf0ac1632a28afff06749d7a17a5`.
+- Seed `42`, 20 epochs, learning rate `0.005`.
+- `inward_shell_promotion_weight=0.000375`.
+- `inward_shell_promotion_target_gradient_scale=0.0`.
+- 10 columns, 3 shared columns, 7 active non-shared columns.
+- Explicit all-column support mask `1,1,1,1,1,1,1,1,1,1`.
+- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+- Outer-shell context on, column shell bridge on, no bypass readout, no teacher heads.
+- Shell learning-rate multipliers `1,1.5,2,3`.
+
+Logs:
+
+- `outer_to_middle` master log: `results/codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsouter_to_middle_weights0p000375_iptg0p0_rogdora43_20260721_140459.log`.
+- `outer_to_middle` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p000375_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260721_140459.log`.
+- `middle_to_inner` master log: `results/codex_anchored_inward_shell_promotion_10col3shared_weight_sweet_spot_pairsmiddle_to_inner_weights0p000375_iptg0p0_rogdora43_20260721_160804.log`.
+- `middle_to_inner` child log: `results/codex_dspan_10c_3s_7a_cmall_sm1111111111_shatt_cgstage4_e64_m32_gsum_gp1p0_rs16_ct0p0_sh0_0_0_0_csh0_0_0_0_slr1_1p5_2_3_oct0p0_ocsp0p0_isp0p000375_iptg0p0_ocet0p0_ocbs0p0_sr0_br1_oc1_oce0_ocb0_nobyp_seed42_lr0p005_ep20_nodiag_rogdora43_20260721_160804.log`.
+
+Primary results:
+
+| Promotion pairs | Nodes | Edges | Parameters | Best validation accuracy | Best epoch | Test accuracy | Training time |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `outer_to_middle` | 157 | 293 | 3,128,524 | 31.58% | 18 | 31.00% | 7,278.9s |
+| `middle_to_inner` | 157 | 293 | 3,126,494 | 31.56% | 18 | 30.65% | 7,284.3s |
+| `outer_to_middle,middle_to_inner` active reference | 167 | 313 | 3,129,574 | 33.80% | 18 | 33.74% | 7,306.9s |
+| Current zero-promotion control | 147 | 273 | 3,125,444 | 32.60% | 18 | 31.93% | 7,265.5s |
+
+Validation trajectory:
+
+| Epoch | `outer_to_middle` only | `middle_to_inner` only | Two-pair active reference |
+| ---: | ---: | ---: | ---: |
+| 1 | 11.16% | 11.16% | 11.46% |
+| 2 | 21.42% | 20.96% | 21.72% |
+| 3 | 20.62% | 20.74% | 20.36% |
+| 4 | 25.12% | 23.72% | 26.04% |
+| 5 | 24.32% | 24.06% | 25.08% |
+| 6 | 27.18% | 26.50% | 27.80% |
+| 7 | 22.40% | 25.48% | 26.26% |
+| 8 | 24.38% | 27.82% | 30.28% |
+| 9 | 24.38% | 24.80% | 27.64% |
+| 10 | 25.82% | 24.92% | 26.84% |
+| 11 | 20.90% | 20.78% | 22.24% |
+| 12 | 26.34% | 27.16% | 27.86% |
+| 13 | 27.20% | 27.56% | 29.34% |
+| 14 | 26.38% | 27.36% | 28.82% |
+| 15 | 26.96% | 28.50% | 28.40% |
+| 16 | 28.22% | 25.92% | 29.94% |
+| 17 | 29.58% | 28.82% | 32.16% |
+| 18 | 31.58% | 31.56% | 33.80% |
+| 19 | 30.22% | 31.16% | 32.84% |
+| 20 | 30.88% | 31.06% | 33.10% |
+
+Comparisons:
+
+| Run | Test delta from two-pair active reference | Best-validation delta from two-pair active reference | Test delta from zero-promotion control |
+| --- | ---: | ---: | ---: |
+| `outer_to_middle` only | -2.74 percentage points | -2.22 percentage points | -0.93 percentage points |
+| `middle_to_inner` only | -3.09 percentage points | -2.24 percentage points | -1.28 percentage points |
+| `outer_to_middle,middle_to_inner` active reference | 0.00 percentage points | 0.00 percentage points | +1.81 percentage points |
+
+Interpretation:
+
+- Neither single promotion edge is enough to reproduce the current best result.
+- Both single-edge runs stayed above random chance and improved into the low 30% range by epoch 18, so this does not look like a hard collapse.
+- Both single-edge runs finished below the current zero-promotion control, while the two-edge active reference finished above it. This points to an interaction between the two inward shell-promotion edges rather than one edge carrying the benefit alone.
+- The result does not support pair-specific weights as the immediate next code change. There is no stronger single edge to emphasize.
+- The result does support keeping both inward-promotion pairs active and changing when the shared promotion weight turns on.
+
+Recommended next step:
+
+- Keep `inward_shell_promotion_weight=0.000375` with both `outer_to_middle` and `middle_to_inner` as the active baseline.
+- Add a schedule for `inward_shell_promotion_weight`, where the scalar starts at `0.0`, remains off during early classifier formation, then ramps linearly to `0.000375`.
+- The first scheduled tests should use seed `42` with two schedules:
+  - Warm up for 4 epochs, then ramp linearly to `0.000375` by epoch 12.
+  - Warm up for 8 epochs, then ramp linearly to `0.000375` by epoch 16.
+- If either schedule beats the static seed-42 result or reduces the epoch-11 validation dip without lowering the final test result, replicate it on seeds `99` and `7`.
+
+Rationale:
+
+- The scalar sweeps show that the useful promotion-weight region is narrow.
+- The single-pair results show that the effect depends on both shell edges being present.
+- A schedule is the smallest mechanism change that preserves the current HiBaCaML-aligned shell hierarchy while testing whether early promotion pressure is interfering with classifier formation.
