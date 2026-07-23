@@ -1,0 +1,1025 @@
+     928 -        node_class = node_info.node_class
+     929 -
+     930 -        def energy_fn(input_args, z_latent):
+     931 -            updated_state = state._replace(z_latent=z_latent)
+     932 -            total_energy, new_state = node_class.forward(
+     933 -                params,
+     934 -                input_args,
+     935 -                updated_state,
+     936 -                node_info,
+     937 -            )
+     938 -            return total_energy, new_state
+     939 -
+     940 -        (total_energy, new_state), (input_grads, self_grad) = jax.value_and_grad(
+     941 -            energy_fn,
+     942 -            argnums=(0, 1),
+     943 -            has_aux=True,
+     944 -        )(inputs, state.z_latent)
+     945 -        del total_energy
+     946 -        target_gradient_scale = float(node_info.node_config["target_gradient_scale"])
+     947 -        input_grads = {
+     948 -            edge_key: (
+     949 -                grad * target_gradient_scale
+     950 -                if edge_key.endswith(":target")
+     951 -                else grad
+     952 -            )
+     953 -            for edge_key, grad in input_grads.items()
+     954 -        }
+     955 -        return new_state, input_grads, self_grad
+     956 -
+     957 -
+     773  class PromotedShellBridgeNode(NodeBase):
+     774      """
+     960 -    Shell-preserving bridge for raw shell pools and promoted shell predictions.
+     775 +    Shell-preserving bridge with integrated inward shell promotion.
+     776
+     962 -    Each input edge is assigned to one shell from its source node name. Raw
+     963 -    shell-pool inputs write to their own shell. Promotion-prediction inputs
+     964 -    write to the promoted target shell. The node output has the full column
+     965 -    `embed_dim` layout, and each source projects only into its shell slice.
+     777 +    Each input edge receives one raw pooled shell vector from a column. Raw
+     778 +    inputs write to their own shell slice. Selected inward-promotion pairs add
+     779 +    source-to-target shell projections that also contribute a weak local
+     780 +    target-prediction objective. The node exposes one full `embed_dim` latent to
+     781 +    downstream classifier paths without inserting separate public prediction
+     782 +    latents.
+     783      """
+         ⋮
+     789          shell_proportions: Tuple[int, int, int, int] = DEFAULT_SHELL_PROPORTIONS,
+     790 +        promotion_pairs: Tuple[Tuple[str, str], ...] = (),
+     791 +        promotion_objective_weight: float = 0.0,
+     792 +        promotion_target_gradient_scale: float = 1.0,
+     793          normalize_shell_inputs: bool = True,
+         ⋮
+     802              )
+     803 +        if promotion_objective_weight < 0.0:
+     804 +            raise ValueError("promotion_objective_weight must be >= 0")
+     805 +        if (
+     806 +            promotion_target_gradient_scale < 0.0
+     807 +            or promotion_target_gradient_scale > 1.0
+     808 +        ):
+     809 +            raise ValueError("promotion_target_gradient_scale must be in [0, 1]")
+     810          get_shell_slices(shape[-1], shell_proportions)
+     811 +        for source_shell, target_shell in promotion_pairs:
+     812 +            if source_shell not in SHELL_NAMES:
+     813 +                raise ValueError(f"Unknown promotion source shell: {source_shell}")
+     814 +            if target_shell not in SHELL_NAMES:
+     815 +                raise ValueError(f"Unknown promotion target shell: {target_shell}")
+     816          super().__init__(
+         ⋮
+     823              shell_proportions=tuple(int(value) for value in shell_proportions),
+     824 +            promotion_pairs=tuple(tuple(pair) for pair in promotion_pairs),
+     825 +            promotion_objective_weight=float(promotion_objective_weight),
+     826 +            promotion_target_gradient_scale=float(promotion_target_gradient_scale),
+     827              normalize_shell_inputs=bool(normalize_shell_inputs),
+         ⋮
+     842      @staticmethod
+    1008 -    def _target_shell_for_edge(edge_key: str) -> str:
+     843 +    def _raw_shell_for_edge(edge_key: str) -> str:
+     844          source_name = PromotedShellBridgeNode._source_from_edge_key(edge_key)
+         ⋮
+     846              if source_name.endswith(f"_{shell_name}_pool"):
+    1012 -                return shell_name
+    1013 -            if source_name.endswith(f"_to_{shell_name}_promotion_prediction"):
+     847                  return shell_name
+     848          raise ValueError(
+    1016 -            "PromotedShellBridgeNode input source must be a column shell pool "
+    1017 -            f"or promotion prediction, got {source_name!r}"
+     849 +            "PromotedShellBridgeNode input source must be a column shell pool, "
+     850 +            f"got {source_name!r}"
+     851          )
+         ⋮
+     857      @staticmethod
+     858 +    def _promotion_weight_name(source_shell: str, target_shell: str) -> str:
+     859 +        return f"W_promote_{source_shell}_to_{target_shell}"
+     860 +
+     861 +    @staticmethod
+     862 +    def _promotion_bias_name(source_shell: str, target_shell: str) -> str:
+     863 +        return f"b_promote_{source_shell}_to_{target_shell}"
+     864 +
+     865 +    @staticmethod
+     866 +    def _promotion_pair_from_param(param_name: str) -> Tuple[str, str] | None:
+     867 +        prefixes = ("W_promote_", "b_promote_")
+     868 +        for prefix in prefixes:
+     869 +            if not param_name.startswith(prefix):
+     870 +                continue
+     871 +            pair_label = param_name.removeprefix(prefix)
+     872 +            for source_shell in SHELL_NAMES:
+     873 +                marker = f"{source_shell}_to_"
+     874 +                if not pair_label.startswith(marker):
+     875 +                    continue
+     876 +                target_shell = pair_label.removeprefix(marker)
+     877 +                if target_shell in SHELL_NAMES:
+     878 +                    return source_shell, target_shell
+     879 +        return None
+     880 +
+     881 +    @staticmethod
+     882 +    def target_shell_for_param(param_name: str) -> str:
+     883 +        if param_name.startswith("b_") and not param_name.startswith("b_promote_"):
+     884 +            shell_name = param_name.removeprefix("b_")
+     885 +            if shell_name in SHELL_NAMES:
+     886 +                return shell_name
+     887 +
+     888 +        promotion_pair = PromotedShellBridgeNode._promotion_pair_from_param(param_name)
+     889 +        if promotion_pair is not None:
+     890 +            return promotion_pair[1]
+     891 +
+     892 +        return PromotedShellBridgeNode._raw_shell_for_edge(param_name)
+     893 +
+     894 +    @staticmethod
+     895 +    def _shell_edges_from_inputs(
+     896 +        inputs: Dict[str, jnp.ndarray],
+     897 +    ) -> Dict[str, str]:
+     898 +        shell_edges = {}
+     899 +        for edge_key in sorted(inputs):
+     900 +            shell_name = PromotedShellBridgeNode._raw_shell_for_edge(edge_key)
+     901 +            if shell_name in shell_edges:
+     902 +                raise ValueError(
+     903 +                    "PromotedShellBridgeNode expects one input per shell, got "
+     904 +                    f"multiple {shell_name} inputs"
+     905 +                )
+     906 +            shell_edges[shell_name] = edge_key
+     907 +        return shell_edges
+     908 +
+     909 +    @staticmethod
+     910      def initialize_params(
+         ⋮
+     927          )
+    1043 -        keys = jax.random.split(key, max(1, len(input_shapes)))
+     928 +        promotion_pairs = tuple(config.get("promotion_pairs", ()))
+     929 +        shell_edges = PromotedShellBridgeNode._shell_edges_from_inputs(input_shapes)
+     930 +        for source_shell, target_shell in promotion_pairs:
+     931 +            if source_shell not in shell_edges:
+     932 +                raise ValueError(
+     933 +                    "PromotedShellBridgeNode missing source shell input "
+     934 +                    f"{source_shell!r}"
+     935 +                )
+     936 +            if target_shell not in shell_edges:
+     937 +                raise ValueError(
+     938 +                    "PromotedShellBridgeNode missing target shell input "
+     939 +                    f"{target_shell!r}"
+     940 +                )
+     941 +
+     942 +        keys = jax.random.split(
+     943 +            key,
+     944 +            max(1, len(input_shapes) + len(promotion_pairs)),
+     945 +        )
+     946          weights = {}
+    1045 -        for edge_key, edge_key_random in zip(sorted(input_shapes), keys):
+    1046 -            shell_name = PromotedShellBridgeNode._target_shell_for_edge(edge_key)
+     947 +        key_idx = 0
+     948 +        for edge_key in sorted(input_shapes):
+     949 +            shell_name = PromotedShellBridgeNode._raw_shell_for_edge(edge_key)
+     950              start, end = shell_slices[shell_name]
+         ⋮
+     952              weights[edge_key] = initialize(
+    1050 -                edge_key_random,
+     953 +                keys[key_idx],
+     954                  (in_features, end - start),
+         ⋮
+     956              )
+     957 +            key_idx += 1
+     958 +        for source_shell, target_shell in promotion_pairs:
+     959 +            source_start, source_end = shell_slices[source_shell]
+     960 +            target_start, target_end = shell_slices[target_shell]
+     961 +            weights[
+     962 +                PromotedShellBridgeNode._promotion_weight_name(
+     963 +                    source_shell,
+     964 +                    target_shell,
+     965 +                )
+     966 +            ] = initialize(
+     967 +                keys[key_idx],
+     968 +                (source_end - source_start, target_end - target_start),
+     969 +                weight_init,
+     970 +            )
+     971 +            key_idx += 1
+     972          biases = {
+         ⋮
+     979          }
+     980 +        for source_shell, target_shell in promotion_pairs:
+     981 +            target_start, target_end = shell_slices[target_shell]
+     982 +            biases[
+     983 +                PromotedShellBridgeNode._promotion_bias_name(
+     984 +                    source_shell,
+     985 +                    target_shell,
+     986 +                )
+     987 +            ] = initialize(
+     988 +                key,
+     989 +                (target_end - target_start,),
+     990 +                ZerosInitializer(),
+     991 +            )
+     992          return NodeParams(weights=weights, biases=biases)
+         ⋮
+     994      @staticmethod
+     995 +    def _prediction_for_promotion_pair(
+     996 +        params: NodeParams,
+     997 +        inputs: Dict[str, jnp.ndarray],
+     998 +        shell_edges: Dict[str, str],
+     999 +        node_info: NodeInfo,
+    1000 +        source_shell: str,
+    1001 +        target_shell: str,
+    1002 +    ) -> jax.Array:
+    1003 +        source_edge = shell_edges[source_shell]
+    1004 +        prediction = (
+    1005 +            jnp.matmul(
+    1006 +                inputs[source_edge],
+    1007 +                params.weights[
+    1008 +                    PromotedShellBridgeNode._promotion_weight_name(
+    1009 +                        source_shell,
+    1010 +                        target_shell,
+    1011 +                    )
+    1012 +                ],
+    1013 +            )
+    1014 +            + params.biases[
+    1015 +                PromotedShellBridgeNode._promotion_bias_name(
+    1016 +                    source_shell,
+    1017 +                    target_shell,
+    1018 +                )
+    1019 +            ]
+    1020 +        )
+    1021 +        return node_info.activation.forward(
+    1022 +            prediction,
+    1023 +            node_info.activation.config,
+    1024 +        )
+    1025 +
+    1026 +    @staticmethod
+    1027 +    def _promotion_energy_by_batch(
+    1028 +        params: NodeParams,
+    1029 +        inputs: Dict[str, jnp.ndarray],
+    1030 +        node_info: NodeInfo,
+    1031 +    ) -> jnp.ndarray:
+    1032 +        if not inputs:
+    1033 +            raise ValueError("PromotedShellBridgeNode expects inputs")
+    1034 +        config = node_info.node_config
+    1035 +        objective_weight = float(config.get("promotion_objective_weight", 0.0))
+    1036 +        batch_size = next(iter(inputs.values())).shape[0]
+    1037 +        if objective_weight <= 0.0:
+    1038 +            return jnp.zeros((batch_size,), dtype=next(iter(inputs.values())).dtype)
+    1039 +
+    1040 +        shell_edges = PromotedShellBridgeNode._shell_edges_from_inputs(inputs)
+    1041 +        promotion_pairs = tuple(config.get("promotion_pairs", ()))
+    1042 +        promotion_energy = jnp.zeros(
+    1043 +            (batch_size,),
+    1044 +            dtype=next(iter(inputs.values())).dtype,
+    1045 +        )
+    1046 +        for source_shell, target_shell in promotion_pairs:
+    1047 +            prediction = PromotedShellBridgeNode._prediction_for_promotion_pair(
+    1048 +                params,
+    1049 +                inputs,
+    1050 +                shell_edges,
+    1051 +                node_info,
+    1052 +                source_shell,
+    1053 +                target_shell,
+    1054 +            )
+    1055 +            target = inputs[shell_edges[target_shell]]
+    1056 +            error = target - prediction
+    1057 +            axes_to_sum = tuple(range(1, error.ndim))
+    1058 +            promotion_energy = promotion_energy + (
+    1059 +                0.5
+    1060 +                * objective_weight
+    1061 +                * jnp.sum(jnp.square(error), axis=axes_to_sum)
+    1062 +            )
+    1063 +        return promotion_energy
+    1064 +
+    1065 +    @staticmethod
+    1066 +    def _target_promotion_input_grads(
+    1067 +        params: NodeParams,
+    1068 +        inputs: Dict[str, jnp.ndarray],
+    1069 +        node_info: NodeInfo,
+    1070 +    ) -> Dict[str, jnp.ndarray]:
+    1071 +        config = node_info.node_config
+    1072 +        objective_weight = float(config.get("promotion_objective_weight", 0.0))
+    1073 +        if objective_weight <= 0.0:
+    1074 +            return {edge_key: jnp.zeros_like(value) for edge_key, value in inputs.items()}
+    1075 +
+    1076 +        shell_edges = PromotedShellBridgeNode._shell_edges_from_inputs(inputs)
+    1077 +        promotion_pairs = tuple(config.get("promotion_pairs", ()))
+    1078 +        target_grads = {
+    1079 +            edge_key: jnp.zeros_like(value) for edge_key, value in inputs.items()
+    1080 +        }
+    1081 +        for source_shell, target_shell in promotion_pairs:
+    1082 +            prediction = PromotedShellBridgeNode._prediction_for_promotion_pair(
+    1083 +                params,
+    1084 +                inputs,
+    1085 +                shell_edges,
+    1086 +                node_info,
+    1087 +                source_shell,
+    1088 +                target_shell,
+    1089 +            )
+    1090 +            target_edge = shell_edges[target_shell]
+    1091 +            target_grads[target_edge] = target_grads[target_edge] + (
+    1092 +                objective_weight * (inputs[target_edge] - prediction)
+    1093 +            )
+    1094 +        return target_grads
+    1095 +
+    1096 +    @staticmethod
+    1097      def forward(
+         ⋮
+    1106          config = node_info.node_config
+    1107 +        shell_edges = PromotedShellBridgeNode._shell_edges_from_inputs(inputs)
+    1108          shell_slices = get_shell_slices(
+         ⋮
+    1111          )
+    1112 +        promotion_pairs = tuple(config.get("promotion_pairs", ()))
+    1113          normalize_shell_inputs = bool(config.get("normalize_shell_inputs", True))
+         ⋮
+    1123          for edge_key in sorted(inputs):
+    1090 -            shell_name = PromotedShellBridgeNode._target_shell_for_edge(edge_key)
+    1124 +            shell_name = PromotedShellBridgeNode._raw_shell_for_edge(edge_key)
+    1125              projected = jnp.matmul(inputs[edge_key], params.weights[edge_key])
+         ⋮
+    1127              shell_counts[shell_name] += 1
+    1128 +        for source_shell, target_shell in promotion_pairs:
+    1129 +            prediction = PromotedShellBridgeNode._prediction_for_promotion_pair(
+    1130 +                params,
+    1131 +                inputs,
+    1132 +                shell_edges,
+    1133 +                node_info,
+    1134 +                source_shell,
+    1135 +                target_shell,
+    1136 +            )
+    1137 +            shell_updates[target_shell] = shell_updates[target_shell] + prediction
+    1138 +            shell_counts[target_shell] += 1
+    1139
+         ⋮
+    1159          state = node_info.node_class.energy_functional(state, node_info)
+    1115 -        return jnp.sum(state.energy), state
+    1160 +        promotion_energy = PromotedShellBridgeNode._promotion_energy_by_batch(
+    1161 +            params,
+    1162 +            inputs,
+    1163 +            node_info,
+    1164 +        )
+    1165 +        energy = state.energy + promotion_energy
+    1166 +        state = state._replace(energy=energy)
+    1167 +        return jnp.sum(energy), state
+    1168 +
+    1169 +    @staticmethod
+    1170 +    def forward_and_latent_grads(
+    1171 +        params: NodeParams,
+    1172 +        inputs: Dict[str, jnp.ndarray],
+    1173 +        state: NodeState,
+    1174 +        node_info: NodeInfo,
+    1175 +        is_clamped: bool,
+    1176 +    ) -> Tuple[NodeState, Dict[str, jnp.ndarray], jnp.ndarray]:
+    1177 +        del is_clamped
+    1178 +        node_class = node_info.node_class
+    1179 +
+    1180 +        def energy_fn(input_args, z_latent):
+    1181 +            updated_state = state._replace(z_latent=z_latent)
+    1182 +            total_energy, new_state = node_class.forward(
+    1183 +                params,
+    1184 +                input_args,
+    1185 +                updated_state,
+    1186 +                node_info,
+    1187 +            )
+    1188 +            return total_energy, new_state
+    1189 +
+    1190 +        (total_energy, new_state), (input_grads, self_grad) = jax.value_and_grad(
+    1191 +            energy_fn,
+    1192 +            argnums=(0, 1),
+    1193 +            has_aux=True,
+    1194 +        )(inputs, state.z_latent)
+    1195 +        del total_energy
+    1196 +
+    1197 +        target_gradient_scale = float(
+    1198 +            node_info.node_config.get("promotion_target_gradient_scale", 1.0)
+    1199 +        )
+    1200 +        if target_gradient_scale < 1.0:
+    1201 +            target_grads = PromotedShellBridgeNode._target_promotion_input_grads(
+    1202 +                params,
+    1203 +                inputs,
+    1204 +                node_info,
+    1205 +            )
+    1206 +            input_grads = {
+    1207 +                edge_key: grad
+    1208 +                - ((1.0 - target_gradient_scale) * target_grads[edge_key])
+    1209 +                for edge_key, grad in input_grads.items()
+    1210 +            }
+    1211 +
+    1212 +        return new_state, input_grads, self_grad
+    1213
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The node code now uses one integrated bridge. I’m wiring the graph builder to use it directly and removing the old promoted-prediction node from public
+  imports.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+4 -7)
+     30                           │          ▲
+     31 -                         │          └──── raw shell pools plus promoted predictions
+     31 +                         │          └──── raw shell pools with integrated
+     32 +                         │                inward shell-promotion projections
+     33                           │
+        ⋮
+     48            with --promoted_shell_bridge, promotion predictors expose their
+     48 -          predictions through one shell-preserving bridge per active column
+     49 +          predictions inside one shell-preserving bridge per active column
+     50                                                           │
+        ⋮
+    126  from columnar_cl_fabricpc.columns.accuracy_nodes import PromotedShellBridgeNode
+    126 -from columnar_cl_fabricpc.columns.accuracy_nodes import PromotedShellPredictionNode
+    127
+        ⋮
+    919      if is_promoted_shell_bridge_node(node_name):
+    920 -        if param_name.startswith("b_"):
+    921 -            shell_name = param_name.removeprefix("b_")
+    922 -        else:
+    923 -            shell_name = PromotedShellBridgeNode._target_shell_for_edge(param_name)
+    920 +        shell_name = PromotedShellBridgeNode.target_shell_for_param(param_name)
+    921          return _constant_multiplier_like(value, shell_lr_multipliers[shell_name])
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+10 -16)
+    3185          column_shell_pools_by_shell = {}
+    3186 -        promotion_prediction_nodes = []
+    3186          outer_context = None
+         ⋮
+    3283
+    3285 -        if args.inward_shell_promotion_weight > 0.0:
+    3284 +        if (
+    3285 +            args.inward_shell_promotion_weight > 0.0
+    3286 +            and not args.promoted_shell_bridge
+    3287 +        ):
+    3288              for source_shell, target_shell in inward_shell_promotion_pairs:
+         ⋮
+    3290                  target_pool = column_shell_pools_by_shell[target_shell]
+    3289 -                promotion_node_class = (
+    3290 -                    PromotedShellPredictionNode
+    3291 -                    if args.promoted_shell_bridge
+    3292 -                    else ShellContextPredictionNode
+    3293 -                )
+    3294 -                promotion_prediction = promotion_node_class(
+    3291 +                promotion_prediction = ShellContextPredictionNode(
+    3292                      shape=target_pool.shape,
+         ⋮
+    3303                  )
+    3307 -                promotion_prediction_nodes.append(promotion_prediction)
+    3304                  nodes.append(promotion_prediction)
+         ⋮
+    3319                  name=promoted_shell_bridge_node_name(column_idx),
+    3320 +                promotion_pairs=inward_shell_promotion_pairs,
+    3321 +                promotion_objective_weight=args.inward_shell_promotion_weight,
+    3322 +                promotion_target_gradient_scale=(
+    3323 +                    inward_shell_promotion_target_gradient_scale
+    3324 +                ),
+    3325                  weight_init=XavierInitializer(),
+         ⋮
+    3332                          source=column_shell_pools_by_shell[shell_name],
+    3332 -                        target=promoted_bridge.slot("in"),
+    3333 -                    )
+    3334 -                )
+    3335 -            for promotion_prediction in promotion_prediction_nodes:
+    3336 -                edges.append(
+    3337 -                    Edge(
+    3338 -                        source=promotion_prediction,
+    3333                          target=promoted_bridge.slot("in"),
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The graph now creates promotion-prediction nodes only for the non-bridge objective path. For --promoted_shell_bridge, the selected inward pairs are
+  parameters and local objectives inside the bridge node itself.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+13 -7)
+     47            --inward_shell_promotion_target_gradient_scale
+     48 -          with --promoted_shell_bridge, promotion predictors expose their
+     49 -          predictions inside one shell-preserving bridge per active column
+     48 +          with --promoted_shell_bridge, promotion projections enter one
+     49 +          shell-preserving bridge per active column
+     50                                                           │
+        ⋮
+    583
+    584 -    This changes only `objective_weight` in the node config for nodes named by
+    585 -    `inward_shell_promotion_node_name`. The node set, edge set, task map, and
+    586 -    topological order stay unchanged.
+    584 +    This changes `objective_weight` in standalone promotion nodes and
+    585 +    `promotion_objective_weight` in integrated promoted-shell bridge nodes. The
+    586 +    node set, edge set, task map, and topological order stay unchanged.
+    587      """
+        ⋮
+    589      for node_name, node in structure.nodes.items():
+    590 -        if not is_inward_shell_promotion_node(node_name):
+    590 +        if not (
+    591 +            is_inward_shell_promotion_node(node_name)
+    592 +            or is_promoted_shell_bridge_node(node_name)
+    593 +        ):
+    594              updated_nodes[node_name] = node
+        ⋮
+    598          node_config = dict(node_info.node_config)
+    596 -        node_config["objective_weight"] = float(objective_weight)
+    599 +        if is_promoted_shell_bridge_node(node_name):
+    600 +            node_config["promotion_objective_weight"] = float(objective_weight)
+    601 +        else:
+    602 +            node_config["objective_weight"] = float(objective_weight)
+    603          updated_info = replace(node_info, node_config=node_config)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m updating the ablation mask so a “promoted bridge shell only” case keeps both the raw target shell projection and any promotion projection into that
+  same target shell.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+26 -6)
+    2028
+    2029 -    Raw pooled shell vectors target their own shell. Promotion-prediction nodes
+    2030 -    target the inward shell named after `_to_` in the source node name.
+    2029 +    Integrated promoted-shell bridges receive raw pooled shell vectors as graph
+    2030 +    inputs. Each raw pooled vector targets its own shell.
+    2031      """
+         ⋮
+    2034              return shell_name
+    2035 -        if source_name.endswith(f"_to_{shell_name}_promotion_prediction"):
+    2036 -            return shell_name
+    2035      return None
+         ⋮
+    2048      `bridge_sources` are promoted bridge nodes connected to `output`. The mask
+    2051 -    keeps either one target shell's raw and promoted inputs or all other target
+    2052 -    shell inputs.
+    2049 +    keeps either one target shell's raw input edge and promotion parameters or
+    2050 +    all other target-shell input edges and promotion parameters.
+    2051      """
+         ⋮
+    2068          )
+    2069 +        bridge_params = masked.nodes[bridge_source]
+    2070 +        masked_weights = dict(bridge_params.weights)
+    2071 +        masked_biases = dict(bridge_params.biases)
+    2072 +        for param_name, weight in bridge_params.weights.items():
+    2073 +            if param_name in bridge_input_sources.values():
+    2074 +                continue
+    2075 +            param_shell = PromotedShellBridgeNode.target_shell_for_param(param_name)
+    2076 +            if (param_shell == shell_name) != keep_shell:
+    2077 +                masked_weights[param_name] = jnp.zeros_like(weight)
+    2078 +        for param_name, bias in bridge_params.biases.items():
+    2079 +            param_shell = PromotedShellBridgeNode.target_shell_for_param(param_name)
+    2080 +            if (param_shell == shell_name) != keep_shell:
+    2081 +                masked_biases[param_name] = jnp.zeros_like(bias)
+    2082 +        masked = masked._replace(
+    2083 +            nodes={
+    2084 +                **masked.nodes,
+    2085 +                bridge_source: NodeParams(
+    2086 +                    weights=masked_weights,
+    2087 +                    biases=masked_biases,
+    2088 +                ),
+    2089 +            }
+    2090 +        )
+    2091      return masked
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The public column package still exported the removed prediction node, so I’m cleaning that up now to avoid stale imports.
+
+• Edited columnarCL-fabricPC-experiments/columnar_cl_fabricpc/columns/__init__.py (+0 -2)
+    55      PromotedShellBridgeNode,
+    56 -    PromotedShellPredictionNode,
+    56      ShellContextPredictionNode,
+       ⋮
+    77      "PromotedShellBridgeNode",
+    79 -    "PromotedShellPredictionNode",
+    78      "SHELL_EVIDENCE_CASCADE_PAIRS",
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll now update the tests so they assert the corrected topology: bridge nodes receive raw shell pools, carry promotion-pair config, and no longer create
+  public promoted-prediction nodes.
+
+• Explored
+  └ Read test_pooled_readout_norm.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The import layout is slightly different than expected, but the same cleanup applies: remove only the obsolete promoted prediction class reference.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+0 -1)
+    38      PromotedShellBridgeNode,
+    39 -    PromotedShellPredictionNode,
+    39      ColumnTeacherTargetLoader,
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m changing the topology test from “bridge receives promotion prediction nodes” to “bridge owns the promotion pairs.” That is the core behavioral
+  contract for this fix.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+7 -33)
+    1324  def test_depth_spanning_graph_adds_promoted_shell_bridge() -> None:
+    1325 -    """Promoted bridge exposes selected inward predictions to output."""
+    1325 +    """Promoted bridge integrates selected inward predictions before output."""
+    1326      selected_pairs = (
+         ⋮
+    1347              for shell_name in SHELL_NAMES
+    1348 -        }
+    1349 -        promoted_sources = {
+    1350 -            inward_shell_promotion_node_name(
+    1351 -                column_idx,
+    1352 -                source_shell,
+    1353 -                target_shell,
+    1354 -            )
+    1355 -            for source_shell, target_shell in selected_pairs
+    1348          }
+         ⋮
+    1353          }
+    1354 +        bridge_config = structure.nodes[bridge_name].node_info.node_config
+    1355
+         ⋮
+    1359          )
+    1367 -        assert bridge_sources == raw_shell_sources | promoted_sources
+    1360 +        assert bridge_sources == raw_shell_sources
+    1361 +        assert bridge_config["promotion_pairs"] == selected_pairs
+    1362 +        assert bridge_config["promotion_objective_weight"] == 0.001
+    1363 +        assert bridge_config["promotion_target_gradient_scale"] == 0.0
+    1364
+         ⋮
+    1370              )
+    1375 -            edge_sources_by_slot = {
+    1376 -                edge.slot: edge.source
+    1377 -                for edge in structure.edges.values()
+    1378 -                if edge.target == node_name
+    1379 -            }
+    1380 -
+    1381 -            assert structure.nodes[node_name].node_info.node_class is (
+    1382 -                PromotedShellPredictionNode
+    1383 -            )
+    1384 -            assert (
+    1385 -                structure.nodes[node_name]
+    1386 -                .node_info
+    1387 -                .node_config["target_gradient_scale"]
+    1388 -                == 0.0
+    1389 -            )
+    1390 -            assert edge_sources_by_slot["context"] == column_shell_pool_node_name(
+    1391 -                column_idx,
+    1392 -                source_shell,
+    1393 -            )
+    1394 -            assert edge_sources_by_slot["target"] == column_shell_pool_node_name(
+    1395 -                column_idx,
+    1396 -                target_shell,
+    1397 -            )
+    1371 +            assert node_name not in structure.nodes
+    1372
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m adding test coverage that promotion parameters inherit the learning-rate multiplier of their target shell. That matches the prior shell-wise update
+  rule instead of treating the new weights as generic bridge weights.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+16 -0)
+    1035
+    1036 +    for source_shell, target_shell in (
+    1037 +        ("outer_shell", "middle_shell"),
+    1038 +        ("middle_shell", "inner_shell"),
+    1039 +    ):
+    1040 +        weight_name = PromotedShellBridgeNode._promotion_weight_name(
+    1041 +            source_shell,
+    1042 +            target_shell,
+    1043 +        )
+    1044 +        bias_name = PromotedShellBridgeNode._promotion_bias_name(
+    1045 +            source_shell,
+    1046 +            target_shell,
+    1047 +        )
+    1048 +        expected = shell_lr_multipliers[target_shell]
+    1049 +        assert jnp.allclose(bridge_multipliers.weights[weight_name], expected)
+    1050 +        assert jnp.allclose(bridge_multipliers.biases[bias_name], expected)
+    1051 +
+    1052      for shell_name in SHELL_NAMES:
+
+• Explored
+  └ Read test_pooled_readout_norm.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The standalone promotion multiplier test still covers the non-bridge path, while the promoted-bridge multiplier test now covers the integrated path. That
+  gives us both code paths without adding a legacy fallback.
+
+• Explored
+  └ Read test_pooled_readout_norm.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m extending the promoted-bridge masking test so it checks both graph-edge weights and internal promotion parameters. This matters for the post-training
+  diagnostics we have been relying on.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+37 -1)
+    2236  def test_mask_promoted_shell_bridge_inputs_masks_by_target_shell() -> None:
+    2237 -    """Promoted bridge masks raw and promoted inputs by target shell."""
+    2237 +    """Promoted bridge masks raw inputs and promotion params by target shell."""
+    2238      args = _tiny_depth_spanning_args(
+         ⋮
+    2264
+    2265 +    middle_to_inner_weight = PromotedShellBridgeNode._promotion_weight_name(
+    2266 +        "middle_shell",
+    2267 +        "inner_shell",
+    2268 +    )
+    2269 +    middle_to_inner_bias = PromotedShellBridgeNode._promotion_bias_name(
+    2270 +        "middle_shell",
+    2271 +        "inner_shell",
+    2272 +    )
+    2273 +    outer_to_middle_weight = PromotedShellBridgeNode._promotion_weight_name(
+    2274 +        "outer_shell",
+    2275 +        "middle_shell",
+    2276 +    )
+    2277 +    outer_to_middle_bias = PromotedShellBridgeNode._promotion_bias_name(
+    2278 +        "outer_shell",
+    2279 +        "middle_shell",
+    2280 +    )
+    2281 +    bridge_params = params.nodes[bridge_name]
+    2282 +    masked_bridge_params = masked.nodes[bridge_name]
+    2283 +
+    2284 +    assert jnp.allclose(
+    2285 +        masked_bridge_params.weights[middle_to_inner_weight],
+    2286 +        bridge_params.weights[middle_to_inner_weight],
+    2287 +    )
+    2288 +    assert jnp.allclose(
+    2289 +        masked_bridge_params.biases[middle_to_inner_bias],
+    2290 +        bridge_params.biases[middle_to_inner_bias],
+    2291 +    )
+    2292 +    assert jnp.allclose(
+    2293 +        masked_bridge_params.weights[outer_to_middle_weight],
+    2294 +        jnp.zeros_like(bridge_params.weights[outer_to_middle_weight]),
+    2295 +    )
+    2296 +    assert jnp.allclose(
+    2297 +        masked_bridge_params.biases[outer_to_middle_bias],
+    2298 +        jnp.zeros_like(bridge_params.biases[outer_to_middle_bias]),
+    2299 +    )
+    2300 +
+    2301
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The scheduler also needs coverage for the integrated bridge because scheduled promotion runs should update bridge objective weights without changing
+  topology.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+26 -0)
+    1498
+    1499 +def test_set_inward_shell_promotion_weight_updates_promoted_bridge_config() -> None:
+    1500 +    """Scheduled promotion updates integrated bridge objective weight."""
+    1501 +    args = _tiny_depth_spanning_args(
+    1502 +        bypass_columns=False,
+    1503 +        promoted_shell_bridge=True,
+    1504 +        inward_shell_promotion_weight=0.001,
+    1505 +        inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
+    1506 +    )
+    1507 +    structure, support_mask = build_depth_spanning_graph(args)
+    1508 +    active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
+    1509 +
+    1510 +    updated = set_inward_shell_promotion_objective_weight(structure, 0.000375)
+    1511 +
+    1512 +    assert updated.node_order == structure.node_order
+    1513 +    assert set(updated.nodes) == set(structure.nodes)
+    1514 +    assert set(updated.edges) == set(structure.edges)
+    1515 +    for column_idx in active_columns:
+    1516 +        bridge_name = promoted_shell_bridge_node_name(column_idx)
+    1517 +        assert (
+    1518 +            updated.nodes[bridge_name]
+    1519 +            .node_info
+    1520 +            .node_config["promotion_objective_weight"]
+    1521 +            == 0.000375
+    1522 +        )
+    1523 +
+    1524 +
+    1525  def test_depth_spanning_graph_adds_per_column_shell_readout_edges() -> None:
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The result runner’s non-scheduled filename still carries too much configuration. I’m shortening that path now and relying on the log header for the full
+  experiment metadata.
+
+• Edited columnarCL-fabricPC-experiments/scripts/run_codex_cifar10_depth_spanning.sh (+1 -1)
+    303  else
+    304 -    log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_cm${column_mode_label}_sm${support_mask_label}_
+         ${combiner_label}_cg${column_grid_label}_e${embed_dim}_m${microcolumn_dim}_${column_gaussian_energy_short}_gp${column_gaussian_precision_label}_rs
+         ${column_gaussian_reference_sites_label}_ct${teacher_weight_label}_sh${shell_weights_label}_csh${column_shell_weights_label}_slr${shell_lr_label}_
+         oct${outer_context_teacher_label}_ocsp${outer_context_shell_prediction_label}_isp${inward_shell_promotion_label}_iptg${inward_shell_promotion_targ
+         et_gradient_label}_ocet${outer_context_evidence_teacher_label}_ocbs${outer_context_bridge_scale_label}_${column_shell_readout_short}_${column_shel
+         l_bridge_short}_${promoted_shell_bridge_short}_${outer_shell_context_short}_${outer_shell_context_evidence_short}_${outer_shell_context_to_bridge_
+         short}_${readout_short}_seed${seed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+    304 +    log_path="${repo_root}/results/codex_dspan_${num_columns}c_${num_shared}s_${active_nonshared}a_${combiner_label}_${column_grid_label}_isp${inw
+         ard_shell_promotion_label}_iptg${inward_shell_promotion_target_gradient_label}_${column_shell_bridge_short}_${promoted_shell_bridge_short}_seed${s
+         eed}_lr${lr_label}_ep${epochs_label}_${diagnose_label}_${hostname_value}_${timestamp}.log"
+    305  fi
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The runner now uses a compact child log filename for non-scheduled runs as well. The detailed settings remain printed into the log before training
+  starts.
+
+• Explored
+  └ Search PromotedShellPredictionNode|_target_shell_for_edge|promotion_prediction_nodes|promotion predictors expose|promoted predictions in
+           columnar_cl_fabricpc
+    Search PromotedShellBridgeNode|promoted_shell_bridge in accuracy_nodes.py
+
+• Ran git diff --stat
+  └  columnar_cl_fabricpc/columns/__init__.py       |   2 -
+     columnar_cl_fabricpc/columns/accuracy_nodes.py | 501 +++++++++++++++----------
+    … +2 lines (ctrl + t to view transcript)
+     tests/test_pooled_readout_norm.py              | 121 ++++--
+     5 files changed, 438 insertions(+), 275 deletions(-)
+
+• Explored
+  └ Read train_cifar10_depth_spanning.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m also correcting the command-line help text so it describes the new bridge accurately.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+5 -5)
+    4629          help=(
+    4630 -            "Use inward shell-promotion prediction nodes as classifier evidence "
+    4631 -            "through a per-column shell-preserving bridge. Requires positive "
+    4632 -            "--inward_shell_promotion_weight. Raw shell pools and promoted "
+    4633 -            "predictions both feed the bridge, and each input writes only to "
+    4634 -            "its target shell slice."
+    4630 +            "Use integrated inward shell-promotion projections as classifier "
+    4631 +            "evidence through a per-column shell-preserving bridge. Requires "
+    4632 +            "positive --inward_shell_promotion_weight. Raw shell pools write "
+    4633 +            "to their own slices, and promotion projections write to their "
+    4634 +            "target shell slices."
+    4635          ),
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The code paths are wired. I’m running the focused tests now, starting with the promoted bridge, scheduling, multiplier, and masking cases.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -k "promoted_shell_bridge or inward_shell_promotion or
+  │ shell_lr_multiplier_tree_scales_promoted_bridge"
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +6 lines (ctrl + t to view transcript)
+
+    ====================== 10 passed, 68 deselected in 6.50s =======================
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The focused bridge-related tests pass. I’m running the full local test file next to catch neighboring regressions in the graph builder and ablation
+  utilities.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +7 lines (ctrl + t to view transcript)
+
+    ============================= 78 passed in 14.01s ==============================
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The full local unit test file passes. I’m doing script syntax checks and a final diff review before I update the work log with the implementation
+  details.
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh
+  └ (no output)
+
+• Ran bash -n scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+  └ (no output)
+
+• Ran git diff -- columnar_cl_fabricpc/columns/accuracy_nodes.py scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py scripts/
+  │ run_codex_cifar10_depth_spanning.sh
+  └ diff --git a/columnar_cl_fabricpc/columns/accuracy_nodes.py b/columnar_cl_fabricpc/columns/accuracy_nodes.py
+    index 4c1a0a7..aae083f 100644
+    … +1019 lines (ctrl + t to view transcript)
+     def test_mask_column_shell_path_inputs_masks_direct_and_bridge_routes() -> None:
+         """Combined shell-path masking applies the same shell lesion to both routes."""
+
+• Ran git diff --check
+  └ (no output)
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Syntax checks are clean, and whitespace checks are clean. I’m running a lightweight import/compile check now because the changed node class is imported
+  through both the package and training script.
+
+• Explored
+  └ Search PromotedShellPredictionNode|promoted predictions|promotion predictors expose in columnar_cl_fabricpc
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile columnar_cl_fabricpc/columns/accuracy_nodes.py scripts/
+  │ train_cifar10_depth_spanning.py
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -c "from scripts.train_cifar10_depth_spanning import build_depth_spanning_graph, parse_args; from
+  │ columnar_cl_fabricpc.columns import PromotedShellBridgeNode; print(PromotedShellBridgeNode.__name__)"
+  └ PromotedShellBridgeNode
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The imports compile and the obsolete promoted-prediction symbol is gone from code. I’m appending an implementation entry to the work log with the
+  mechanism change and verification results.
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll keep the work-log entry concise but mechanism-level: what changed, where, what tests passed, and what run should follow.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+33 -0)
+    7631  - I should make the integrated promoted-shell bridge change next, then run focused unit tests and provide a new single-line command for a 20-epoc
+          h seed-42 comparison.
+    7632 +
+    7633 +## 2026-07-23 Integrated Promoted-Shell Bridge Implementation
+    7634 +
+    7635 +Implemented the recommended bridge correction.
+    7636 +
+    7637 +Mechanism changes:
+    7638 +
+    7639 +- Removed the `PromotedShellPredictionNode` code path. That node created a separate public latent for each shell-promotion prediction and added `
+          latent_prediction_weight=1.0`, which was much stronger than the intended `inward_shell_promotion_weight=0.000375` local objective in the failed r
+          un.
+    7640 +- Reworked `PromotedShellBridgeNode` in `columnar_cl_fabricpc/columns/accuracy_nodes.py` so each active column has one bridge node that receives
+          raw pooled shell vectors only.
+    7641 +- Added integrated promotion-pair parameters inside `PromotedShellBridgeNode`. A promotion pair is one directed adjacent-shell prediction such as
+           `outer_shell -> middle_shell`, where the source-shell pool is projected into the target shell's slice.
+    7642 +- The same promotion projection now has two roles: it contributes target-shell evidence to the bridge latent that feeds `output`, and it contribu
+          tes a weak local target-prediction energy weighted by `promotion_objective_weight`.
+    7643 +- Preserved `promotion_target_gradient_scale`, which is the scalar applied only to inference gradients from the local promotion objective into th
+          e target shell input. Source-shell gradients from that local objective remain active.
+    7644 +- Updated `set_inward_shell_promotion_objective_weight` so scheduled promotion runs update `promotion_objective_weight` inside promoted-shell bri
+          dge nodes.
+    7645 +- Updated shell learning-rate multipliers so raw bridge edge weights, promotion weights, bridge biases, and promotion biases use the multiplier f
+          or the shell slice they write into.
+    7646 +- Updated promoted-bridge ablations so masking a target shell also masks promotion parameters that write into that target shell.
+    7647 +- Shortened the non-scheduled child result filename in `scripts/run_codex_cifar10_depth_spanning.sh`; full configuration details remain in the lo
+          g header.
+    7648 +
+    7649 +Topology effect:
+    7650 +
+    7651 +- With `--promoted_shell_bridge`, the graph no longer creates `columnXX_*_promotion_prediction` nodes.
+    7652 +- Each `columnXX_promoted_shell_bridge` node receives four raw shell-pool edges, one for each shell.
+    7653 +- Each selected inward promotion pair is represented as bridge-local parameters named like `W_promote_outer_shell_to_middle_shell` and `b_promote
+          _outer_shell_to_middle_shell`.
+    7654 +
+    7655 +Verification:
+    7656 +
+    7657 +- Focused tests passed: `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -k "promoted_shell_bridge
+          or inward_shell_promotion or shell_lr_multiplier_tree_scales_promoted_bridge"`.
+    7658 +- Full local test file passed: `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py`.
+    7659 +- Script syntax checks passed for `scripts/run_codex_cifar10_depth_spanning.sh` and `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.
+          sh`.
+    7660 +- Python compile check passed for `columnar_cl_fabricpc/columns/accuracy_nodes.py` and `scripts/train_cifar10_depth_spanning.py`.
+    7661 +
+    7662 +Next experiment:
+    7663 +
+    7664 +- Re-run the same seed-42 promoted-shell bridge comparison that collapsed, now using the integrated bridge implementation. This isolates whether
+          removing the separate full-strength public-latent objective fixes the collapse while keeping the HiBaCaML-aligned inward shell-promotion mechanis
+          m.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log is updated. I’m doing one final status and whitespace pass, then I’ll give you the single-line experiment command.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M columnar_cl_fabricpc/columns/__init__.py
+    … +3 lines (ctrl + t to view transcript)
+     M scripts/train_cifar10_depth_spanning.py
+     M tests/test_pooled_readout_norm.py
+
+• Ran git diff --check
+  └ (no output)
+
+• Explored
+  └ Search Integrated Promoted-Shell Bridge Implementation|class PromotedShellBridgeNode|def set_inward_shell_promotion_objective_weight|def
+           test_depth_spanning_graph_adds_promoted_shell_bridge|log_path=\"\$\{repo_root\}/results/codex_dspan_\$\{num_columns\} in 20260624-work-log-
+           codex-
+           rogdora43-cifar10-hibacaml.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The final status shows only source, test, runner, and work-log modifications. I’m checking untracked files explicitly once because earlier the run log
+  had been staged separately.
+
+• Ran git status --short --untracked-files=all
+  └  M columnar_cl_fabricpc/columns/__init__.py
+     M columnar_cl_fabricpc/columns/accuracy_nodes.py
+    … +2 lines (ctrl + t to view transcript)
+     M scripts/train_cifar10_depth_spanning.py
+     M tests/test_pooled_readout_norm.py
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The staged run log is no longer reported by Git, so I won’t refer to it as pending work. The remaining changes are the implementation and work-log edits
+  from this step.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the corrected promoted-shell bridge infrastructure and updated the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-
+  log-codex-rogdora43-cifar10-hibacaml.md:7633.
+
+  What changed:
+
+  - Removed the separate PromotedShellPredictionNode path.
+  - Reworked PromotedShellBridgeNode so raw shell pools feed one per-column bridge, and selected inward promotion projections live inside that bridge.
+  - Kept the weak local shell-prediction objective weighted by promotion_objective_weight.
+  - Preserved target-gradient scaling for the local promotion objective.
+  - Updated scheduling, shell learning-rate multipliers, ablations, tests, docs, and shortened child result log filenames.
+
+  Verification passed:
+
+  - 78 passed for tests/test_pooled_readout_norm.py
+  - bash -n passed for both relevant run scripts
+  - py_compile passed for the changed Python files
+  - git diff --check is clean
+
+  Next experiment command, from the repo directory:
+
+  PROMOTED_SHELL_BRIDGE=on WEIGHTS="0.000375" PROMOTION_PAIRS="outer_to_middle,middle_to_inner" INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE=0.0 SEED=42
+  LR=0.005 NUM_EPOCHS=20 POST_TRAINING_DIAGNOSTICS=core bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+
+─ Worked for 10m 02s ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ 
+› Improve documentation in @filename
+ 
+  gpt-5.5 xhigh · ~/repos/fpc

@@ -7629,3 +7629,36 @@ Recommended next step:
 Pause point:
 
 - I should make the integrated promoted-shell bridge change next, then run focused unit tests and provide a new single-line command for a 20-epoch seed-42 comparison.
+
+## 2026-07-23 Integrated Promoted-Shell Bridge Implementation
+
+Implemented the recommended bridge correction.
+
+Mechanism changes:
+
+- Removed the `PromotedShellPredictionNode` code path. That node created a separate public latent for each shell-promotion prediction and added `latent_prediction_weight=1.0`, which was much stronger than the intended `inward_shell_promotion_weight=0.000375` local objective in the failed run.
+- Reworked `PromotedShellBridgeNode` in `columnar_cl_fabricpc/columns/accuracy_nodes.py` so each active column has one bridge node that receives raw pooled shell vectors only.
+- Added integrated promotion-pair parameters inside `PromotedShellBridgeNode`. A promotion pair is one directed adjacent-shell prediction such as `outer_shell -> middle_shell`, where the source-shell pool is projected into the target shell's slice.
+- The same promotion projection now has two roles: it contributes target-shell evidence to the bridge latent that feeds `output`, and it contributes a weak local target-prediction energy weighted by `promotion_objective_weight`.
+- Preserved `promotion_target_gradient_scale`, which is the scalar applied only to inference gradients from the local promotion objective into the target shell input. Source-shell gradients from that local objective remain active.
+- Updated `set_inward_shell_promotion_objective_weight` so scheduled promotion runs update `promotion_objective_weight` inside promoted-shell bridge nodes.
+- Updated shell learning-rate multipliers so raw bridge edge weights, promotion weights, bridge biases, and promotion biases use the multiplier for the shell slice they write into.
+- Updated promoted-bridge ablations so masking a target shell also masks promotion parameters that write into that target shell.
+- Shortened the non-scheduled child result filename in `scripts/run_codex_cifar10_depth_spanning.sh`; full configuration details remain in the log header.
+
+Topology effect:
+
+- With `--promoted_shell_bridge`, the graph no longer creates `columnXX_*_promotion_prediction` nodes.
+- Each `columnXX_promoted_shell_bridge` node receives four raw shell-pool edges, one for each shell.
+- Each selected inward promotion pair is represented as bridge-local parameters named like `W_promote_outer_shell_to_middle_shell` and `b_promote_outer_shell_to_middle_shell`.
+
+Verification:
+
+- Focused tests passed: `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -k "promoted_shell_bridge or inward_shell_promotion or shell_lr_multiplier_tree_scales_promoted_bridge"`.
+- Full local test file passed: `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py`.
+- Script syntax checks passed for `scripts/run_codex_cifar10_depth_spanning.sh` and `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`.
+- Python compile check passed for `columnar_cl_fabricpc/columns/accuracy_nodes.py` and `scripts/train_cifar10_depth_spanning.py`.
+
+Next experiment:
+
+- Re-run the same seed-42 promoted-shell bridge comparison that collapsed, now using the integrated bridge implementation. This isolates whether removing the separate full-strength public-latent objective fixes the collapse while keeping the HiBaCaML-aligned inward shell-promotion mechanism.

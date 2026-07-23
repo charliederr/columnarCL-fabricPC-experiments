@@ -28,7 +28,8 @@ Architecture::
                          │
                          ├──── optional promoted-shell bridge
                          │          ▲
-                         │          └──── raw shell pools plus promoted predictions
+                         │          └──── raw shell pools with integrated
+                         │                inward shell-promotion projections
                          │
                          ├──── optional context teacher
                          │
@@ -44,8 +45,8 @@ Architecture::
           active adjacent pairs are selected by --inward_shell_promotion_pairs
           target-slot inference gradients are scaled by
           --inward_shell_promotion_target_gradient_scale
-          with --promoted_shell_bridge, promotion predictors expose their
-          predictions through one shell-preserving bridge per active column
+          with --promoted_shell_bridge, promotion projections enter one
+          shell-preserving bridge per active column
                                                          │
                                                          ▼
                                                 shell-aware combiner
@@ -123,7 +124,6 @@ from columnar_cl_fabricpc.columns.accuracy_nodes import MaskedColumnCombinerNode
 from columnar_cl_fabricpc.columns.accuracy_nodes import ColumnShellComposerNode
 from columnar_cl_fabricpc.columns.accuracy_nodes import ShellContextPredictionNode
 from columnar_cl_fabricpc.columns.accuracy_nodes import PromotedShellBridgeNode
-from columnar_cl_fabricpc.columns.accuracy_nodes import PromotedShellPredictionNode
 
 jax.config.update("jax_default_prng_impl", "threefry2x32")
 
@@ -581,19 +581,25 @@ def set_inward_shell_promotion_objective_weight(
     """
     Return a graph structure with updated inward shell-promotion weights.
 
-    This changes only `objective_weight` in the node config for nodes named by
-    `inward_shell_promotion_node_name`. The node set, edge set, task map, and
-    topological order stay unchanged.
+    This changes `objective_weight` in standalone promotion nodes and
+    `promotion_objective_weight` in integrated promoted-shell bridge nodes. The
+    node set, edge set, task map, and topological order stay unchanged.
     """
     updated_nodes = {}
     for node_name, node in structure.nodes.items():
-        if not is_inward_shell_promotion_node(node_name):
+        if not (
+            is_inward_shell_promotion_node(node_name)
+            or is_promoted_shell_bridge_node(node_name)
+        ):
             updated_nodes[node_name] = node
             continue
 
         node_info = node.node_info
         node_config = dict(node_info.node_config)
-        node_config["objective_weight"] = float(objective_weight)
+        if is_promoted_shell_bridge_node(node_name):
+            node_config["promotion_objective_weight"] = float(objective_weight)
+        else:
+            node_config["objective_weight"] = float(objective_weight)
         updated_info = replace(node_info, node_config=node_config)
         updated_nodes[node_name] = node._with_graph_info(updated_info)
 
@@ -917,10 +923,7 @@ def parameter_shell_lr_multiplier(
         )
 
     if is_promoted_shell_bridge_node(node_name):
-        if param_name.startswith("b_"):
-            shell_name = param_name.removeprefix("b_")
-        else:
-            shell_name = PromotedShellBridgeNode._target_shell_for_edge(param_name)
+        shell_name = PromotedShellBridgeNode.target_shell_for_param(param_name)
         return _constant_multiplier_like(value, shell_lr_multipliers[shell_name])
 
     if is_column_shell_bridge_node(node_name):
@@ -2023,13 +2026,11 @@ def promoted_shell_bridge_input_target_shell(source_name: str) -> str | None:
     """
     Return the shell slice targeted by one promoted-shell bridge input source.
 
-    Raw pooled shell vectors target their own shell. Promotion-prediction nodes
-    target the inward shell named after `_to_` in the source node name.
+    Integrated promoted-shell bridges receive raw pooled shell vectors as graph
+    inputs. Each raw pooled vector targets its own shell.
     """
     for shell_name in SHELL_NAMES:
         if is_column_shell_pool_for_shell(source_name, shell_name):
-            return shell_name
-        if source_name.endswith(f"_to_{shell_name}_promotion_prediction"):
             return shell_name
     return None
 
@@ -2045,8 +2046,8 @@ def mask_promoted_shell_bridge_inputs(
     Mask promoted-bridge input edges by target shell identity.
 
     `bridge_sources` are promoted bridge nodes connected to `output`. The mask
-    keeps either one target shell's raw and promoted inputs or all other target
-    shell inputs.
+    keeps either one target shell's raw input edge and promotion parameters or
+    all other target-shell input edges and promotion parameters.
     """
     masked = params
     for bridge_source in bridge_sources:
@@ -2064,6 +2065,28 @@ def mask_promoted_shell_bridge_inputs(
             structure,
             bridge_source,
             kept_sources,
+        )
+        bridge_params = masked.nodes[bridge_source]
+        masked_weights = dict(bridge_params.weights)
+        masked_biases = dict(bridge_params.biases)
+        for param_name, weight in bridge_params.weights.items():
+            if param_name in bridge_input_sources.values():
+                continue
+            param_shell = PromotedShellBridgeNode.target_shell_for_param(param_name)
+            if (param_shell == shell_name) != keep_shell:
+                masked_weights[param_name] = jnp.zeros_like(weight)
+        for param_name, bias in bridge_params.biases.items():
+            param_shell = PromotedShellBridgeNode.target_shell_for_param(param_name)
+            if (param_shell == shell_name) != keep_shell:
+                masked_biases[param_name] = jnp.zeros_like(bias)
+        masked = masked._replace(
+            nodes={
+                **masked.nodes,
+                bridge_source: NodeParams(
+                    weights=masked_weights,
+                    biases=masked_biases,
+                ),
+            }
         )
     return masked
 
@@ -3186,7 +3209,6 @@ def build_depth_spanning_graph(args):
         column = columns[column_idx]
         column_shell_pools = []
         column_shell_pools_by_shell = {}
-        promotion_prediction_nodes = []
         outer_context = None
         for shell_name in SHELL_NAMES:
             shell_weight = column_shell_teacher_weights[shell_name]
@@ -3285,16 +3307,14 @@ def build_depth_spanning_graph(args):
                         ),
                     ])
 
-        if args.inward_shell_promotion_weight > 0.0:
+        if (
+            args.inward_shell_promotion_weight > 0.0
+            and not args.promoted_shell_bridge
+        ):
             for source_shell, target_shell in inward_shell_promotion_pairs:
                 source_pool = column_shell_pools_by_shell[source_shell]
                 target_pool = column_shell_pools_by_shell[target_shell]
-                promotion_node_class = (
-                    PromotedShellPredictionNode
-                    if args.promoted_shell_bridge
-                    else ShellContextPredictionNode
-                )
-                promotion_prediction = promotion_node_class(
+                promotion_prediction = ShellContextPredictionNode(
                     shape=target_pool.shape,
                     name=inward_shell_promotion_node_name(
                         column_idx,
@@ -3307,7 +3327,6 @@ def build_depth_spanning_graph(args):
                     ),
                     weight_init=XavierInitializer(),
                 )
-                promotion_prediction_nodes.append(promotion_prediction)
                 nodes.append(promotion_prediction)
                 edges.extend([
                     Edge(
@@ -3324,6 +3343,11 @@ def build_depth_spanning_graph(args):
             promoted_bridge = PromotedShellBridgeNode(
                 shape=(args.embed_dim,),
                 name=promoted_shell_bridge_node_name(column_idx),
+                promotion_pairs=inward_shell_promotion_pairs,
+                promotion_objective_weight=args.inward_shell_promotion_weight,
+                promotion_target_gradient_scale=(
+                    inward_shell_promotion_target_gradient_scale
+                ),
                 weight_init=XavierInitializer(),
                 energy=column_gaussian_energy,
             )
@@ -3332,13 +3356,6 @@ def build_depth_spanning_graph(args):
                 edges.append(
                     Edge(
                         source=column_shell_pools_by_shell[shell_name],
-                        target=promoted_bridge.slot("in"),
-                    )
-                )
-            for promotion_prediction in promotion_prediction_nodes:
-                edges.append(
-                    Edge(
-                        source=promotion_prediction,
                         target=promoted_bridge.slot("in"),
                     )
                 )
@@ -4610,11 +4627,11 @@ def parse_args():
         "--promoted_shell_bridge",
         action="store_true",
         help=(
-            "Use inward shell-promotion prediction nodes as classifier evidence "
-            "through a per-column shell-preserving bridge. Requires positive "
-            "--inward_shell_promotion_weight. Raw shell pools and promoted "
-            "predictions both feed the bridge, and each input writes only to "
-            "its target shell slice."
+            "Use integrated inward shell-promotion projections as classifier "
+            "evidence through a per-column shell-preserving bridge. Requires "
+            "positive --inward_shell_promotion_weight. Raw shell pools write "
+            "to their own slices, and promotion projections write to their "
+            "target shell slices."
         ),
     )
     parser.add_argument(
