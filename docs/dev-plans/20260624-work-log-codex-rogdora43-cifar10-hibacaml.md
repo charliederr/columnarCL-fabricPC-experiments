@@ -7549,3 +7549,83 @@ Suggested command:
 ```bash
 PROMOTED_SHELL_BRIDGE=on WEIGHTS="0.000375" PROMOTION_PAIRS="outer_to_middle,middle_to_inner" INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE=0.0 SEED=42 LR=0.005 NUM_EPOCHS=20 POST_TRAINING_DIAGNOSTICS=core bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
 ```
+
+## 2026-07-23 Promoted Shell Bridge Result
+
+Context:
+
+- `promoted_shell_bridge` is the optional route that exposes inward shell-promotion predictions to the classifier path through one per-column bridge.
+- `latent_prediction_weight` is the scalar weight inside `PromotedShellPredictionNode` that pulls the promotion node's own public latent toward its context-derived prediction.
+- `inward_shell_promotion_weight` was `0.000375`, so each selected local shell-promotion target objective remained intentionally weak.
+- `target_gradient_scale` was `0.0`, so the local promotion objective did not send direct inference gradients into each target shell.
+
+Log:
+
+- Master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_ipw0p0_ipr0p0_pbron_seed42_rogdora43_20260722_193649.log`.
+- The child `codex_dspan_...` log was not created because the generated child filename exceeded the filesystem filename-length limit. The master log still captured the full run output.
+
+Configuration:
+
+- Commit: `b522e7a6027b0e96ea829ba2c8786f516e406ab8`.
+- Seed `42`, 20 epochs, learning rate `0.005`.
+- 10 columns, 3 shared columns, all 10 columns active.
+- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+- `column_shell_bridge=on`, `promoted_shell_bridge=on`, `outer_shell_context=on`.
+- No bypass readout, no teacher heads, no outer context evidence.
+- `inward_shell_promotion_weight=0.000375`.
+- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+- `inward_shell_promotion_target_gradient_scale=0.0`.
+- Shell learning-rate multipliers `1,1.5,2,3`.
+
+Primary result:
+
+| Run | Best validation accuracy | Best epoch | Test accuracy | Graph | Parameters |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Static `0.000375` active reference | 33.80% | 18 | 33.74% | 167 nodes, 313 edges | 3,129,574 |
+| Promoted bridge, same promotion settings | 23.78% | 14 | 22.67% | 177 nodes, 383 edges | 3,150,764 |
+
+Validation trajectory:
+
+| Epoch | Promoted bridge validation accuracy |
+| ---: | ---: |
+| 1 | 10.94% |
+| 2 | 18.46% |
+| 3 | 17.70% |
+| 4 | 20.82% |
+| 5 | 20.56% |
+| 6 | 19.66% |
+| 7 | 19.52% |
+| 8 | 22.52% |
+| 9 | 23.70% |
+| 10 | 20.50% |
+| 11 | 18.88% |
+| 12 | 17.26% |
+| 13 | 21.08% |
+| 14 | 23.78% |
+| 15 | 9.40% |
+| 16 | 9.40% |
+| 17 | 9.40% |
+| 18 | 9.40% |
+| 19 | 9.40% |
+| 20 | 9.40% |
+
+Interpretation:
+
+- The promoted bridge in this first implementation was a strong regression. It trailed the static active reference by 10.02 percentage points on best validation accuracy and 11.07 percentage points on test accuracy.
+- The epoch-15 collapse is the most important signal. The model did not merely plateau lower. It fell from 23.78% validation accuracy at epoch 14 to 9.40% at epoch 15 and stayed there through epoch 20.
+- The selected test result used the best epoch-14 validation parameters, so the reported 22.67% test accuracy is not the final collapsed checkpoint. The final checkpoint would likely be near chance.
+- This result does not argue against inward shell promotion. It argues against the current promoted-bridge realization.
+- The likely implementation-level failure is that `PromotedShellPredictionNode` added a full-strength `latent_prediction_weight=1.0` term while the intended local promotion target objective used `inward_shell_promotion_weight=0.000375`. That makes the new public-latent anchoring term about 2666.7 times stronger than the promotion target objective. With 20 promoted prediction nodes in the graph, this can dominate inference and let predictive energy improve while class separation collapses.
+- The extra route also added 10 bridge nodes, 70 edges, and 21,190 parameters. That is not large enough by itself to explain the collapse. The unscaled latent objective is the more plausible mechanism.
+
+Recommended next step:
+
+- Do not run more long experiments with the current `PromotedShellPredictionNode` default.
+- First fix the promoted bridge mechanism so exposing promoted shell evidence does not add a full-strength objective unrelated to the intended `inward_shell_promotion_weight`.
+- Preferred implementation direction: replace the two-node promoted route with an integrated promoted-shell bridge. The bridge should receive raw shell pools, project source shells into target-shell slices for the selected promotion pairs, use those same projections for local target-shell prediction energy, and expose the full shell-preserving bridge latent to `output`.
+- This keeps the HiBaCaML-aligned mechanism: wider shells predict adjacent more inward shells, and the promoted evidence enters classification through shell-preserving slices. It avoids adding a separate strong latent-prediction objective.
+- Also shorten the generated child result filename in `scripts/run_codex_cifar10_depth_spanning.sh` before the next run, because the promoted-bridge child log path exceeded the filesystem filename limit.
+
+Pause point:
+
+- I should make the integrated promoted-shell bridge change next, then run focused unit tests and provide a new single-line command for a 20-epoch seed-42 comparison.
