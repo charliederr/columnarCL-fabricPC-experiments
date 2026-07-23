@@ -1009,6 +1009,7 @@ def test_shell_lr_multiplier_tree_scales_promoted_bridge_by_target_shell() -> No
     """Promoted bridge parameters update with their written shell rate."""
     args = _tiny_depth_spanning_args(
         bypass_columns=False,
+        column_shell_bridge=True,
         promoted_shell_bridge=True,
         inward_shell_promotion_weight=0.001,
         inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
@@ -1338,13 +1339,14 @@ def test_depth_spanning_graph_sets_inward_promotion_target_gradient_scale() -> N
 
 
 def test_depth_spanning_graph_adds_promoted_shell_bridge() -> None:
-    """Promoted bridge integrates selected inward predictions before output."""
+    """Promoted bridge conditions the per-column shell bridge."""
     selected_pairs = (
         ("outer_shell", "middle_shell"),
         ("middle_shell", "inner_shell"),
     )
     args = _tiny_depth_spanning_args(
         bypass_columns=False,
+        column_shell_bridge=True,
         promoted_shell_bridge=True,
         inward_shell_promotion_weight=0.001,
         inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
@@ -1358,6 +1360,7 @@ def test_depth_spanning_graph_adds_promoted_shell_bridge() -> None:
 
     for column_idx in active_columns:
         bridge_name = promoted_shell_bridge_node_name(column_idx)
+        shell_bridge_name = column_shell_bridge_node_name(column_idx)
         raw_shell_sources = {
             column_shell_pool_node_name(column_idx, shell_name)
             for shell_name in SHELL_NAMES
@@ -1367,13 +1370,20 @@ def test_depth_spanning_graph_adds_promoted_shell_bridge() -> None:
             for edge in structure.edges.values()
             if edge.target == bridge_name and edge.slot == "in"
         }
+        shell_bridge_sources = {
+            edge.source
+            for edge in structure.edges.values()
+            if edge.target == shell_bridge_name and edge.slot == "in"
+        }
         bridge_config = structure.nodes[bridge_name].node_info.node_config
 
-        assert bridge_name in output_sources
+        assert bridge_name not in output_sources
+        assert shell_bridge_name in output_sources
         assert structure.nodes[bridge_name].node_info.node_class is (
             PromotedShellBridgeNode
         )
         assert bridge_sources == raw_shell_sources
+        assert bridge_name in shell_bridge_sources
         assert bridge_config["promotion_pairs"] == selected_pairs
         assert bridge_config["promotion_objective_weight"] == 0.001
         assert bridge_config["promotion_target_gradient_scale"] == 0.0
@@ -1394,10 +1404,23 @@ def test_depth_spanning_graph_adds_promoted_shell_bridge() -> None:
         assert omitted_name not in structure.nodes
 
 
+def test_depth_spanning_graph_rejects_promoted_bridge_without_shell_bridge() -> None:
+    """Promoted bridge must condition the per-column shell bridge."""
+    args = _tiny_depth_spanning_args(
+        promoted_shell_bridge=True,
+        column_shell_bridge=False,
+        inward_shell_promotion_weight=0.001,
+    )
+
+    with pytest.raises(ValueError, match="requires --column_shell_bridge"):
+        build_depth_spanning_graph(args)
+
+
 def test_depth_spanning_graph_rejects_promoted_bridge_without_promotion() -> None:
     """Promoted bridge requires actual promotion predictors."""
     args = _tiny_depth_spanning_args(
         promoted_shell_bridge=True,
+        column_shell_bridge=True,
         inward_shell_promotion_weight=0.0,
     )
 
@@ -1500,6 +1523,7 @@ def test_set_inward_shell_promotion_weight_updates_promoted_bridge_config() -> N
     """Scheduled promotion updates integrated bridge objective weight."""
     args = _tiny_depth_spanning_args(
         bypass_columns=False,
+        column_shell_bridge=True,
         promoted_shell_bridge=True,
         inward_shell_promotion_weight=0.001,
         inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
@@ -2054,10 +2078,11 @@ def test_build_readout_ablation_cases_includes_family_lesions() -> None:
     )
 
 
-def test_build_readout_ablation_cases_includes_promoted_bridge() -> None:
-    """Readout ablation cases include promoted-shell bridge interactions."""
+def test_build_readout_ablation_cases_excludes_promoted_bridge_direct_readout() -> None:
+    """Readout ablations keep promoted bridge inside shell-bridge conditioning."""
     args = _tiny_depth_spanning_args(
         bypass_columns=False,
+        column_shell_bridge=True,
         promoted_shell_bridge=True,
         inward_shell_promotion_weight=0.001,
         inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
@@ -2065,19 +2090,19 @@ def test_build_readout_ablation_cases_includes_promoted_bridge() -> None:
     structure, support_mask = build_depth_spanning_graph(args)
     active_columns = [idx for idx, value in enumerate(support_mask) if value > 0.0]
     output_sources = output_input_edge_sources(structure)
-    all_sources = set(output_sources)
     promoted_bridge_sources = {
         promoted_shell_bridge_node_name(column_idx) for column_idx in active_columns
     }
+    shell_bridge_sources = {
+        column_shell_bridge_node_name(column_idx) for column_idx in active_columns
+    }
     cases = dict(build_readout_ablation_cases(structure))
 
-    assert set(cases["promoted_shell_bridge_only"]) == promoted_bridge_sources
-    assert set(cases["column_pool_plus_promoted_shell_bridge"]) == (
-        {"column_pool"} | promoted_bridge_sources
-    )
-    assert set(cases["combined_without_promoted_shell_bridge"]) == (
-        all_sources - promoted_bridge_sources
-    )
+    assert promoted_bridge_sources.isdisjoint(output_sources)
+    assert set(cases["column_shell_bridge_only"]) == shell_bridge_sources
+    assert "promoted_shell_bridge_only" not in cases
+    assert "column_pool_plus_promoted_shell_bridge" not in cases
+    assert "combined_without_promoted_shell_bridge" not in cases
 
 
 def test_mask_output_source_feature_slice_zeroes_selected_features() -> None:
@@ -2263,6 +2288,7 @@ def test_mask_promoted_shell_bridge_inputs_masks_by_target_shell() -> None:
     """Promoted bridge masks raw inputs and promotion params by target shell."""
     args = _tiny_depth_spanning_args(
         bypass_columns=False,
+        column_shell_bridge=True,
         promoted_shell_bridge=True,
         inward_shell_promotion_weight=0.001,
         inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
@@ -2322,6 +2348,62 @@ def test_mask_promoted_shell_bridge_inputs_masks_by_target_shell() -> None:
     assert jnp.allclose(
         masked_bridge_params.biases[outer_to_middle_bias],
         jnp.zeros_like(bridge_params.biases[outer_to_middle_bias]),
+    )
+
+
+def test_mask_column_shell_bridge_inputs_masks_promoted_conditioning() -> None:
+    """Shell-bridge shell masks also mask promoted conditioning internals."""
+    args = _tiny_depth_spanning_args(
+        bypass_columns=False,
+        column_shell_bridge=True,
+        promoted_shell_bridge=True,
+        inward_shell_promotion_weight=0.001,
+        inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
+    )
+    structure, _ = build_depth_spanning_graph(args)
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    shell_bridge_name = column_shell_bridge_node_name(0)
+    promoted_bridge_name = promoted_shell_bridge_node_name(0)
+    shell_bridge_sources = node_input_edge_sources(structure, shell_bridge_name)
+
+    masked = mask_column_shell_bridge_inputs(
+        params,
+        structure,
+        (shell_bridge_name,),
+        "inner_shell",
+        keep_shell=True,
+    )
+
+    promoted_edge = shell_bridge_sources[promoted_bridge_name]
+    assert jnp.allclose(
+        masked.nodes[shell_bridge_name].weights[promoted_edge],
+        params.nodes[shell_bridge_name].weights[promoted_edge],
+    )
+
+    outer_pool = column_shell_pool_node_name(0, "outer_shell")
+    outer_pool_edge = shell_bridge_sources[outer_pool]
+    assert jnp.allclose(
+        masked.nodes[shell_bridge_name].weights[outer_pool_edge],
+        jnp.zeros_like(params.nodes[shell_bridge_name].weights[outer_pool_edge]),
+    )
+
+    middle_to_inner_weight = PromotedShellBridgeNode._promotion_weight_name(
+        "middle_shell",
+        "inner_shell",
+    )
+    outer_to_middle_weight = PromotedShellBridgeNode._promotion_weight_name(
+        "outer_shell",
+        "middle_shell",
+    )
+    assert jnp.allclose(
+        masked.nodes[promoted_bridge_name].weights[middle_to_inner_weight],
+        params.nodes[promoted_bridge_name].weights[middle_to_inner_weight],
+    )
+    assert jnp.allclose(
+        masked.nodes[promoted_bridge_name].weights[outer_to_middle_weight],
+        jnp.zeros_like(
+            params.nodes[promoted_bridge_name].weights[outer_to_middle_weight]
+        ),
     )
 
 

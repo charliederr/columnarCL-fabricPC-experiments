@@ -1023,3 +1023,1033 @@
 › Improve documentation in @filename
  
   gpt-5.5 xhigh · ~/repos/fpc
+
+
+
+
+
+
+  ablation utilities.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +7 lines (ctrl + t to view transcript)
+
+    ============================= 78 passed in 14.01s ==============================
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The full local unit test file passes. I’m doing script syntax checks and a final diff review before I update the work log with the
+  implementation details.
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh
+  └ (no output)
+
+• Ran bash -n scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+  └ (no output)
+
+• Ran git diff -- columnar_cl_fabricpc/columns/accuracy_nodes.py scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py
+  │ scripts/run_codex_cifar10_depth_spanning.sh
+  └ diff --git a/columnar_cl_fabricpc/columns/accuracy_nodes.py b/columnar_cl_fabricpc/columns/accuracy_nodes.py
+    index 4c1a0a7..aae083f 100644
+    … +1019 lines (ctrl + t to view transcript)
+     def test_mask_column_shell_path_inputs_masks_direct_and_bridge_routes() -> None:
+         """Combined shell-path masking applies the same shell lesion to both routes."""
+
+• Ran git diff --check
+  └ (no output)
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Syntax checks are clean, and whitespace checks are clean. I’m running a lightweight import/compile check now because the changed node class is
+  imported through both the package and training script.
+
+• Explored
+  └ Search PromotedShellPredictionNode|promoted predictions|promotion predictors expose in columnar_cl_fabricpc
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile columnar_cl_fabricpc/columns/accuracy_nodes.py scripts/
+  │ train_cifar10_depth_spanning.py
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -c "from scripts.train_cifar10_depth_spanning import build_depth_spanning_graph,
+  │ parse_args; from columnar_cl_fabricpc.columns import PromotedShellBridgeNode; print(PromotedShellBridgeNode.__name__)"
+  └ PromotedShellBridgeNode
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The imports compile and the obsolete promoted-prediction symbol is gone from code. I’m appending an implementation entry to the work log with
+  the mechanism change and verification results.
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ll keep the work-log entry concise but mechanism-level: what changed, where, what tests passed, and what run should follow.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+33 -0)
+    7631  - I should make the integrated promoted-shell bridge change next, then run focused unit tests and provide a new single-line command for
+          a 20-epoch seed-42 comparison.
+    7632 +
+    7633 +## 2026-07-23 Integrated Promoted-Shell Bridge Implementation
+    7634 +
+    7635 +Implemented the recommended bridge correction.
+    7636 +
+    7637 +Mechanism changes:
+    7638 +
+    7639 +- Removed the `PromotedShellPredictionNode` code path. That node created a separate public latent for each shell-promotion prediction an
+          d added `latent_prediction_weight=1.0`, which was much stronger than the intended `inward_shell_promotion_weight=0.000375` local objecti
+          ve in the failed run.
+    7640 +- Reworked `PromotedShellBridgeNode` in `columnar_cl_fabricpc/columns/accuracy_nodes.py` so each active column has one bridge node that
+          receives raw pooled shell vectors only.
+    7641 +- Added integrated promotion-pair parameters inside `PromotedShellBridgeNode`. A promotion pair is one directed adjacent-shell predictio
+          n such as `outer_shell -> middle_shell`, where the source-shell pool is projected into the target shell's slice.
+    7642 +- The same promotion projection now has two roles: it contributes target-shell evidence to the bridge latent that feeds `output`, and it
+           contributes a weak local target-prediction energy weighted by `promotion_objective_weight`.
+    7643 +- Preserved `promotion_target_gradient_scale`, which is the scalar applied only to inference gradients from the local promotion objectiv
+          e into the target shell input. Source-shell gradients from that local objective remain active.
+    7644 +- Updated `set_inward_shell_promotion_objective_weight` so scheduled promotion runs update `promotion_objective_weight` inside promoted-
+          shell bridge nodes.
+    7645 +- Updated shell learning-rate multipliers so raw bridge edge weights, promotion weights, bridge biases, and promotion biases use the mul
+          tiplier for the shell slice they write into.
+    7646 +- Updated promoted-bridge ablations so masking a target shell also masks promotion parameters that write into that target shell.
+    7647 +- Shortened the non-scheduled child result filename in `scripts/run_codex_cifar10_depth_spanning.sh`; full configuration details remain
+          in the log header.
+    7648 +
+    7649 +Topology effect:
+    7650 +
+    7651 +- With `--promoted_shell_bridge`, the graph no longer creates `columnXX_*_promotion_prediction` nodes.
+    7652 +- Each `columnXX_promoted_shell_bridge` node receives four raw shell-pool edges, one for each shell.
+    7653 +- Each selected inward promotion pair is represented as bridge-local parameters named like `W_promote_outer_shell_to_middle_shell` and `
+          b_promote_outer_shell_to_middle_shell`.
+    7654 +
+    7655 +Verification:
+    7656 +
+    7657 +- Focused tests passed: `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -k "promoted_shel
+          l_bridge or inward_shell_promotion or shell_lr_multiplier_tree_scales_promoted_bridge"`.
+    7658 +- Full local test file passed: `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py`.
+    7659 +- Script syntax checks passed for `scripts/run_codex_cifar10_depth_spanning.sh` and `scripts/run_codex_inward_shell_promotion_10col3shar
+          ed_sweep.sh`.
+    7660 +- Python compile check passed for `columnar_cl_fabricpc/columns/accuracy_nodes.py` and `scripts/train_cifar10_depth_spanning.py`.
+    7661 +
+    7662 +Next experiment:
+    7663 +
+    7664 +- Re-run the same seed-42 promoted-shell bridge comparison that collapsed, now using the integrated bridge implementation. This isolates
+           whether removing the separate full-strength public-latent objective fixes the collapse while keeping the HiBaCaML-aligned inward shell-
+          promotion mechanism.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log is updated. I’m doing one final status and whitespace pass, then I’ll give you the single-line experiment command.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M columnar_cl_fabricpc/columns/__init__.py
+    … +3 lines (ctrl + t to view transcript)
+     M scripts/train_cifar10_depth_spanning.py
+     M tests/test_pooled_readout_norm.py
+
+• Ran git diff --check
+  └ (no output)
+
+• Explored
+  └ Search Integrated Promoted-Shell Bridge Implementation|class PromotedShellBridgeNode|def set_inward_shell_promotion_objective_weight|def
+           test_depth_spanning_graph_adds_promoted_shell_bridge|log_path=\"\$\{repo_root\}/results/codex_dspan_\$\{num_columns\} in 20260624-work-
+           log-
+           codex-rogdora43-cifar10-hibacaml.md
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The final status shows only source, test, runner, and work-log modifications. I’m checking untracked files explicitly once because earlier the
+  run log had been staged separately.
+
+• Ran git status --short --untracked-files=all
+  └  M columnar_cl_fabricpc/columns/__init__.py
+     M columnar_cl_fabricpc/columns/accuracy_nodes.py
+    … +2 lines (ctrl + t to view transcript)
+     M scripts/train_cifar10_depth_spanning.py
+     M tests/test_pooled_readout_norm.py
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The staged run log is no longer reported by Git, so I won’t refer to it as pending work. The remaining changes are the implementation and work-
+  log edits from this step.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the corrected promoted-shell bridge infrastructure and updated the work log at columnarCL-fabricPC-experiments/docs/dev-
+  plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:7633.
+
+  What changed:
+
+  - Removed the separate PromotedShellPredictionNode path.
+  - Reworked PromotedShellBridgeNode so raw shell pools feed one per-column bridge, and selected inward promotion projections live inside that
+    bridge.
+
+  - Kept the weak local shell-prediction objective weighted by promotion_objective_weight.
+  - Preserved target-gradient scaling for the local promotion objective.
+  - Updated scheduling, shell learning-rate multipliers, ablations, tests, docs, and shortened child result log filenames.
+
+  Verification passed:
+
+  - 78 passed for tests/test_pooled_readout_norm.py
+  - bash -n passed for both relevant run scripts
+  - py_compile passed for the changed Python files
+  - git diff --check is clean
+
+  Next experiment command, from the repo directory:
+
+  PROMOTED_SHELL_BRIDGE=on WEIGHTS="0.000375" PROMOTION_PAIRS="outer_to_middle,middle_to_inner" INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE=0.0
+  SEED=42 LR=0.005 NUM_EPOCHS=20 POST_TRAINING_DIAGNOSTICS=core bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+
+─ Worked for 10m 02s ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› this run has finished
+
+
+• I’ll pull the newest result log, extract the accuracy trajectory and run configuration, then update the work log before recommending the next
+  move.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+    A  results/codex_dspan_10c_3s_7a_shatt_stage4_isp0p000375_iptg0p0_br1_pbr1_seed42_lr0p005_ep20_nodiag_rogdora43_20260723_043417.log
+    A  results/
+    codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_ipw0p0_ipr0p0_pbron_seed42_rogdora43_20260723_043417.lo
+    g
+
+• Explored
+  └ Read 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+    List results
+    List results
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The new logs are present and both child/master filenames are short enough, so the filename fix worked. I’m extracting the actual metrics now,
+  including the validation trajectory so we can tell whether the collapse was fixed.
+
+• Ran diff -q results/
+  │ codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_ipw0p0_ipr0p0_pbron_seed42_rogdora43_20260723_043417.
+  │ log results/codex_dspan_10c_3s_7a_shatt_stage4_isp0p000375_iptg0p0_br1_pbr1_seed42_lr0p005_ep20_nodiag_rogdora43_20260723_043417.log
+  └ Files results/
+    codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_ipw0p0_ipr0p0_pbron_seed42_rogdora43_20260723_043417.lo
+    g and results/codex_dspan_10c_3s_7a_shatt_stage4_isp0p000375_iptg0p0_br1_pbr1_seed42_lr0p005_ep20_nodiag_rogdora43_20260723_043417.log differ
+
+• Ran perl -ne 'while (/Epoch (\d+): val_acc=([0-9.]+)/g) { printf "%02d %.4f\n", $1, $2 }' results/
+  │ codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_ipw0p0_ipr0p0_pbron_seed42_rogdora43_20260723_043417.
+  │ log
+  └ 01 0.1094
+    02 0.1862
+    … +16 lines (ctrl + t to view transcript)
+    19 0.0940
+    20 0.0940
+
+• Explored
+  └ Search repo:|git_commit:|seed:|num_columns:|num_shared:|active_nonshared:|lr:|num_epochs:|combiner:|column_shell_bridge:|
+  promoted_shell_bridge:|
+           inward_shell_promotion_weight:|inward_shell_promotion_pairs:|inward_shell_promotion_target_gradient_scale:|support_mask:|
+           shell_lr_multipliers:|Graph:|Parameters:|Training time:|Post-training diagnostics:|Test Accuracy:|Best Val Accuracy:|Best Val Epoch: in
+
+           codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_ipw0p0_ipr0p0_pbron_seed42_rogdora43_20260723_04
+           3417
+           .log
+    Read
+    codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_ipw0p0_ipr0p0_pbron_seed42_rogdora43_20260723_043417.l
+         og
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The corrected bridge still collapses: best validation was only 24.08%, and it fell to 9.40% from epoch 13 through epoch 20. I’m adding that
+  result to the work log now, then I’ll give a recommendation that does not ask you to re-run the same failed setup.
+
+• Explored
+  └ Search target_gradient|iptg|promoted bridge|column_shell_bridge|33\.74|33\.80|0\.000375 in 20260624-work-log-codex-rogdora43-cifar10-
+  hibacaml.md
+    Search Test Accuracy: 0\.(3|4)|Best Val Accuracy: 0\.(3|4)|Test Accuracy: 0\.2308|Best Val Accuracy: 0\.2408 in *.log
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m recording the result as a negative result for the direct promoted-bridge readout, not as a rejection of inward shell promotion. The static
+  local-promotion path remains the better baseline.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+71 -0)
+    7664  - Re-run the same seed-42 promoted-shell bridge comparison that collapsed, now using the integrated bridge implementation. This isolates
+           whether removing the separate full-strength public-latent objective fixes the collapse while keeping the HiBaCaML-aligned inward shell-
+          promotion mechanism.
+    7665 +
+    7666 +## 2026-07-23 Integrated Promoted-Shell Bridge Result
+    7667 +
+    7668 +The integrated promoted-shell bridge run completed.
+    7669 +
+    7670 +Logs:
+    7671 +
+    7672 +- Master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_ipw0p0_ipr0p0_pbron_seed42
+          _rogdora43_20260723_043417.log`.
+    7673 +- Child log: `results/codex_dspan_10c_3s_7a_shatt_stage4_isp0p000375_iptg0p0_br1_pbr1_seed42_lr0p005_ep20_nodiag_rogdora43_20260723_0434
+          17.log`.
+    7674 +- The child log was created successfully, so the shortened child filename fixed the previous filename-length failure.
+    7675 +
+    7676 +Configuration:
+    7677 +
+    7678 +- Commit: `58e52e35acefd8091ea40152f291fbe7c3ce64ea`.
+    7679 +- Seed `42`, 20 epochs, learning rate `0.005`.
+    7680 +- 10 columns, 3 shared columns, all 10 columns active.
+    7681 +- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+    7682 +- `column_shell_bridge=on`, `promoted_shell_bridge=on`, `outer_shell_context=on`.
+    7683 +- No bypass readout, no teacher heads, no outer context evidence.
+    7684 +- `inward_shell_promotion_weight=0.000375`.
+    7685 +- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+    7686 +- `inward_shell_promotion_target_gradient_scale=0.0`.
+    7687 +- Shell learning-rate multipliers `1,1.5,2,3`.
+    7688 +
+    7689 +Primary result:
+    7690 +
+    7691 +| Run | Best validation accuracy | Best epoch | Test accuracy | Graph | Parameters |
+    7692 +| --- | ---: | ---: | ---: | ---: | ---: |
+    7693 +| Static `0.000375` active reference | 33.80% | 18 | 33.74% | 167 nodes, 313 edges | 3,129,574 |
+    7694 +| Original promoted bridge | 23.78% | 14 | 22.67% | 177 nodes, 383 edges | 3,150,764 |
+    7695 +| Integrated promoted bridge | 24.08% | 8 | 23.08% | 157 nodes, 323 edges | 3,148,314 |
+    7696 +
+    7697 +Validation trajectory:
+    7698 +
+    7699 +| Epoch | Integrated promoted bridge validation accuracy |
+    7700 +| ---: | ---: |
+    7701 +| 1 | 10.94% |
+    7702 +| 2 | 18.62% |
+    7703 +| 3 | 17.44% |
+    7704 +| 4 | 21.68% |
+    7705 +| 5 | 19.24% |
+    7706 +| 6 | 17.44% |
+    7707 +| 7 | 18.08% |
+    7708 +| 8 | 24.08% |
+    7709 +| 9 | 21.86% |
+    7710 +| 10 | 9.40% |
+    7711 +| 11 | 18.08% |
+    7712 +| 12 | 18.70% |
+    7713 +| 13 | 9.40% |
+    7714 +| 14 | 9.40% |
+    7715 +| 15 | 9.40% |
+    7716 +| 16 | 9.40% |
+    7717 +| 17 | 9.40% |
+    7718 +| 18 | 9.40% |
+    7719 +| 19 | 9.40% |
+    7720 +| 20 | 9.40% |
+    7721 +
+    7722 +Interpretation:
+    7723 +
+    7724 +- Removing the separate full-strength public-latent objective did not fix the collapse. The integrated bridge improved the original prom
+          oted-bridge test result by only 0.41 percentage points and remained 10.66 percentage points below the static active reference.
+    7725 +- The collapse happened earlier than in the original promoted-bridge run. Validation accuracy reached 24.08% at epoch 8, fell to 9.40% a
+          t epoch 10, briefly recovered to 18.70% at epoch 12, then stayed at 9.40% from epoch 13 through epoch 20.
+    7726 +- The graph change did what it was supposed to do structurally. It removed the 20 standalone promotion-prediction nodes and reduced the
+          graph from 177 nodes and 383 edges to 157 nodes and 323 edges. The collapse therefore is not explained by the removed `PromotedShellPred
+          ictionNode` objective alone.
+    7727 +- The likely remaining failure is the direct promoted-bridge classifier readout. Direct promoted-bridge classifier readout means each `c
+          olumnXX_promoted_shell_bridge` latent connects directly to `output`, so label-clamped output gradients train the promoted evidence path
+          as a parallel classifier input.
+    7728 +- In contrast, the static active reference keeps inward shell promotion as a weak local shell-prediction objective and does not expose p
+          romoted predictions as a separate classifier evidence path. That remains the stronger baseline.
+    7729 +
+    7730 +Recommendation:
+    7731 +
+    7732 +- Stop long runs with the current direct promoted-bridge readout.
+    7733 +- Keep the integrated bridge infrastructure as a diagnostic component, but do not treat direct `promoted_shell_bridge -> output` as the
+          next productive path.
+    7734 +- Next implementation direction: make promoted shell evidence condition an existing column-local pathway instead of feeding `output` dir
+          ectly. The simplest concrete version is to route the integrated promoted-shell bridge into the per-column shell bridge or a shell-preser
+          ving replacement for that bridge, then remove the direct `promoted_shell_bridge -> output` edge. This keeps wider-to-inward shell predic
+          tion inside the columnar pathway and avoids adding a separate classifier branch.
+    7735 +- I should wait for confirmation before making this change.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now includes the integrated-bridge result, trajectory, and conclusion. I’m doing a final status check so I can report exactly what
+  changed in the workspace.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Ran git diff --check
+  └ (no output)
+
+• Explored
+  └ Search Integrated Promoted-Shell Bridge Result in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I analyzed the run and recorded it in columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md:7666.
+
+  Result:
+
+  - Integrated promoted bridge: 23.08% test, 24.08% best validation at epoch 8.
+  - Static 0.000375 active reference: 33.74% test, 33.80% best validation.
+  - Original promoted bridge: 22.67% test, 23.78% best validation.
+  - The corrected bridge improved the original promoted bridge by only 0.41 percentage points on test accuracy.
+  - It still collapsed: validation accuracy hit 9.40% at epoch 10, briefly recovered, then stayed at 9.40% from epoch 13 through epoch 20.
+
+  Conclusion: removing the separate full-strength PromotedShellPredictionNode objective was structurally correct, but it did not solve the
+  collapse. The remaining likely problem is the direct promoted_shell_bridge -> output classifier readout. That path makes promoted shell evidence
+  a separate classifier branch, while the better static baseline keeps promotion as a weak local shell-prediction objective inside the columnar
+  pathway.
+
+  My recommendation is to stop long runs with the direct promoted-bridge readout. Next, I’d change the promoted bridge so it conditions an
+  existing column-local pathway, likely the per-column shell bridge or a shell-preserving replacement for it, and remove the direct edge from
+  promoted bridge to output.
+
+  git diff --check is clean. I have only updated the work log this turn and am waiting for confirmation before making code changes.
+
+─ Worked for 3m 05s ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› proceed please
+
+
+• I’ll implement the next version as a conditioning path, not a direct classifier branch: the promoted-shell bridge will feed the per-column shell
+  bridge, and output will see the existing shell bridge path. I’ll first re-check the current graph wiring and tests so the change is narrowly
+  scoped.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+    M  docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+• Explored
+  └ Read accuracy_nodes.py, train_cifar10_depth_spanning.py, test_pooled_readout_norm.py
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The existing promoted bridge still connects directly to output. I’ll change the graph so --promoted_shell_bridge requires --column_shell_bridge,
+  then routes promoted_bridge -> column_shell_bridge and removes promoted_bridge -> output. I’ll also update the shell-bridge masking diagnostics
+  so they can lesion the promoted conditioning path correctly.
+
+• Explored
+  └ Read train_cifar10_depth_spanning.py, test_pooled_readout_norm.py
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m going to keep the integrated bridge node itself, but change its downstream use. The new topology will keep the promoted bridge out of
+  output_input_edge_sources; diagnostics will inspect it as conditioning inside the shell bridge instead.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+9 -2)
+     33                           │
+     34 +                         ├──── optional promoted bridge conditioning
+     35 +                         │              │
+     36 +                         │              ▼
+     37 +      optional per-column shell bridge ──────────► output classifier
+     38 +                         │
+     39                           ├──── optional context teacher
+        ⋮
+     52            --inward_shell_promotion_target_gradient_scale
+     48 -          with --promoted_shell_bridge, promotion projections enter one
+     49 -          shell-preserving bridge per active column
+     53 +          with --promoted_shell_bridge, promotion projections condition the
+     54 +          per-column shell bridge instead of feeding output directly
+     55                                                           │
+        ⋮
+    518      """Validate the promoted-shell bridge graph options."""
+    519 +    if args.promoted_shell_bridge and not args.column_shell_bridge:
+    520 +        raise ValueError("--promoted_shell_bridge requires --column_shell_bridge")
+    521      if args.promoted_shell_bridge and args.inward_shell_promotion_weight <= 0.0:
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Validation now enforces that promoted-shell bridge has a shell-bridge target. I’m rewiring the graph builder next.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+3 -1)
+    3219          outer_context = None
+    3220 +        promoted_bridge = None
+    3221          for shell_name in SHELL_NAMES:
+         ⋮
+    3369                  )
+    3369 -            edges.append(Edge(source=promoted_bridge, target=output.slot("in")))
+    3370
+         ⋮
+    3382                  edges.append(Edge(source=shell_pool, target=shell_bridge.slot("in")))
+    3383 +            if promoted_bridge is not None:
+    3384 +                edges.append(Edge(source=promoted_bridge, target=shell_bridge.slot("in")))
+    3385              if args.outer_shell_context_to_bridge:
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The graph now routes promoted_bridge into shell_bridge and removes the direct classifier edge. I’m updating masking and ablation utilities so
+  diagnostics still tell us what the promoted path contributes.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+117 -29)
+    1942              )
+    1943 +        promoted_sources = tuple(
+    1944 +            source
+    1945 +            for source in bridge_input_sources
+    1946 +            if is_promoted_shell_bridge_node(source)
+    1947 +        )
+    1948 +        if promoted_sources:
+    1949 +            masked = mask_promoted_shell_bridge_inputs(
+    1950 +                masked,
+    1951 +                structure,
+    1952 +                promoted_sources,
+    1953 +                shell_name,
+    1954 +                keep_shell=keep_shell,
+    1955 +            )
+    1956          kept_sources = tuple(
+         ⋮
+    1962                  or is_outer_shell_context_bridge_scale_node(source)
+    1963 +                or is_promoted_shell_bridge_node(source)
+    1964              )
+         ⋮
+    2068
+    2055 -    `bridge_sources` are promoted bridge nodes connected to `output`. The mask
+    2056 -    keeps either one target shell's raw input edge and promotion parameters or
+    2057 -    all other target-shell input edges and promotion parameters.
+    2069 +    `bridge_sources` are promoted bridge nodes inside the shell-bridge
+    2070 +    conditioning path. The mask keeps either one target shell's raw input edge
+    2071 +    and promotion parameters or all other target-shell input edges and
+    2072 +    promotion parameters.
+    2073      """
+         ⋮
+    2123      """
+    2109 -    Evaluate shell dependence inside the promoted-shell bridge path.
+    2124 +    Evaluate shell dependence inside promoted-shell bridge conditioning.
+    2125
+    2111 -    The bridge path receives raw pooled shell vectors and promoted prediction
+    2112 -    latents. These ablations keep only promoted bridge outputs at the
+    2113 -    classifier, then mask bridge inputs by target shell.
+    2126 +    The promoted bridge no longer feeds the classifier directly. These
+    2127 +    ablations keep only per-column shell bridge outputs at the classifier, then
+    2128 +    compare the promoted conditioning input against the same shell bridge path
+    2129 +    without promoted conditioning.
+    2130      """
+    2131      output_sources = output_input_edge_sources(structure)
+    2116 -    bridge_sources = tuple(
+    2117 -        sorted(source for source in output_sources if is_promoted_shell_bridge_node(source))
+    2132 +    shell_bridge_sources = tuple(
+    2133 +        sorted(source for source in output_sources if is_column_shell_bridge_node(source))
+    2134      )
+    2119 -    if not bridge_sources:
+    2135 +    if not shell_bridge_sources:
+    2136          return {}
+    2137
+    2122 -    bridge_only_params = mask_output_input_sources(params, structure, bridge_sources)
+    2138 +    promoted_sources_by_shell_bridge = {}
+    2139 +    promoted_bridge_sources = set()
+    2140 +    for shell_bridge_source in shell_bridge_sources:
+    2141 +        input_sources = node_input_edge_sources(structure, shell_bridge_source)
+    2142 +        promoted_sources = tuple(
+    2143 +            sorted(source for source in input_sources if is_promoted_shell_bridge_node(source))
+    2144 +        )
+    2145 +        if not promoted_sources:
+    2146 +            continue
+    2147 +        promoted_sources_by_shell_bridge[shell_bridge_source] = promoted_sources
+    2148 +        promoted_bridge_sources.update(promoted_sources)
+    2149 +
+    2150 +    if not promoted_sources_by_shell_bridge:
+    2151 +        return {}
+    2152 +
+    2153 +    def mask_shell_bridge_promoted_inputs(
+    2154 +        input_params: GraphParams,
+    2155 +        keep_promoted: bool,
+    2156 +    ) -> GraphParams:
+    2157 +        masked = input_params
+    2158 +        for shell_bridge_source in shell_bridge_sources:
+    2159 +            input_sources = node_input_edge_sources(structure, shell_bridge_source)
+    2160 +            promoted_sources = set(
+    2161 +                promoted_sources_by_shell_bridge.get(shell_bridge_source, ())
+    2162 +            )
+    2163 +            kept_sources = tuple(
+    2164 +                source
+    2165 +                for source in input_sources
+    2166 +                if (source in promoted_sources) == keep_promoted
+    2167 +            )
+    2168 +            masked = mask_node_input_sources(
+    2169 +                masked,
+    2170 +                structure,
+    2171 +                shell_bridge_source,
+    2172 +                kept_sources,
+    2173 +            )
+    2174 +        return masked
+    2175 +
+    2176 +    shell_bridge_only_params = mask_output_input_sources(
+    2177 +        params,
+    2178 +        structure,
+    2179 +        shell_bridge_sources,
+    2180 +    )
+    2181 +    promoted_conditioning_params = mask_output_input_sources(
+    2182 +        mask_shell_bridge_promoted_inputs(params, keep_promoted=True),
+    2183 +        structure,
+    2184 +        shell_bridge_sources,
+    2185 +    )
+    2186 +    unpromoted_shell_bridge_params = mask_output_input_sources(
+    2187 +        mask_shell_bridge_promoted_inputs(params, keep_promoted=False),
+    2188 +        structure,
+    2189 +        shell_bridge_sources,
+    2190 +    )
+    2191      results = {
+    2124 -        "promoted_shell_bridge_only": evaluate_pcn(
+    2125 -            bridge_only_params,
+    2192 +        "column_shell_bridge_with_promoted_conditioning": evaluate_pcn(
+    2193 +            shell_bridge_only_params,
+    2194 +            structure,
+    2195 +            loader,
+    2196 +            config,
+    2197 +            rng_key,
+    2198 +        ),
+    2199 +        "promoted_shell_bridge_conditioning_only": evaluate_pcn(
+    2200 +            promoted_conditioning_params,
+    2201              structure,
+         ⋮
+    2204              rng_key,
+    2205 +        ),
+    2206 +        "column_shell_bridge_without_promoted_conditioning": evaluate_pcn(
+    2207 +            unpromoted_shell_bridge_params,
+    2208 +            structure,
+    2209 +            loader,
+    2210 +            config,
+    2211 +            rng_key,
+    2212          )
+         ⋮
+    2215          without_shell_params = mask_output_input_sources(
+    2134 -            mask_promoted_shell_bridge_inputs(
+    2135 -                params,
+    2136 -                structure,
+    2137 -                bridge_sources,
+    2138 -                shell_name,
+    2139 -                keep_shell=False,
+    2216 +            mask_shell_bridge_promoted_inputs(
+    2217 +                mask_promoted_shell_bridge_inputs(
+    2218 +                    params,
+    2219 +                    structure,
+    2220 +                    tuple(sorted(promoted_bridge_sources)),
+    2221 +                    shell_name,
+    2222 +                    keep_shell=False,
+    2223 +                ),
+    2224 +                keep_promoted=True,
+    2225              ),
+    2226              structure,
+    2142 -            bridge_sources,
+    2227 +            shell_bridge_sources,
+    2228          )
+    2229          shell_only_params = mask_output_input_sources(
+    2145 -            mask_promoted_shell_bridge_inputs(
+    2146 -                params,
+    2147 -                structure,
+    2148 -                bridge_sources,
+    2149 -                shell_name,
+    2150 -                keep_shell=True,
+    2230 +            mask_shell_bridge_promoted_inputs(
+    2231 +                mask_promoted_shell_bridge_inputs(
+    2232 +                    params,
+    2233 +                    structure,
+    2234 +                    tuple(sorted(promoted_bridge_sources)),
+    2235 +                    shell_name,
+    2236 +                    keep_shell=True,
+    2237 +                ),
+    2238 +                keep_promoted=True,
+    2239              ),
+    2240              structure,
+    2153 -            bridge_sources,
+    2241 +            shell_bridge_sources,
+    2242          )
+    2155 -        results[f"promoted_shell_bridge_without_{shell_name}"] = evaluate_pcn(
+    2243 +        results[f"promoted_shell_bridge_conditioning_without_{shell_name}"] = evaluate_pcn(
+    2244              without_shell_params,
+         ⋮
+    2249          )
+    2162 -        results[f"promoted_shell_bridge_{shell_name}_only"] = evaluate_pcn(
+    2250 +        results[f"promoted_shell_bridge_conditioning_{shell_name}_only"] = evaluate_pcn(
+    2251              shell_only_params,
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+4 -4)
+    4727              "Use integrated inward shell-promotion projections as classifier "
+    4728 -            "evidence through a per-column shell-preserving bridge. Requires "
+    4729 -            "positive --inward_shell_promotion_weight. Raw shell pools write "
+    4730 -            "to their own slices, and promotion projections write to their "
+    4731 -            "target shell slices."
+    4728 +            "conditioning for the per-column shell bridge. Requires "
+    4729 +            "--column_shell_bridge and positive --inward_shell_promotion_weight. "
+    4730 +            "Raw shell pools write to their own slices, and promotion "
+    4731 +            "projections write to their target shell slices."
+    4732          ),
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’ve updated diagnostics to compare shell bridge behavior with and without promoted conditioning. I’m revising the tests now so they document
+  the new topology and reject the old direct-readout shape.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+24 -2)
+    1340  def test_depth_spanning_graph_adds_promoted_shell_bridge() -> None:
+    1341 -    """Promoted bridge integrates selected inward predictions before output."""
+    1341 +    """Promoted bridge conditions the per-column shell bridge."""
+    1342      selected_pairs = (
+         ⋮
+    1347          bypass_columns=False,
+    1348 +        column_shell_bridge=True,
+    1349          promoted_shell_bridge=True,
+         ⋮
+    1361          bridge_name = promoted_shell_bridge_node_name(column_idx)
+    1362 +        shell_bridge_name = column_shell_bridge_node_name(column_idx)
+    1363          raw_shell_sources = {
+         ⋮
+    1371          }
+    1372 +        shell_bridge_sources = {
+    1373 +            edge.source
+    1374 +            for edge in structure.edges.values()
+    1375 +            if edge.target == shell_bridge_name and edge.slot == "in"
+    1376 +        }
+    1377          bridge_config = structure.nodes[bridge_name].node_info.node_config
+    1378
+    1372 -        assert bridge_name in output_sources
+    1379 +        assert bridge_name not in output_sources
+    1380 +        assert shell_bridge_name in output_sources
+    1381          assert structure.nodes[bridge_name].node_info.node_class is (
+         ⋮
+    1384          assert bridge_sources == raw_shell_sources
+    1385 +        assert bridge_name in shell_bridge_sources
+    1386          assert bridge_config["promotion_pairs"] == selected_pairs
+         ⋮
+    1405
+    1406 +def test_depth_spanning_graph_rejects_promoted_bridge_without_shell_bridge() -> None:
+    1407 +    """Promoted bridge must condition the per-column shell bridge."""
+    1408 +    args = _tiny_depth_spanning_args(
+    1409 +        promoted_shell_bridge=True,
+    1410 +        column_shell_bridge=False,
+    1411 +        inward_shell_promotion_weight=0.001,
+    1412 +    )
+    1413 +
+    1414 +    with pytest.raises(ValueError, match="requires --column_shell_bridge"):
+    1415 +        build_depth_spanning_graph(args)
+    1416 +
+    1417 +
+    1418  def test_depth_spanning_graph_rejects_promoted_bridge_without_promotion() -> None:
+         ⋮
+    1421          promoted_shell_bridge=True,
+    1422 +        column_shell_bridge=True,
+    1423          inward_shell_promotion_weight=0.0,
+
+• Explored
+  └ Search promoted_shell_bridge=True in test_pooled_readout_norm.py
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Several tests build promoted-bridge graphs directly, and they now need to opt into column_shell_bridge=True. I’m updating those call sites
+  rather than leaving a mixed old/new contract.
+
+• Explored
+  └ Read test_pooled_readout_norm.py
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I found the remaining promoted-bridge test builders. I’m adding column_shell_bridge=True to the ones that should build the new conditioned path,
+  while preserving the explicit rejection test for missing shell bridge.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+4 -0)
+    1011          bypass_columns=False,
+    1012 +        column_shell_bridge=True,
+    1013          promoted_shell_bridge=True,
+         ⋮
+    1525          bypass_columns=False,
+    1526 +        column_shell_bridge=True,
+    1527          promoted_shell_bridge=True,
+         ⋮
+    2084          bypass_columns=False,
+    2085 +        column_shell_bridge=True,
+    2086          promoted_shell_bridge=True,
+         ⋮
+    2290          bypass_columns=False,
+    2291 +        column_shell_bridge=True,
+    2292          promoted_shell_bridge=True,
+
+• Explored
+  └ Search column_shell_bridge=True|promoted_shell_bridge=True in test_pooled_readout_norm.py
+    Read test_pooled_readout_norm.py
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The readout-ablation test still expects the old direct classifier branch. I’m changing it to assert that promoted bridges are not output sources
+  and that the existing shell-bridge ablations remain the readout-facing cases.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+10 -10)
+    2080
+    2081 -def test_build_readout_ablation_cases_includes_promoted_bridge() -> None:
+    2082 -    """Readout ablation cases include promoted-shell bridge interactions."""
+    2081 +def test_build_readout_ablation_cases_excludes_promoted_bridge_direct_readout() -> None:
+    2082 +    """Readout ablations keep promoted bridge inside shell-bridge conditioning."""
+    2083      args = _tiny_depth_spanning_args(
+         ⋮
+    2092      output_sources = output_input_edge_sources(structure)
+    2093 -    all_sources = set(output_sources)
+    2093      promoted_bridge_sources = {
+         ⋮
+    2095      }
+    2096 +    shell_bridge_sources = {
+    2097 +        column_shell_bridge_node_name(column_idx) for column_idx in active_columns
+    2098 +    }
+    2099      cases = dict(build_readout_ablation_cases(structure))
+    2100
+    2099 -    assert set(cases["promoted_shell_bridge_only"]) == promoted_bridge_sources
+    2100 -    assert set(cases["column_pool_plus_promoted_shell_bridge"]) == (
+    2101 -        {"column_pool"} | promoted_bridge_sources
+    2102 -    )
+    2103 -    assert set(cases["combined_without_promoted_shell_bridge"]) == (
+    2104 -        all_sources - promoted_bridge_sources
+    2105 -    )
+    2101 +    assert promoted_bridge_sources.isdisjoint(output_sources)
+    2102 +    assert set(cases["column_shell_bridge_only"]) == shell_bridge_sources
+    2103 +    assert "promoted_shell_bridge_only" not in cases
+    2104 +    assert "column_pool_plus_promoted_shell_bridge" not in cases
+    2105 +    assert "combined_without_promoted_shell_bridge" not in cases
+    2106
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• I’m adding one focused test for the new conditioning lesion: shell-bridge shell masks must keep the promoted bridge edge but mask the promoted
+  bridge’s internal target-shell evidence.
+
+• Edited columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py (+56 -0)
+    2353
+    2354 +def test_mask_column_shell_bridge_inputs_masks_promoted_conditioning() -> None:
+    2355 +    """Shell-bridge shell masks also mask promoted conditioning internals."""
+    2356 +    args = _tiny_depth_spanning_args(
+    2357 +        bypass_columns=False,
+    2358 +        column_shell_bridge=True,
+    2359 +        promoted_shell_bridge=True,
+    2360 +        inward_shell_promotion_weight=0.001,
+    2361 +        inward_shell_promotion_pairs="outer_to_middle,middle_to_inner",
+    2362 +    )
+    2363 +    structure, _ = build_depth_spanning_graph(args)
+    2364 +    params = initialize_params(structure, jax.random.PRNGKey(0))
+    2365 +    shell_bridge_name = column_shell_bridge_node_name(0)
+    2366 +    promoted_bridge_name = promoted_shell_bridge_node_name(0)
+    2367 +    shell_bridge_sources = node_input_edge_sources(structure, shell_bridge_name)
+    2368 +
+    2369 +    masked = mask_column_shell_bridge_inputs(
+    2370 +        params,
+    2371 +        structure,
+    2372 +        (shell_bridge_name,),
+    2373 +        "inner_shell",
+    2374 +        keep_shell=True,
+    2375 +    )
+    2376 +
+    2377 +    promoted_edge = shell_bridge_sources[promoted_bridge_name]
+    2378 +    assert jnp.allclose(
+    2379 +        masked.nodes[shell_bridge_name].weights[promoted_edge],
+    2380 +        params.nodes[shell_bridge_name].weights[promoted_edge],
+    2381 +    )
+    2382 +
+    2383 +    outer_pool = column_shell_pool_node_name(0, "outer_shell")
+    2384 +    outer_pool_edge = shell_bridge_sources[outer_pool]
+    2385 +    assert jnp.allclose(
+    2386 +        masked.nodes[shell_bridge_name].weights[outer_pool_edge],
+    2387 +        jnp.zeros_like(params.nodes[shell_bridge_name].weights[outer_pool_edge]),
+    2388 +    )
+    2389 +
+    2390 +    middle_to_inner_weight = PromotedShellBridgeNode._promotion_weight_name(
+    2391 +        "middle_shell",
+    2392 +        "inner_shell",
+    2393 +    )
+    2394 +    outer_to_middle_weight = PromotedShellBridgeNode._promotion_weight_name(
+    2395 +        "outer_shell",
+    2396 +        "middle_shell",
+    2397 +    )
+    2398 +    assert jnp.allclose(
+    2399 +        masked.nodes[promoted_bridge_name].weights[middle_to_inner_weight],
+    2400 +        params.nodes[promoted_bridge_name].weights[middle_to_inner_weight],
+    2401 +    )
+    2402 +    assert jnp.allclose(
+    2403 +        masked.nodes[promoted_bridge_name].weights[outer_to_middle_weight],
+    2404 +        jnp.zeros_like(
+    2405 +            params.nodes[promoted_bridge_name].weights[outer_to_middle_weight]
+    2406 +        ),
+    2407 +    )
+    2408 +
+    2409 +
+    2410  def test_mask_column_shell_path_inputs_masks_direct_and_bridge_routes() -> None:
+
+• Explored
+  └ Read train_cifar10_depth_spanning.py
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The topology diagram now has a duplicated shell-bridge line after the rewiring. I’m correcting the ASCII-style docstring so it reflects the
+  conditioned path accurately.
+
+• Edited columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py (+3 -7)
+    26                           │              ▼
+    27 -      optional per-column shell bridge ──────────► output classifier
+    28 -                         │
+    27                           ├──── optional promoted-shell bridge
+    30 -                         │          ▲
+    31 -                         │          └──── raw shell pools with integrated
+    32 -                         │                inward shell-promotion projections
+    33 -                         │
+    34 -                         ├──── optional promoted bridge conditioning
+    28 +                         │              ▲
+    29 +                         │              └──── raw shell pools with integrated
+    30 +                         │                    inward shell-promotion projections
+    31                           │              │
+
+• Explored
+  └ Read train_cifar10_depth_spanning.py
+    Search promoted_shell_bridge=True in scripts
+
+• Ran git diff -- scripts/train_cifar10_depth_spanning.py tests/test_pooled_readout_norm.py | sed -n '1,260p'
+  └ diff --git a/scripts/train_cifar10_depth_spanning.py b/scripts/train_cifar10_depth_spanning.py
+    index 145e129..5709635 100644
+    … +256 lines (ctrl + t to view transcript)
+             if args.column_shell_bridge:
+                 shell_bridge = Linear(
+
+• Explored
+  └ Search promoted_shell_bridge=True in test_pooled_readout_norm.py
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The graph and tests are updated. I’m running the focused promoted/shell-bridge tests first to catch topology or masking mistakes before the full
+  file.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -k "promoted_shell_bridge or
+  │ column_shell_bridge_inputs or readout_ablation_cases"
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +6 lines (ctrl + t to view transcript)
+
+    ======================= 7 passed, 73 deselected in 7.08s =======================
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The focused topology and masking tests pass. I’ll run the full local test file next, then compile and shell syntax checks.
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py
+  └ ============================= test session starts ==============================
+    platform linux -- Python 3.12.13, pytest-9.1.0, pluggy-1.6.0
+    … +7 lines (ctrl + t to view transcript)
+
+    ============================= 80 passed in 14.89s ==============================
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The full test file passes with 80 tests. I’m checking Python compilation, shell syntax, and whitespace now.
+
+• Ran bash -n scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+  └ (no output)
+
+• Ran bash -n scripts/run_codex_cifar10_depth_spanning.sh
+  └ (no output)
+
+• Ran git diff --check
+  └ (no output)
+
+• Ran /home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m py_compile columnar_cl_fabricpc/columns/accuracy_nodes.py scripts/
+  │ train_cifar10_depth_spanning.py
+  └ (no output)
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Verification is clean. I’m appending the implementation entry and next experiment command to the work log so the direction change is recorded
+  with the code change.
+
+• Edited columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md (+41 -0)
+    7735  - I should wait for confirmation before making this change.
+    7736 +
+    7737 +## 2026-07-23 Promoted Bridge Conditioning Implementation
+    7738 +
+    7739 +Implemented the promoted-shell bridge as a column-local conditioning path instead of a direct classifier branch.
+    7740 +
+    7741 +Mechanism changes:
+    7742 +
+    7743 +- `promoted_shell_bridge` now requires `column_shell_bridge`. This prevents building a promoted bridge with no downstream column-local t
+          arget.
+    7744 +- Removed the direct `promoted_shell_bridge -> output` edge from the graph builder.
+    7745 +- Added `promoted_shell_bridge -> column_shell_bridge` for each active column.
+    7746 +- The per-column shell bridge still receives the raw pooled shell vectors. It now also receives the promoted-shell bridge latent, which
+          contains raw shell projections and selected inward-promotion projections.
+    7747 +- The `output` classifier sees the existing `column_shell_bridge` node, not the promoted bridge directly.
+    7748 +- Updated the architecture diagram in `scripts/train_cifar10_depth_spanning.py` so the promoted bridge is drawn as conditioning for the
+          per-column shell bridge.
+    7749 +
+    7750 +Diagnostic changes:
+    7751 +
+    7752 +- `mask_column_shell_bridge_inputs` now treats promoted bridges as shell-bridge conditioning sources and masks their internal target-she
+          ll evidence when shell ablations are requested.
+    7753 +- `evaluate_promoted_shell_bridge_ablations` now evaluates promoted bridge conditioning through the shell bridge. It reports:
+    7754 +  - `column_shell_bridge_with_promoted_conditioning`, where the shell bridge keeps its raw shell inputs plus promoted conditioning.
+    7755 +  - `promoted_shell_bridge_conditioning_only`, where the shell bridge receives promoted conditioning only.
+    7756 +  - `column_shell_bridge_without_promoted_conditioning`, where the shell bridge receives its non-promoted inputs only.
+    7757 +  - target-shell lesions of the promoted conditioning path.
+    7758 +- `build_readout_ablation_cases` no longer reports direct promoted-bridge readout cases because promoted bridges are no longer output so
+          urces.
+    7759 +
+    7760 +Verification:
+    7761 +
+    7762 +- Focused tests passed: `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -k "promoted_shel
+          l_bridge or column_shell_bridge_inputs or readout_ablation_cases"`.
+    7763 +- Full local test file passed: `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py`.
+    7764 +- Python compile check passed for `columnar_cl_fabricpc/columns/accuracy_nodes.py` and `scripts/train_cifar10_depth_spanning.py`.
+    7765 +- Shell syntax checks passed for `scripts/run_codex_cifar10_depth_spanning.sh` and `scripts/run_codex_inward_shell_promotion_10col3share
+          d_sweep.sh`.
+    7766 +- `git diff --check` passed.
+    7767 +
+    7768 +Next experiment:
+    7769 +
+    7770 +- Re-run the same seed-42 promoted-shell bridge comparison with the conditioned bridge path. The key question is whether keeping promote
+          d evidence inside the per-column shell bridge prevents the direct-readout collapse while preserving the local inward shell-promotion mec
+          hanism.
+    7771 +
+    7772 +Suggested command:
+    7773 +
+    7774 +```bash
+    7775 +PROMOTED_SHELL_BRIDGE=on WEIGHTS="0.000375" PROMOTION_PAIRS="outer_to_middle,middle_to_inner" INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCA
+          LE=0.0 SEED=42 LR=0.005 NUM_EPOCHS=20 POST_TRAINING_DIAGNOSTICS=core bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+    7776 +```
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The work log now records the conditioning-path implementation and the next command. I’m doing a final status and locating the relevant line
+  references for the summary.
+
+• Ran git status --short --branch
+  └ ## improve/plain-cifar10...origin/improve/plain-cifar10
+     M docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+     M scripts/train_cifar10_depth_spanning.py
+     M tests/test_pooled_readout_norm.py
+
+• Ran git diff --stat
+  └  ...24-work-log-codex-rogdora43-cifar10-hibacaml.md |  41 +++++
+     scripts/train_cifar10_depth_spanning.py            | 175 ++++++++++++++++-----
+     tests/test_pooled_readout_norm.py                  | 106 +++++++++++--
+     3 files changed, 269 insertions(+), 53 deletions(-)
+
+• Ran git diff --check
+  └ (no output)
+
+• Explored
+  └ Search Promoted Bridge Conditioning Implementation|def validate_promoted_shell_bridge|def evaluate_promoted_shell_bridge_ablations|
+  promoted_bridge
+           = None|promoted_bridge.slot|requires --column_shell_bridge|test_depth_spanning_graph_adds_promoted_shell_bridge|
+           test_mask_column_shell_bridge_inputs_masks_promoted_conditioning in 20260624-work-log-codex-rogdora43-cifar10-hibacaml.md
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Implemented the conditioned promoted-bridge path.
+
+  Key changes are in columnarCL-fabricPC-experiments/scripts/train_cifar10_depth_spanning.py:513:
+
+  - --promoted_shell_bridge now requires --column_shell_bridge.
+  - Removed the direct promoted_shell_bridge -> output edge.
+  - Added promoted_shell_bridge -> column_shell_bridge.
+  - Updated promoted-bridge diagnostics to evaluate conditioning through the shell bridge.
+  - Updated tests, including topology and shell-mask behavior at columnarCL-fabricPC-experiments/tests/test_pooled_readout_norm.py:1341.
+  - Recorded the change in the work log at columnarCL-fabricPC-experiments/docs/dev-plans/20260624-work-log-codex-rogdora43-cifar10-
+    hibacaml.md:7737.
+
+  Verification passed: 80 passed for tests/test_pooled_readout_norm.py, Python compile checks, shell syntax checks, and git diff --check.
+
+  Next run command:
+
+  PROMOTED_SHELL_BRIDGE=on WEIGHTS="0.000375" PROMOTION_PAIRS="outer_to_middle,middle_to_inner" INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE=0.0
+  SEED=42 LR=0.005 NUM_EPOCHS=20 POST_TRAINING_DIAGNOSTICS=core bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+
+─ Worked for 6m 05s ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ 
+› Improve documentation in @filename
+ 
+  gpt-5.5 xhigh · ~/repos/fpc

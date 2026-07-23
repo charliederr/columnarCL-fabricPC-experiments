@@ -7733,3 +7733,44 @@ Recommendation:
 - Keep the integrated bridge infrastructure as a diagnostic component, but do not treat direct `promoted_shell_bridge -> output` as the next productive path.
 - Next implementation direction: make promoted shell evidence condition an existing column-local pathway instead of feeding `output` directly. The simplest concrete version is to route the integrated promoted-shell bridge into the per-column shell bridge or a shell-preserving replacement for that bridge, then remove the direct `promoted_shell_bridge -> output` edge. This keeps wider-to-inward shell prediction inside the columnar pathway and avoids adding a separate classifier branch.
 - I should wait for confirmation before making this change.
+
+## 2026-07-23 Promoted Bridge Conditioning Implementation
+
+Implemented the promoted-shell bridge as a column-local conditioning path instead of a direct classifier branch.
+
+Mechanism changes:
+
+- `promoted_shell_bridge` now requires `column_shell_bridge`. This prevents building a promoted bridge with no downstream column-local target.
+- Removed the direct `promoted_shell_bridge -> output` edge from the graph builder.
+- Added `promoted_shell_bridge -> column_shell_bridge` for each active column.
+- The per-column shell bridge still receives the raw pooled shell vectors. It now also receives the promoted-shell bridge latent, which contains raw shell projections and selected inward-promotion projections.
+- The `output` classifier sees the existing `column_shell_bridge` node, not the promoted bridge directly.
+- Updated the architecture diagram in `scripts/train_cifar10_depth_spanning.py` so the promoted bridge is drawn as conditioning for the per-column shell bridge.
+
+Diagnostic changes:
+
+- `mask_column_shell_bridge_inputs` now treats promoted bridges as shell-bridge conditioning sources and masks their internal target-shell evidence when shell ablations are requested.
+- `evaluate_promoted_shell_bridge_ablations` now evaluates promoted bridge conditioning through the shell bridge. It reports:
+  - `column_shell_bridge_with_promoted_conditioning`, where the shell bridge keeps its raw shell inputs plus promoted conditioning.
+  - `promoted_shell_bridge_conditioning_only`, where the shell bridge receives promoted conditioning only.
+  - `column_shell_bridge_without_promoted_conditioning`, where the shell bridge receives its non-promoted inputs only.
+  - target-shell lesions of the promoted conditioning path.
+- `build_readout_ablation_cases` no longer reports direct promoted-bridge readout cases because promoted bridges are no longer output sources.
+
+Verification:
+
+- Focused tests passed: `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py -k "promoted_shell_bridge or column_shell_bridge_inputs or readout_ablation_cases"`.
+- Full local test file passed: `/home/ni/repos/fpc/virt-envs/fpcpy3.12/bin/python -m pytest tests/test_pooled_readout_norm.py`.
+- Python compile check passed for `columnar_cl_fabricpc/columns/accuracy_nodes.py` and `scripts/train_cifar10_depth_spanning.py`.
+- Shell syntax checks passed for `scripts/run_codex_cifar10_depth_spanning.sh` and `scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh`.
+- `git diff --check` passed.
+
+Next experiment:
+
+- Re-run the same seed-42 promoted-shell bridge comparison with the conditioned bridge path. The key question is whether keeping promoted evidence inside the per-column shell bridge prevents the direct-readout collapse while preserving the local inward shell-promotion mechanism.
+
+Suggested command:
+
+```bash
+PROMOTED_SHELL_BRIDGE=on WEIGHTS="0.000375" PROMOTION_PAIRS="outer_to_middle,middle_to_inner" INWARD_SHELL_PROMOTION_TARGET_GRADIENT_SCALE=0.0 SEED=42 LR=0.005 NUM_EPOCHS=20 POST_TRAINING_DIAGNOSTICS=core bash scripts/run_codex_inward_shell_promotion_10col3shared_sweep.sh
+```
