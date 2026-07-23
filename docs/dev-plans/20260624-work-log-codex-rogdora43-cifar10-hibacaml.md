@@ -7662,3 +7662,74 @@ Verification:
 Next experiment:
 
 - Re-run the same seed-42 promoted-shell bridge comparison that collapsed, now using the integrated bridge implementation. This isolates whether removing the separate full-strength public-latent objective fixes the collapse while keeping the HiBaCaML-aligned inward shell-promotion mechanism.
+
+## 2026-07-23 Integrated Promoted-Shell Bridge Result
+
+The integrated promoted-shell bridge run completed.
+
+Logs:
+
+- Master log: `results/codex_inward_shell_promotion_10col3shared_pairsouter_to_middle_middle_to_inner_iptg0p0_ipw0p0_ipr0p0_pbron_seed42_rogdora43_20260723_043417.log`.
+- Child log: `results/codex_dspan_10c_3s_7a_shatt_stage4_isp0p000375_iptg0p0_br1_pbr1_seed42_lr0p005_ep20_nodiag_rogdora43_20260723_043417.log`.
+- The child log was created successfully, so the shortened child filename fixed the previous filename-length failure.
+
+Configuration:
+
+- Commit: `58e52e35acefd8091ea40152f291fbe7c3ce64ea`.
+- Seed `42`, 20 epochs, learning rate `0.005`.
+- 10 columns, 3 shared columns, all 10 columns active.
+- `combiner=shell_attention`, `column_grid=stage4`, `embed_dim=64`, `microcolumn_dim=32`.
+- `column_shell_bridge=on`, `promoted_shell_bridge=on`, `outer_shell_context=on`.
+- No bypass readout, no teacher heads, no outer context evidence.
+- `inward_shell_promotion_weight=0.000375`.
+- `inward_shell_promotion_pairs=outer_to_middle,middle_to_inner`.
+- `inward_shell_promotion_target_gradient_scale=0.0`.
+- Shell learning-rate multipliers `1,1.5,2,3`.
+
+Primary result:
+
+| Run | Best validation accuracy | Best epoch | Test accuracy | Graph | Parameters |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Static `0.000375` active reference | 33.80% | 18 | 33.74% | 167 nodes, 313 edges | 3,129,574 |
+| Original promoted bridge | 23.78% | 14 | 22.67% | 177 nodes, 383 edges | 3,150,764 |
+| Integrated promoted bridge | 24.08% | 8 | 23.08% | 157 nodes, 323 edges | 3,148,314 |
+
+Validation trajectory:
+
+| Epoch | Integrated promoted bridge validation accuracy |
+| ---: | ---: |
+| 1 | 10.94% |
+| 2 | 18.62% |
+| 3 | 17.44% |
+| 4 | 21.68% |
+| 5 | 19.24% |
+| 6 | 17.44% |
+| 7 | 18.08% |
+| 8 | 24.08% |
+| 9 | 21.86% |
+| 10 | 9.40% |
+| 11 | 18.08% |
+| 12 | 18.70% |
+| 13 | 9.40% |
+| 14 | 9.40% |
+| 15 | 9.40% |
+| 16 | 9.40% |
+| 17 | 9.40% |
+| 18 | 9.40% |
+| 19 | 9.40% |
+| 20 | 9.40% |
+
+Interpretation:
+
+- Removing the separate full-strength public-latent objective did not fix the collapse. The integrated bridge improved the original promoted-bridge test result by only 0.41 percentage points and remained 10.66 percentage points below the static active reference.
+- The collapse happened earlier than in the original promoted-bridge run. Validation accuracy reached 24.08% at epoch 8, fell to 9.40% at epoch 10, briefly recovered to 18.70% at epoch 12, then stayed at 9.40% from epoch 13 through epoch 20.
+- The graph change did what it was supposed to do structurally. It removed the 20 standalone promotion-prediction nodes and reduced the graph from 177 nodes and 383 edges to 157 nodes and 323 edges. The collapse therefore is not explained by the removed `PromotedShellPredictionNode` objective alone.
+- The likely remaining failure is the direct promoted-bridge classifier readout. Direct promoted-bridge classifier readout means each `columnXX_promoted_shell_bridge` latent connects directly to `output`, so label-clamped output gradients train the promoted evidence path as a parallel classifier input.
+- In contrast, the static active reference keeps inward shell promotion as a weak local shell-prediction objective and does not expose promoted predictions as a separate classifier evidence path. That remains the stronger baseline.
+
+Recommendation:
+
+- Stop long runs with the current direct promoted-bridge readout.
+- Keep the integrated bridge infrastructure as a diagnostic component, but do not treat direct `promoted_shell_bridge -> output` as the next productive path.
+- Next implementation direction: make promoted shell evidence condition an existing column-local pathway instead of feeding `output` directly. The simplest concrete version is to route the integrated promoted-shell bridge into the per-column shell bridge or a shell-preserving replacement for that bridge, then remove the direct `promoted_shell_bridge -> output` edge. This keeps wider-to-inward shell prediction inside the columnar pathway and avoids adding a separate classifier branch.
+- I should wait for confirmation before making this change.
